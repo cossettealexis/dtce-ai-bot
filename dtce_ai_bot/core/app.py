@@ -61,3 +61,7 @@ def create_app() -> FastAPI:
     app.include_router(bot_router, prefix="/api", tags=["bot"])
     
     return app
+
+
+# Create app instance for uvicorn
+app = create_app()

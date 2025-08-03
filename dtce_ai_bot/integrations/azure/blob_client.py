@@ -6,8 +6,8 @@ import json
 import structlog
 from datetime import datetime
 
-from config import settings
-from src.models import DocumentMetadata
+from ...config.settings import Settings
+from ...models.documents import DocumentMetadata
 
 logger = structlog.get_logger(__name__)
 
@@ -16,8 +16,9 @@ class AzureBlobClient:
     """Client for interacting with Azure Blob Storage."""
     
     def __init__(self):
-        self.connection_string = settings.azure_storage_connection_string
-        self.container_name = settings.azure_storage_container_name
+        self.settings = Settings()
+        self.connection_string = self.settings.azure_storage_connection_string
+        self.container_name = self.settings.azure_storage_container_name
         self.blob_service_client = BlobServiceClient.from_connection_string(self.connection_string)
         self.container_client = self.blob_service_client.get_container_client(self.container_name)
     

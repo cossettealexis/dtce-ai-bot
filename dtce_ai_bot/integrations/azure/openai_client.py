@@ -4,8 +4,8 @@ from openai import AzureOpenAI
 import structlog
 from datetime import datetime
 
-from config import settings
-from src.models import SearchResponse
+from ...config.settings import Settings
+from ...models.search import SearchResponse
 
 logger = structlog.get_logger(__name__)
 
@@ -14,12 +14,13 @@ class AzureOpenAIClient:
     """Client for interacting with Azure OpenAI service."""
     
     def __init__(self):
+        self.settings = Settings()
         self.client = AzureOpenAI(
-            api_key=settings.azure_openai_api_key,
-            api_version=settings.azure_openai_api_version,
-            azure_endpoint=settings.azure_openai_endpoint
+            api_key=self.settings.azure_openai_api_key,
+            api_version=self.settings.azure_openai_api_version,
+            azure_endpoint=self.settings.azure_openai_endpoint
         )
-        self.deployment_name = settings.azure_openai_deployment_name
+        self.deployment_name = self.settings.azure_openai_deployment_name
     
     async def generate_search_summary(self, search_response: SearchResponse) -> str:
         """Generate an AI summary of search results."""

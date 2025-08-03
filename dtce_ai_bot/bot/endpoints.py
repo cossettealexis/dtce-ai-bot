@@ -3,9 +3,8 @@ Bot API endpoints for Teams messaging.
 """
 
 from fastapi import APIRouter, Request, HTTPException
-from botbuilder.core import TurnContext, MemoryStorage, ConversationState, UserState  
+from botbuilder.core import TurnContext, MemoryStorage, ConversationState, UserState, BotFrameworkAdapter, BotFrameworkAdapterSettings
 from botbuilder.core.integration import aiohttp_error_middleware
-from botbuilder.integration.aiohttp import CloudAdapter, ConfigurationBotFrameworkAuthentication
 from botbuilder.schema import Activity
 import json
 
@@ -18,13 +17,14 @@ router = APIRouter()
 settings = get_settings()
 
 # Create adapter for Teams
-BOT_AUTH = ConfigurationBotFrameworkAuthentication(
+from botbuilder.core.bot_framework_adapter import BotFrameworkAdapter, BotFrameworkAdapterSettings
+
+BOT_SETTINGS = BotFrameworkAdapterSettings(
     app_id=settings.microsoft_app_id,
-    app_password=settings.microsoft_app_password,
-    app_tenant_id=settings.microsoft_app_tenant_id
+    app_password=settings.microsoft_app_password
 )
 
-ADAPTER = CloudAdapter(BOT_AUTH)
+ADAPTER = BotFrameworkAdapter(BOT_SETTINGS)
 
 # Create storage and state
 MEMORY_STORAGE = MemoryStorage()

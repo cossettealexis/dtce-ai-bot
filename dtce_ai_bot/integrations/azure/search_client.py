@@ -15,8 +15,9 @@ from azure.search.documents.indexes.models import (
 import structlog
 from datetime import datetime
 
-from config import settings
-from src.models import DocumentMetadata, SearchQuery, SearchResult, SearchResponse
+from ...config.settings import Settings
+from ...models.documents import DocumentMetadata
+from ...models.search import SearchQuery, SearchResult, SearchResponse
 
 logger = structlog.get_logger(__name__)
 
@@ -25,9 +26,10 @@ class AzureSearchClient:
     """Client for interacting with Azure Cognitive Search."""
     
     def __init__(self):
-        self.service_name = settings.azure_search_service_name
-        self.admin_key = settings.azure_search_admin_key
-        self.index_name = settings.azure_search_index_name
+        self.settings = Settings()
+        self.service_name = self.settings.azure_search_service_name
+        self.admin_key = self.settings.azure_search_admin_key
+        self.index_name = self.settings.azure_search_index_name
         
         self.endpoint = f"https://{self.service_name}.search.windows.net"
         self.credential = AzureKeyCredential(self.admin_key)

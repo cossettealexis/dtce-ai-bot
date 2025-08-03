@@ -23,28 +23,30 @@ class Settings(BaseSettings):
     cors_origins: List[str] = ["*"]
     
     # Microsoft Bot Framework settings
-    microsoft_app_id: str
-    microsoft_app_password: str
-    microsoft_app_tenant_id: str
+    microsoft_app_id: str = ""
+    microsoft_app_password: str = ""
+    microsoft_app_tenant_id: str = ""
+    microsoft_app_type: str = "MultiTenant"
     
     # Microsoft Graph API settings
-    microsoft_client_id: str
-    microsoft_tenant_id: str
-    microsoft_client_secret: str
-    sharepoint_site_id: str
+    microsoft_client_id: str = ""
+    microsoft_tenant_id: str = ""
+    microsoft_client_secret: str = ""
+    sharepoint_site_id: str = ""
+    sharepoint_scopes: str = "Sites.Read.All,Files.Read.All"
     
     # Azure Storage settings
-    azure_storage_connection_string: str
+    azure_storage_connection_string: str = ""
     azure_storage_container_name: str = "dtce-documents"
     
     # Azure Cognitive Search settings
-    azure_search_service_name: str
-    azure_search_admin_key: str
+    azure_search_service_name: str = ""
+    azure_search_admin_key: str = ""
     azure_search_index_name: str = "dtce-documents-index"
     
     # Azure OpenAI settings
-    azure_openai_endpoint: str
-    azure_openai_api_key: str
+    azure_openai_endpoint: str = ""
+    azure_openai_api_key: str = ""
     azure_openai_deployment_name: str = "gpt-4"
     azure_openai_api_version: str = "2024-02-01"
     

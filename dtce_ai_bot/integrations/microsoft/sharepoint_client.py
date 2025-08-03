@@ -5,8 +5,8 @@ from msal import PublicClientApplication, ConfidentialClientApplication
 import structlog
 from datetime import datetime, timezone
 
-from config import settings
-from src.models import DocumentMetadata, DocumentType
+from ...config.settings import Settings
+from ...models.documents import DocumentMetadata, DocumentType
 
 logger = structlog.get_logger(__name__)
 
@@ -15,11 +15,12 @@ class SharePointClient:
     """Client for interacting with SharePoint via Microsoft Graph API."""
     
     def __init__(self):
-        self.client_id = settings.microsoft_client_id
-        self.tenant_id = settings.microsoft_tenant_id
-        self.client_secret = settings.microsoft_client_secret
-        self.site_id = settings.sharepoint_site_id
-        self.scopes = settings.sharepoint_scopes
+        self.settings = Settings()
+        self.client_id = self.settings.microsoft_client_id
+        self.tenant_id = self.settings.microsoft_tenant_id
+        self.client_secret = self.settings.microsoft_client_secret
+        self.site_id = self.settings.sharepoint_site_id
+        self.scopes = self.settings.sharepoint_scopes
         
         self.authority = f"https://login.microsoftonline.com/{self.tenant_id}"
         self.access_token = None
@@ -230,7 +231,7 @@ class SharePointClient:
         """Scan all Engineering and Projects folders for documents."""
         all_documents = []
         
-        for target_folder in settings.target_folders:
+        for target_folder in self.settings.target_folders:
             logger.info("Scanning folder", folder=target_folder)
             
             try:
@@ -267,7 +268,7 @@ class SharePointClient:
                 folder_name = item.get("name", "")
                 
                 # Skip photos folder
-                if any(excluded in folder_name for excluded in settings.excluded_folders):
+                if any(excluded in folder_name for excluded in self.settings.excluded_folders):
                     logger.debug("Skipping excluded folder", folder=folder_name)
                     continue
                 
@@ -301,7 +302,7 @@ class SharePointClient:
                     subfolder_path = f"{folder_path}/{subfolder_name}"
                     
                     # Skip excluded folders
-                    if any(excluded in subfolder_name for excluded in settings.excluded_folders):
+                    if any(excluded in subfolder_name for excluded in self.settings.excluded_folders):
                         continue
                     
                     subfolder_docs = await self._scan_folder_recursively(subfolder_path)
@@ -323,11 +324,11 @@ class SharePointClient:
         file_size = file_data.get("size", 0)
         
         # Check file extension
-        if not any(file_name.lower().endswith(ext) for ext in settings.supported_file_types):
+        if not any(file_name.lower().endswith(ext) for ext in self.settings.supported_file_types):
             return False
         
         # Check file size (convert MB to bytes)
-        max_size_bytes = settings.max_file_size_mb * 1024 * 1024
+        max_size_bytes = self.settings.max_file_size_mb * 1024 * 1024
         if file_size > max_size_bytes:
             logger.warning("File too large, skipping", file=file_name, size_mb=file_size/1024/1024)
             return False
