@@ -1,0 +1,45 @@
+{
+  "name": "DTCE AI Assistant Development",
+  "version": "1.0.0",
+  "description": "Development tasks for DTCE AI Assistant",
+  "scripts": {
+    "setup": "python setup.py",
+    "test-sharepoint": "python test_sharepoint.py",
+    "test-azure": "python test_azure.py",
+    "start": "python main.py",
+    "install": "pip install -r requirements.txt"
+  },
+  "dependencies": {
+    "python": ">=3.10"
+  },
+  "development": {
+    "server": {
+      "host": "localhost",
+      "port": 8000,
+      "reload": true
+    },
+    "testing": {
+      "sharepoint_test": "test_sharepoint.py",
+      "azure_test": "test_azure.py"
+    }
+  },
+  "azure_services": {
+    "required": [
+      "Azure Storage Account",
+      "Azure Cognitive Search", 
+      "Azure OpenAI",
+      "Azure App Service (optional)"
+    ],
+    "naming_convention": {
+      "storage": "dtceaistorage",
+      "search": "dtceai-search",
+      "openai": "dtceai-gpt",
+      "app_service": "dtceai-backend"
+    }
+  },
+  "sharepoint": {
+    "target_folders": ["Engineering", "Projects"],
+    "excluded_folders": ["09_Photos"],
+    "supported_extensions": [".pdf", ".docx", ".doc", ".xlsx", ".xls", ".txt"]
+  }
+}

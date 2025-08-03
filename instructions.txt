@@ -1,0 +1,197 @@
+This project is about building an internal AI assistant for DTCE that makes it easy for engineers to find information from their old project files without manually browsing folders.
+Here’s a clear breakdown:
+
+Goal
+Create an AI-powered assistant that:
+1. Reads and understands DTCE’s past project files stored in Suitefiles/SharePoint.
+2. Lets engineers ask questions in natural language like:
+    * “Show me projects like this bridge design in 2022.”
+    * “What seismic retrofits did we complete in 2024?”
+3. Searches, summarizes, and gives instant answers instead of engineers manually opening folders and spreadsheets.
+
+How It Works (Flow)
+1. Document Source:
+    * All project files are in Suitefiles (SharePoint backend).
+    * Important folders:
+        * Engineering folder
+        * Projects (219, 220, … 225)
+        * Ignore 09_Photos because AI won’t use images for answering queries.
+2. Backend Script (Python/FastAPI):
+    * Connects to Suitefiles via Microsoft Graph API.
+    * Pulls files (Word, Excel, PDFs) and extracts text + metadata.
+    * Stores the processed text temporarily in Azure Blob Storage.
+3. Indexing in Azure:
+    * Text + metadata (project name, date, client, budget) go to Azure Cognitive Search.
+    * This makes all files searchable by keywords and filters.
+4. AI Processing:
+    * Azure OpenAI (GPT) reads the search results and generates natural answers.
+    * Example:“We completed 12 seismic retrofits in 2024, with an average budget of 3.2M.”
+5. Frontend for Engineers:
+    * Will appear as a Teams chatbot or lightweight web app.
+    * Engineers ask questions → Backend retrieves results → GPT summarizes and answers.
+
+Your Role
+* Set up Azure services (done: Blob, Cognitive Search, OpenAI, App Service).
+* Develop backend ingestion pipeline to pull and index files.
+* Connect Cognitive Search + OpenAI for question answering.
+* Deploy backend in App Service and provide engineers access via Teams chat or a simple web interface.1. Set Up the Azure Services (In This Order)
+1. Azure Blob Storage
+    * Go to your AIChatBot resource group → “Create” → Search for Storage Account.
+    * Name it: dtceai-storage.
+    * Region: same as other services (East US).
+    * Performance: Standard (Hot).
+    * This will hold processed text from documents (before indexing).
+2. Azure Cognitive Search
+    * In AIChatBot → “Create” → Search Cognitive Search.
+    * Name it: dtceai-search.
+    * Pricing: Basic (for testing), can scale later.
+    * This is where all indexed document text and metadata will live.
+3. Azure OpenAI
+    * In AIChatBot → “Create” → Azure OpenAI.
+    * Name it: dtceai-gpt.
+    * Region: East US (keep it the same).
+    * Use gpt-35-turbo for now.
+    * You’ll need its endpoint + API key (you’ll use this in Python later).
+4. Azure App Service (for your backend script)
+    * In AIChatBot → “Create” → App Service.
+    * Runtime: Python 3.10.
+    * Name it: dtceai-backend.
+    * This will host your script that pulls files from Suitefiles and pushes to Search.
+
+2. Write the Backend Script (Python)
+This script will do three things first (MVP):
+1. Connect to Suitefiles (SharePoint) using Microsoft Graph API.
+2. List all files in Engineering and Projects (skip 09_Photos).
+3. Upload just the file metadata (name, path, size) to Blob Storage for now.
+Here’s a starter you can run locally first (before deploying):
+python
+CopyEdit
+import requests
+from msal import PublicClientApplication
+
+# Replace with your details
+CLIENT_ID = "your-app-client-id"
+TENANT_ID = "your-tenant-id"
+AUTHORITY = f"https://login.microsoftonline.com/{TENANT_ID}"
+SCOPES = ["Sites.Read.All", "Files.Read.All"]
+
+# Authentication flow
+app = PublicClientApplication(CLIENT_ID, authority=AUTHORITY)
+result = None
+
+accounts = app.get_accounts()
+if accounts:
+    result = app.acquire_token_silent(SCOPES, account=accounts[0])
+
+if not result:
+    flow = app.initiate_device_flow(scopes=SCOPES)
+    print(flow["message"])
+    result = app.acquire_token_by_device_flow(flow)
+
+access_token = result["access_token"]
+
+# Suitefiles site ID (you already found this)
+SITE_ID = "donthomson.sharepoint.com,5b621dba-83ee-4c81-8ef4-1dde26af3a89,35f25cbc-c117-4589-b25e-98baca532dfd"
+
+# Get folder contents (Engineering)
+url = f"https://graph.microsoft.com/v1.0/sites/{SITE_ID}/drive/root:/Engineering:/children"
+headers = {"Authorization": f"Bearer {access_token}"}
+res = requests.get(url, headers=headers)
+print(res.json())
+Run this. It should print all files/folders inside Engineering.Once working, repeat for Projects (excluding 09_Photos).
+
+3. Push Data into Azure
+After you can list files:
+1. Save each file’s metadata (name, size, URL, last modified) into Blob Storage as JSON.
+2. Later, extract text (with OCR for PDFs) and add that to Blob + Cognitive Search.
+
+4. Test Cognitive Search
+1. Manually upload 5 sample documents into the Search index (via Azure portal).
+2. Test queries like “Find all reports from 2024” (see if Search returns results).
+
+5. Hook GPT to Search
+Use Python SDK for Azure OpenAI to take the Search results, summarize, and generate answers.Example:
+python
+CopyEdit
+from openai import AzureOpenAI
+
+client = AzureOpenAI(
+    api_key="your-api-key",
+    api_version="2024-02-01",
+    azure_endpoint="https://dtceai-gpt.openai.azure.com/"
+)
+
+response = client.chat.completions.create(
+    model="gpt-35-turbo",
+    messages=[{"role": "user", "content": "Summarize the last 5 seismic projects."}]
+)
+
+print(response.choices[0].message["content"])
+
+6. Deploy Script to Azure App Service
+1. Push your Python code (via GitHub or ZIP deploy) to dtceai-backend.
+2. Test it pulls from Suitefiles and updates Search daily (set a cron schedule).
+
+Do you want me to:
+* Write the full working script (pull from Suitefiles → process → push to Blob + Search)?
+* Or create the Azure Cognitive Search index schema (fields, analyzers, etc.) so you can load data properly?
+* Or both so you can actually test the first end-to-end version?
+* 
+
+
+Key Takeaways from the Walkthrough
+1. Folders to Focus On
+    * Engineering – Guides, design references, and drafting materials.
+    * Projects (219–225) – Each number represents a project folder.
+        * Inside each project folder, subfolders like:
+            * 01_Fees_and_Invoices
+            * 02_Emails
+            * 03_For_internal_review
+            * 04_Received
+            * 05_Issued
+            * 06_Calculations
+            * 07_Drawings
+            * 08_Reports_and_Specifications ✅ critical for AI search
+            * 09_Photos ❌ can skip for indexing unless later needed
+            * 10_Site_meeting_and_phone_notes
+2. What Engineers Normally Use
+    * Engineers manually browse folders for:
+        * Project completion documents
+        * Reports/specifications
+        * Calculations
+        * Drawings
+        * Fee proposals/invoices if related to budget
+    * They sometimes rely on spreadsheets maintained per engineer for project summaries.
+3. AI Goals
+    * Allow engineers to query projects without manual folder searches.
+    * Possible engineer questions based on discussion:
+        * “Show me the final report for project 222.”
+        * “List all 2024 bridge projects with final specifications.”
+        * “What was issued to the client for project 225?”
+        * “Which projects had an internal review before issue?”
+    * Future possibility: Provide quick estimates if data like fees/budget are extracted.
+
+Immediate Development Steps
+1. Define Metadata Extraction Plan
+    * Extract fields like:
+        * Project ID (folder number)
+        * Document type (Reports, Calculations, Drawings, etc.)
+        * Modified date
+        * Client name (from invoices or reports)
+        * Status (from folder name or structure)
+    * Optional: Budget/fees if needed for queries.
+2. Create Initial Indexing Script
+    * Use Microsoft Graph API to:
+        * Enumerate all Engineering and Projects folders.
+        * Skip Photos folders.
+        * Pull file metadata and small content preview.
+3. Prepare for AI Search
+    * Clean and standardize metadata into JSON format.
+    * Store temporarily in Blob Storage before pushing to Azure Cognitive Search.
+4. Test Queries Internally
+    * Start with a sample project folder (like 225) to validate:
+        * You can extract meaningful metadata.
+        * Search returns the correct files.
+
+
+

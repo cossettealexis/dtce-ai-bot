@@ -1,0 +1,56 @@
+"""
+Bot API endpoints for Teams messaging.
+"""
+
+from fastapi import APIRouter, Request, HTTPException
+from botbuilder.core import TurnContext, MemoryStorage, ConversationState, UserState  
+from botbuilder.core.integration import aiohttp_error_middleware
+from botbuilder.integration.aiohttp import CloudAdapter, ConfigurationBotFrameworkAuthentication
+from botbuilder.schema import Activity
+import json
+
+from ..config.settings import get_settings
+from .teams_bot import DTCETeamsBot
+
+router = APIRouter()
+
+# Initialize bot components
+settings = get_settings()
+
+# Create adapter for Teams
+BOT_AUTH = ConfigurationBotFrameworkAuthentication(
+    app_id=settings.microsoft_app_id,
+    app_password=settings.microsoft_app_password,
+    app_tenant_id=settings.microsoft_app_tenant_id
+)
+
+ADAPTER = CloudAdapter(BOT_AUTH)
+
+# Create storage and state
+MEMORY_STORAGE = MemoryStorage()
+CONVERSATION_STATE = ConversationState(MEMORY_STORAGE)
+USER_STATE = UserState(MEMORY_STORAGE)
+
+# TODO: Initialize with actual service clients
+BOT = DTCETeamsBot(CONVERSATION_STATE, USER_STATE, None, None)
+
+
+@router.post("/messages")
+async def messages_endpoint(request: Request):
+    """Teams bot messaging endpoint."""
+    
+    if "application/json" in request.headers.get("Content-Type", ""):
+        body = await request.json()
+    else:
+        raise HTTPException(status_code=400, detail="Invalid content type")
+    
+    activity = Activity().deserialize(body)
+    auth_header = request.headers.get("Authorization", "")
+    
+    try:
+        response = await ADAPTER.process_activity(activity, auth_header, BOT.on_message_activity)
+        if response:
+            return response.body
+        return {}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Bot processing error: {str(e)}")
