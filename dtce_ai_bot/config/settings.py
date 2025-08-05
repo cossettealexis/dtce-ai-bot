@@ -47,6 +47,10 @@ class Settings(BaseSettings):
     def MICROSOFT_CLIENT_SECRET(self) -> str:
         return self.microsoft_client_secret
     
+    @property
+    def SHAREPOINT_SITE_ID(self) -> str:
+        return self.sharepoint_site_id
+    
     # Azure Storage settings
     azure_storage_connection_string: str = ""
     azure_storage_container_name: str = "dtce-documents"

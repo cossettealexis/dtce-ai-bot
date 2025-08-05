@@ -1,6 +1,6 @@
 """
 Microsoft Graph API integration for Suitefiles/SharePoint document access.
-Implements authentication and file retrieval from SharePoint sites.
+Implements authentication and document retrieval from SharePoint sites.
 """
 
 import os
@@ -94,24 +94,75 @@ class MicrosoftGraphClient:
             logger.error("Failed to get drives", site_id=site_id, error=str(e))
             raise
     
-    async def get_files_in_drive(self, site_id: str, drive_id: str, folder_path: str = "") -> List[Dict[str, Any]]:
-        """Get files from a specific drive/document library."""
+    async def get_files_in_drive(self, site_id: str, drive_id: str, folder_path: str = None, max_depth: int = 5, current_depth: int = 0) -> List[Dict[str, Any]]:
+        """
+        Get files from a SharePoint drive, recursively exploring ALL subfolders.
+        
+        Args:
+            site_id: SharePoint site ID
+            drive_id: Drive ID within the site
+            folder_path: Optional path to specific folder (None for root)
+            max_depth: Maximum recursion depth to prevent infinite loops
+            current_depth: Current recursion depth
+            
+        Returns:
+            List of all files found, including those in subfolders with full path info
+        """
         try:
+            if current_depth > max_depth:
+                logger.warning("Max recursion depth reached", depth=current_depth, folder_path=folder_path)
+                return []
+                
+            # Build endpoint for current folder
             if folder_path:
                 endpoint = f"sites/{site_id}/drives/{drive_id}/root:/{folder_path}:/children"
             else:
                 endpoint = f"sites/{site_id}/drives/{drive_id}/root/children"
             
-            logger.info("Fetching files from drive", site_id=site_id, drive_id=drive_id, folder_path=folder_path)
+            logger.info("Fetching items from drive", 
+                       site_id=site_id, drive_id=drive_id, 
+                       folder_path=folder_path, depth=current_depth)
+            
             response = await self._make_request(endpoint)
             items = response.get("value", [])
             
-            # Filter to only files (not folders)
-            files = [item for item in items if "file" in item]
-            logger.info("Retrieved files", count=len(files), drive_id=drive_id)
-            return files
+            all_files = []
+            
+            for item in items:
+                if "file" in item:
+                    # It's a file - add it to our results with full path information
+                    item["full_path"] = f"{folder_path}/{item['name']}" if folder_path else item["name"]
+                    item["folder_path"] = folder_path or ""
+                    all_files.append(item)
+                    
+                elif "folder" in item:
+                    # It's a folder - recursively explore it
+                    folder_name = item["name"]
+                    subfolder_path = f"{folder_path}/{folder_name}" if folder_path else folder_name
+                    
+                    logger.debug("Exploring subfolder", folder_name=folder_name, path=subfolder_path, depth=current_depth)
+                    
+                    # Recursively get files from this subfolder
+                    try:
+                        subfolder_files = await self.get_files_in_drive(
+                            site_id, drive_id, subfolder_path, max_depth, current_depth + 1
+                        )
+                        all_files.extend(subfolder_files)
+                    except Exception as e:
+                        logger.warning("Failed to explore subfolder", 
+                                     folder_name=folder_name, error=str(e))
+                        continue
+            
+            files_count = len([f for f in all_files if "file" in f])
+            logger.info("Retrieved files from drive level", 
+                       files_count=files_count, 
+                       drive_id=drive_id, folder_path=folder_path, depth=current_depth)
+            
+            return all_files
+            
         except Exception as e:
-            logger.error("Failed to get files from drive", drive_id=drive_id, error=str(e))
+            logger.error("Failed to get files from drive", 
+                        drive_id=drive_id, folder_path=folder_path, error=str(e))
             raise
     
     async def download_file(self, site_id: str, drive_id: str, file_id: str) -> bytes:
@@ -140,13 +191,13 @@ class MicrosoftGraphClient:
     
     async def sync_suitefiles_documents(self) -> List[Dict[str, Any]]:
         """
-        Main method to sync documents from Suitefiles.
-        This is what gets called to pull files from SharePoint/Suitefiles.
+        Main method to sync documents from Suitefiles with focus on Engineering projects.
+        Recursively explores ALL folders to find project documents and engineering files.
         """
         try:
-            logger.info("Starting Suitefiles document sync")
+            logger.info("Starting comprehensive Suitefiles document sync")
             
-            # Find the Suitefiles site (adjust name as needed)
+            # Find the Suitefiles site
             suitefiles_site = await self.get_site_by_name("suitefiles")
             if not suitefiles_site:
                 logger.warning("Suitefiles site not found, trying 'dtce' site")
@@ -169,31 +220,191 @@ class MicrosoftGraphClient:
                 
                 logger.info("Processing drive", drive_id=drive_id, name=drive_name)
                 
-                # Get files from this drive
+                # Recursively get ALL files from this drive exploring all subfolders
                 files = await self.get_files_in_drive(site_id, drive_id)
                 
                 for file in files:
-                    # Filter for document types we can process
                     file_name = file.get("name", "")
-                    if any(file_name.lower().endswith(ext) for ext in ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.txt', '.md']):
-                        documents.append({
-                            "site_id": site_id,
-                            "drive_id": drive_id,
-                            "file_id": file["id"],
-                            "name": file_name,
-                            "size": file.get("size", 0),
-                            "modified": file.get("lastModifiedDateTime"),
-                            "download_url": file.get("@microsoft.graph.downloadUrl"),
-                            "drive_name": drive_name,
-                            "mime_type": file.get("file", {}).get("mimeType", "")
-                        })
+                    full_path = file.get("full_path", "")
+                    folder_path = file.get("folder_path", "")
+                    
+                    # Extract project metadata based on folder structure
+                    project_metadata = self._extract_project_metadata(full_path, file_name, folder_path)
+                    
+                    # Skip photos folders as specified
+                    if self._is_photos_folder(full_path):
+                        logger.debug("Skipping photo file", file_name=file_name, path=full_path)
+                        continue
+                    
+                    # Focus on engineering-relevant files
+                    if self._is_engineering_relevant(full_path, file_name):
+                        # Filter for document types we can process
+                        if any(file_name.lower().endswith(ext) for ext in ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.txt', '.md']):
+                            documents.append({
+                                "site_id": site_id,
+                                "drive_id": drive_id,
+                                "file_id": file["id"],
+                                "name": file_name,
+                                "size": file.get("size", 0),
+                                "modified": file.get("lastModifiedDateTime"),
+                                "download_url": file.get("@microsoft.graph.downloadUrl"),
+                                "drive_name": drive_name,
+                                "mime_type": file.get("file", {}).get("mimeType", ""),
+                                "full_path": full_path,
+                                "folder_path": folder_path,
+                                # Engineering-specific metadata
+                                "project_id": project_metadata.get("project_id"),
+                                "project_folder": project_metadata.get("project_folder"),
+                                "document_type": project_metadata.get("document_type"),
+                                "folder_category": project_metadata.get("folder_category"),
+                                "is_critical_for_search": project_metadata.get("is_critical_for_search", False)
+                            })
             
-            logger.info("Suitefiles sync completed", total_documents=len(documents))
+            logger.info("Comprehensive Suitefiles sync completed", total_documents=len(documents))
             return documents
             
         except Exception as e:
             logger.error("Failed to sync Suitefiles documents", error=str(e))
             raise
+
+    def _extract_project_metadata(self, full_path: str, file_name: str, folder_path: str) -> Dict[str, Any]:
+        """
+        Extract project metadata from the file path for ALL projects.
+        Analyzes folder structure to determine project info and document classification.
+        """
+        metadata = {
+            "project_id": None,
+            "project_folder": None,
+            "document_type": "general",
+            "folder_category": None,
+            "is_critical_for_search": False
+        }
+        
+        if not full_path and not folder_path:
+            return metadata
+        
+        path_to_analyze = full_path or folder_path
+        path_parts = path_to_analyze.split('/')
+        
+        # Look for Projects folder and extract project info
+        for i, part in enumerate(path_parts):
+            if part.lower() == "projects" and i + 1 < len(path_parts):
+                # Next part should be a project folder (e.g., "219", "220", etc.)
+                project_part = path_parts[i + 1]
+                if project_part.isdigit() or any(char.isdigit() for char in project_part):
+                    metadata["project_id"] = project_part
+                    metadata["project_folder"] = project_part
+                    metadata["is_critical_for_search"] = True
+                    
+                    # Determine document type based on subsequent folder structure
+                    if i + 2 < len(path_parts):
+                        subfolder = path_parts[i + 2].lower()
+                        if "fees" in subfolder or "invoice" in subfolder:
+                            metadata["document_type"] = "fees_invoices"
+                            metadata["folder_category"] = "01_Fees_and_Invoices"
+                        elif "email" in subfolder:
+                            metadata["document_type"] = "emails"
+                            metadata["folder_category"] = "02_Emails"
+                        elif "internal" in subfolder or "review" in subfolder:
+                            metadata["document_type"] = "internal_review"
+                            metadata["folder_category"] = "03_For_internal_review"
+                        elif "design" in subfolder or "structural" in subfolder or "civil" in subfolder:
+                            metadata["document_type"] = "design_calculations"
+                            metadata["folder_category"] = "04_Design_and_Structural_Calculations"
+                        elif "drawing" in subfolder or "plan" in subfolder:
+                            metadata["document_type"] = "drawings_plans"
+                            metadata["folder_category"] = "05_Drawings_and_Plans"
+                        elif "report" in subfolder:
+                            metadata["document_type"] = "reports"
+                            metadata["folder_category"] = "06_Reports"
+                        elif "spec" in subfolder or "contract" in subfolder:
+                            metadata["document_type"] = "specifications_contracts"
+                            metadata["folder_category"] = "07_Specifications_and_Contracts"
+                        elif "correspondence" in subfolder:
+                            metadata["document_type"] = "correspondence"
+                            metadata["folder_category"] = "08_Correspondence"
+                        elif "photo" in subfolder:
+                            metadata["document_type"] = "photos"
+                            metadata["folder_category"] = "09_Photos"
+                break
+        
+        # Check for Engineering folder content
+        if "engineering" in path_to_analyze.lower():
+            metadata["is_critical_for_search"] = True
+            metadata["document_type"] = "engineering_reference"
+            metadata["folder_category"] = "Engineering"
+            
+            # Determine specific engineering document type
+            lower_path = path_to_analyze.lower()
+            if "guide" in lower_path or "procedure" in lower_path:
+                metadata["document_type"] = "engineering_guide"
+            elif "reference" in lower_path or "manual" in lower_path:
+                metadata["document_type"] = "engineering_reference"
+            elif "template" in lower_path or "form" in lower_path:
+                metadata["document_type"] = "engineering_template"
+        
+        # Additional document type classification based on file name
+        file_lower = file_name.lower()
+        if "invoice" in file_lower or "fee" in file_lower:
+            metadata["document_type"] = "fees_invoices"
+        elif "email" in file_lower or "correspondence" in file_lower:
+            metadata["document_type"] = "emails"
+        elif "report" in file_lower:
+            metadata["document_type"] = "reports"
+        elif "drawing" in file_lower or "plan" in file_lower or "dwg" in file_lower:
+            metadata["document_type"] = "drawings_plans"
+        elif "spec" in file_lower or "contract" in file_lower:
+            metadata["document_type"] = "specifications_contracts"
+        elif "calc" in file_lower or "calculation" in file_lower:
+            metadata["document_type"] = "design_calculations"
+        
+        return metadata
+    
+    def _is_engineering_relevant(self, full_path: str, file_name: str) -> bool:
+        """
+        Determine if a file is relevant for engineering search based on path and name.
+        Now includes ALL project folders, not just specific ranges.
+        """
+        # Always include Engineering folder
+        if "engineering" in full_path.lower():
+            return True
+            
+        # Include ALL project folders (any folder under Projects/)
+        if "/projects/" in full_path.lower():
+            # Check if it's actually a project folder by looking for numeric or project-like names
+            path_parts = full_path.lower().split('/')
+            for i, part in enumerate(path_parts):
+                if part == "projects" and i + 1 < len(path_parts):
+                    next_part = path_parts[i + 1]
+                    # Include if next part looks like a project (contains digits or is reasonable project name)
+                    if (next_part.isdigit() or 
+                        any(char.isdigit() for char in next_part) or
+                        len(next_part) <= 10):  # Reasonable project folder name length
+                        return True
+            
+        # Check file name for engineering keywords
+        file_lower = file_name.lower()
+        engineering_keywords = [
+            'engineering', 'structural', 'civil', 'calculation', 'design',
+            'report', 'specification', 'drawing', 'plan', 'blueprint',
+            'analysis', 'load', 'beam', 'foundation', 'concrete', 'steel'
+        ]
+        
+        if any(keyword in file_lower for keyword in engineering_keywords):
+            return True
+            
+        # Include important document types regardless of folder
+        important_extensions = ['.pdf', '.docx', '.xlsx', '.dwg', '.dxf']
+        if any(file_name.lower().endswith(ext) for ext in important_extensions):
+            return True
+            
+        return False
+    
+    def _is_photos_folder(self, full_path: str) -> bool:
+        """
+        Check if the file is in a photos folder that should be skipped.
+        """
+        return "photos" in full_path.lower() or "09_photos" in full_path.lower()
 
 
 async def get_graph_client() -> MicrosoftGraphClient:
