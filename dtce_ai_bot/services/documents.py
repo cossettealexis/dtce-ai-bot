@@ -18,6 +18,7 @@ from ..config.settings import get_settings
 from ..models.document import DocumentMetadata, DocumentSearchResult, DocumentUploadResponse
 from ..integrations.azure_search import get_search_client
 from ..integrations.azure_storage import get_storage_client
+from ..utils.document_extractor import get_document_extractor
 from ..integrations.microsoft_graph import get_graph_client, MicrosoftGraphClient
 
 logger = structlog.get_logger(__name__)
@@ -107,13 +108,14 @@ async def extract_text(
     Extract text content from a document using Azure Form Recognizer.
     
     Args:
-        blob_name: Name of the blob in Azure Storage
+        blob_name: Name of the blob to extract text from
         storage_client: Azure Storage client
         
     Returns:
         Extracted text content and metadata
     """
     try:
+        settings = get_settings()
         logger.info("Starting text extraction", blob_name=blob_name)
         
         # Get blob client
@@ -126,59 +128,37 @@ async def extract_text(
         if not blob_client.exists():
             raise HTTPException(status_code=404, detail="Document not found")
         
-        # Download blob content
-        blob_data = blob_client.download_blob().readall()
+        # Get blob properties for metadata
+        blob_properties = blob_client.get_blob_properties()
+        content_type = blob_properties.content_settings.content_type
         
-        # Initialize Form Recognizer client
-        form_recognizer_client = DocumentAnalysisClient(
-            endpoint=settings.azure_form_recognizer_endpoint,
-            credential=AzureKeyCredential(settings.azure_form_recognizer_key)
+        # Initialize document extractor
+        extractor = get_document_extractor(
+            settings.azure_form_recognizer_endpoint,
+            settings.azure_form_recognizer_key
         )
         
-        # Analyze document
-        with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-            temp_file.write(blob_data)
-            temp_file.flush()
-            
-            with open(temp_file.name, "rb") as f:
-                poller = form_recognizer_client.begin_analyze_document("prebuilt-read", f)
-                result = poller.result()
+        # Extract text using the enhanced extractor
+        extraction_result = await extractor.extract_text_from_blob(blob_client, content_type)
         
-        # Clean up temp file
-        os.unlink(temp_file.name)
-        
-        # Extract text content
-        extracted_text = ""
-        for page in result.pages:
-            for line in page.lines:
-                extracted_text += line.content + "\n"
-        
-        # Extract tables if any
-        tables = []
-        for table in result.tables:
-            table_data = []
-            for cell in table.cells:
-                table_data.append({
-                    "row": cell.row_index,
-                    "column": cell.column_index,
-                    "content": cell.content
-                })
-            tables.append(table_data)
-        
-        logger.info("Text extraction completed", blob_name=blob_name, text_length=len(extracted_text))
+        # Log success
+        logger.info(
+            "Text extraction completed",
+            blob_name=blob_name,
+            character_count=extraction_result.get("character_count", 0),
+            page_count=extraction_result.get("page_count", 0),
+            extraction_method=extraction_result.get("extraction_method", "unknown")
+        )
         
         return JSONResponse({
             "blob_name": blob_name,
-            "extracted_text": extracted_text,
-            "tables": tables,
-            "page_count": len(result.pages),
-            "extraction_timestamp": result.created_date_time.isoformat() if result.created_date_time else None
+            "status": "extracted",
+            **extraction_result
         })
         
     except Exception as e:
         logger.error("Text extraction failed", error=str(e), blob_name=blob_name)
         raise HTTPException(status_code=500, detail=f"Text extraction failed: {str(e)}")
-
 
 @router.post("/index")
 async def index_document(
