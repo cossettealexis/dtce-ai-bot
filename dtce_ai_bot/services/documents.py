@@ -214,11 +214,36 @@ async def index_document(
         metadata = blob_properties.metadata or {}
         
         # Extract text (reuse extraction logic)
-        extraction_result = await extract_text(blob_name, storage_client)
-        extraction_data = extraction_result.body.decode() if hasattr(extraction_result, 'body') else {}
+        try:
+            extraction_response = await extract_text(blob_name, storage_client)
+            
+            # Handle different response types
+            if hasattr(extraction_response, 'body'):
+                import json
+                extraction_data = json.loads(extraction_response.body.decode())
+            else:
+                extraction_data = extraction_response
+                
+        except Exception as e:
+            logger.warning("Text extraction failed, indexing without content", error=str(e))
+            extraction_data = {"extracted_text": ""}
+        
+        # Extract project information from folder path
+        folder_path = metadata.get("folder", "")
+        project_name = ""
+        year = None
+        
+        if folder_path:
+            path_parts = folder_path.split("/")
+            # Try to extract project info from path structure
+            for part in path_parts:
+                if part.isdigit() and len(part) == 4:  # Year
+                    year = int(part)
+                elif part and not part.startswith("."):  # Potential project name
+                    project_name = part
         
         # Prepare document for indexing
-        document_id = blob_name.replace("/", "_").replace(".", "_")
+        document_id = blob_name.replace("/", "_").replace(".", "_").replace("-", "_")
         
         search_document = {
             "id": document_id,
@@ -226,11 +251,13 @@ async def index_document(
             "blob_url": blob_client.url,
             "filename": metadata.get("original_filename", blob_name),
             "content_type": metadata.get("content_type", ""),
-            "folder": metadata.get("folder", ""),
+            "folder": folder_path,
             "size": int(metadata.get("size", 0)),
-            "content": extraction_data.get("extracted_text", "") if isinstance(extraction_data, dict) else "",
+            "content": extraction_data.get("extracted_text", "") if isinstance(extraction_data, dict) else str(extraction_data),
             "last_modified": blob_properties.last_modified.isoformat(),
-            "created_date": blob_properties.creation_time.isoformat() if blob_properties.creation_time else None
+            "created_date": blob_properties.creation_time.isoformat() if blob_properties.creation_time else blob_properties.last_modified.isoformat(),
+            "project_name": project_name,
+            "year": year
         }
         
         # Upload to search index

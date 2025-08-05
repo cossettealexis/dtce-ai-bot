@@ -10,6 +10,7 @@ from ..config.settings import get_settings
 from ..services.health import router as health_router
 from ..bot.endpoints import router as bot_router
 from ..services.documents import router as documents_router
+from ..integrations.azure_search import create_search_index_if_not_exists
 
 
 def configure_logging():
@@ -57,10 +58,24 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     
+    # Initialize Azure Search Index on startup
+    @app.on_event("startup")
+    async def startup_event():
+        """Initialize Azure services on startup."""
+        logger = structlog.get_logger()
+        try:
+            logger.info("Initializing Azure Search index...")
+            await create_search_index_if_not_exists()
+            logger.info("Azure Search index initialization complete")
+        except Exception as e:
+            logger.error("Failed to initialize Azure Search index", error=str(e))
+    
     # Include routers
     app.include_router(health_router, prefix="/health", tags=["health"])
     app.include_router(bot_router, prefix="/api", tags=["bot"])
     app.include_router(documents_router, prefix="/documents", tags=["documents"])
+    
+    return app
     
     return app
 
