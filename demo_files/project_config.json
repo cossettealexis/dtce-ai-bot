@@ -1,0 +1,45 @@
+{
+  "project_name": "DTCE Customer Portal",
+  "version": "2.3.1",
+  "environment": "production",
+  "database": {
+    "type": "PostgreSQL",
+    "host": "dtce-prod-db.amazonaws.com",
+    "port": 5432,
+    "database_name": "customer_portal",
+    "connection_pool_size": 20,
+    "ssl_mode": "require"
+  },
+  "api_configuration": {
+    "base_url": "https://api.dtce.com/v2",
+    "rate_limits": {
+      "requests_per_minute": 1000,
+      "burst_limit": 50
+    },
+    "authentication": {
+      "type": "JWT",
+      "token_expiry_hours": 24,
+      "refresh_token_days": 7
+    }
+  },
+  "features": {
+    "user_registration": true,
+    "email_notifications": true,
+    "file_uploads": true,
+    "real_time_chat": false,
+    "analytics_dashboard": true
+  },
+  "monitoring": {
+    "health_check_interval": 30,
+    "log_level": "INFO",
+    "metrics_collection": true,
+    "alert_email": "engineering@dtce.com"
+  },
+  "deployment": {
+    "auto_scaling": true,
+    "min_instances": 2,
+    "max_instances": 10,
+    "deployment_strategy": "rolling_update",
+    "rollback_enabled": true
+  }
+}

@@ -35,6 +35,18 @@ class Settings(BaseSettings):
     sharepoint_site_id: str = ""
     sharepoint_scopes: str = "Sites.Read.All,Files.Read.All"
     
+    @property
+    def MICROSOFT_CLIENT_ID(self) -> str:
+        return self.microsoft_client_id
+    
+    @property
+    def MICROSOFT_TENANT_ID(self) -> str:
+        return self.microsoft_tenant_id
+    
+    @property
+    def MICROSOFT_CLIENT_SECRET(self) -> str:
+        return self.microsoft_client_secret
+    
     # Azure Storage settings
     azure_storage_connection_string: str = ""
     azure_storage_container_name: str = "dtce-documents"
@@ -49,6 +61,13 @@ class Settings(BaseSettings):
     azure_openai_api_key: str = ""
     azure_openai_deployment_name: str = "gpt-4"
     azure_openai_api_version: str = "2024-02-01"
+    
+    # Azure Form Recognizer settings
+    azure_form_recognizer_endpoint: str = ""
+    azure_form_recognizer_key: str = ""
+    
+    # Storage container names
+    azure_storage_container: str = "dtce-documents"
     
     # Processing settings
     max_file_size_mb: int = 10

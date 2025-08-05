@@ -9,6 +9,7 @@ import structlog
 from ..config.settings import get_settings
 from ..services.health import router as health_router
 from ..bot.endpoints import router as bot_router
+from ..services.documents import router as documents_router
 
 
 def configure_logging():
@@ -59,6 +60,7 @@ def create_app() -> FastAPI:
     # Include routers
     app.include_router(health_router, prefix="/health", tags=["health"])
     app.include_router(bot_router, prefix="/api", tags=["bot"])
+    app.include_router(documents_router, prefix="/documents", tags=["documents"])
     
     return app
 
