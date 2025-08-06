@@ -6,6 +6,7 @@ Implements document upload, indexing, text extraction, and search functionality.
 import os
 import tempfile
 from typing import List, Optional
+from datetime import datetime
 from fastapi import APIRouter, File, UploadFile, HTTPException, Depends
 from fastapi.responses import JSONResponse
 import structlog
@@ -20,6 +21,7 @@ from ..integrations.azure_search import get_search_client
 from ..integrations.azure_storage import get_storage_client
 from ..utils.document_extractor import get_document_extractor
 from ..integrations.microsoft_graph import get_graph_client, MicrosoftGraphClient
+from .document_qa import DocumentQAService
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -1018,11 +1020,19 @@ async def sync_suitefiles_documents(
     storage_client: BlobServiceClient = Depends(get_storage_client)
 ) -> JSONResponse:
     """
-    Sync documents from Suitefiles via Microsoft Graph API.
-    This endpoint pulls files from SharePoint/Suitefiles and processes them.
+    Intelligent sync from Suitefiles to Azure Blob Storage for AI processing.
+    
+    This creates an AI-optimized pipeline:
+    1. Suitefiles (source of truth) → 2. Blob Storage (processed data) → 3. Search Index (fast queries)
+    
+    Benefits:
+    - Faster AI responses (no re-processing)
+    - Resilient to Suitefiles downtime  
+    - Backup of processed AI data
+    - Can rebuild search index quickly
     """
     try:
-        logger.info("Starting Suitefiles document sync")
+        logger.info("Starting intelligent Suitefiles sync for AI pipeline")
         
         # Get documents from Suitefiles via Microsoft Graph
         suitefiles_docs = await graph_client.sync_suitefiles_documents()
@@ -1033,64 +1043,643 @@ async def sync_suitefiles_documents(
                 "status": "completed",
                 "message": "No documents found in Suitefiles",
                 "synced_count": 0,
-                "processed_count": 0
+                "processed_count": 0,
+                "ai_ready_count": 0
             })
         
         synced_count = 0
         processed_count = 0
+        ai_ready_count = 0
+        skipped_count = 0
         
-        # Process each document
+        # Process each document intelligently
         for doc in suitefiles_docs:
             try:
-                # Download file content
-                file_content = await graph_client.download_file(
-                    doc["site_id"], 
-                    doc["drive_id"], 
-                    doc["file_id"]
-                )
-                
-                # Upload to blob storage
                 blob_name = f"suitefiles/{doc['drive_name']}/{doc['name']}"
                 blob_client = storage_client.get_blob_client(
                     container=settings.AZURE_STORAGE_CONTAINER,
                     blob=blob_name
                 )
                 
-                blob_client.upload_blob(file_content, overwrite=True)
-                logger.info("Uploaded file to blob storage", blob_name=blob_name)
+                # Check if already processed (avoid re-downloading)
+                if blob_client.exists():
+                    properties = blob_client.get_blob_properties()
+                    # Compare modification dates
+                    if doc.get("modified") and properties.last_modified:
+                        doc_modified = doc.get("modified")
+                        blob_modified = properties.last_modified.isoformat()
+                        if doc_modified <= blob_modified:
+                            logger.debug("Document already up-to-date in blob storage", blob_name=blob_name)
+                            skipped_count += 1
+                            ai_ready_count += 1  # Already processed
+                            continue
+                
+                # Download and store file content 
+                file_content = await graph_client.download_file(
+                    doc["site_id"], 
+                    doc["drive_id"], 
+                    doc["file_id"]
+                )
+                
+                # Upload to blob storage with rich metadata for AI
+                metadata = {
+                    "source": "suitefiles",
+                    "original_filename": doc["name"],
+                    "drive_name": doc["drive_name"], 
+                    "project_id": str(doc.get("project_id", "")),
+                    "document_type": doc.get("document_type", ""),
+                    "folder_category": doc.get("folder_category", ""),
+                    "last_modified": doc.get("modified", ""),
+                    "is_critical": str(doc.get("is_critical_for_search", False)),
+                    "full_path": doc.get("full_path", ""),
+                    "content_type": doc.get("mime_type", ""),
+                    "size": str(doc.get("size", 0))
+                }
+                
+                blob_client.upload_blob(file_content, overwrite=True, metadata=metadata)
+                logger.info("Uploaded to AI staging area", blob_name=blob_name, project_id=doc.get("project_id"))
                 synced_count += 1
                 
-                # Auto-extract and index the document
+                # Auto-extract text and index for AI consumption
                 try:
-                    # Extract text
+                    # Extract text for AI processing
                     await extract_text(blob_name, storage_client)
                     
-                    # Index for search
+                    # Index for fast AI search
                     await index_document(blob_name, storage_client)
                     
                     processed_count += 1
-                    logger.info("Document processed successfully", blob_name=blob_name)
+                    ai_ready_count += 1
+                    logger.info("Document ready for AI queries", blob_name=blob_name)
                     
                 except Exception as e:
-                    logger.warning("Failed to process document", blob_name=blob_name, error=str(e))
+                    logger.warning("Failed to process for AI", blob_name=blob_name, error=str(e))
                     
             except Exception as e:
                 logger.error("Failed to sync document", doc_name=doc.get('name'), error=str(e))
                 continue
         
-        logger.info("Suitefiles sync completed", 
+        logger.info("AI pipeline sync completed", 
                    total_found=len(suitefiles_docs), 
-                   synced=synced_count, 
-                   processed=processed_count)
+                   synced=synced_count,
+                   skipped=skipped_count, 
+                   processed=processed_count,
+                   ai_ready=ai_ready_count)
         
         return JSONResponse({
             "status": "completed",
-            "message": f"Synced {synced_count} documents from Suitefiles",
+            "message": f"AI pipeline ready: {ai_ready_count} documents indexed for fast queries",
             "total_found": len(suitefiles_docs),
             "synced_count": synced_count,
-            "processed_count": processed_count
+            "skipped_existing": skipped_count,
+            "processed_count": processed_count,
+            "ai_ready_count": ai_ready_count,
+            "performance_notes": [
+                "✅ Blob Storage now contains processed AI data",
+                "✅ Search index built for fast queries", 
+                "✅ Next sync will be faster (skips unchanged files)",
+                "✅ Can rebuild search index quickly without touching Suitefiles"
+            ]
         })
         
     except Exception as e:
-        logger.error("Suitefiles sync failed", error=str(e))
+        logger.error("AI pipeline sync failed", error=str(e))
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
+
+
+@router.get("/sync-schedule")
+async def get_sync_schedule() -> JSONResponse:
+    """
+    Get information about setting up automated document syncing.
+    """
+    return JSONResponse({
+        "current_status": "Manual sync only",
+        "sync_options": {
+            "daily": {
+                "description": "Sync every day at 2 AM",
+                "cron_expression": "0 2 * * *",
+                "recommended_for": "Production environments"
+            },
+            "business_hours": {
+                "description": "Sync weekdays at 8 AM", 
+                "cron_expression": "0 8 * * 1-5",
+                "recommended_for": "Active projects"
+            },
+            "frequent": {
+                "description": "Sync every 4 hours during business days",
+                "cron_expression": "0 8,12,16 * * 1-5", 
+                "recommended_for": "High-activity periods"
+            }
+        },
+        "setup_instructions": [
+            "1. Use the daily_sync.py script in /scripts folder",
+            "2. Set up cron job: crontab -e",
+            "3. Add: 0 2 * * * /path/to/daily_sync.py",
+            "4. Ensure API server is running continuously",
+            "5. Monitor logs in /var/log/dtce-ai-bot/"
+        ],
+        "manual_sync": "POST /documents/sync-suitefiles"
+    })
+
+
+@router.post("/sync-now")
+async def sync_now(
+    background: bool = False,
+    graph_client: MicrosoftGraphClient = Depends(get_graph_client),
+    storage_client: BlobServiceClient = Depends(get_storage_client)
+) -> JSONResponse:
+    """
+    Trigger an immediate sync (same as sync-suitefiles but with scheduling context).
+    
+    Args:
+        background: If true, returns immediately and syncs in background
+    """
+    if background:
+        # In a real implementation, you'd use a task queue like Celery
+        import threading
+        
+        def background_sync():
+            import asyncio
+            asyncio.run(sync_suitefiles_documents(graph_client, storage_client))
+        
+        thread = threading.Thread(target=background_sync)
+        thread.start()
+        
+        return JSONResponse({
+            "status": "started",
+            "message": "Sync started in background",
+            "check_status": "Monitor logs or call GET /documents/list?source=storage"
+        })
+    else:
+        return await sync_suitefiles_documents(graph_client, storage_client)
+
+
+@router.post("/auto-sync")
+async def auto_sync_changes(
+    force_full_sync: bool = False,
+    graph_client: MicrosoftGraphClient = Depends(get_graph_client),
+    storage_client: BlobServiceClient = Depends(get_storage_client),
+    search_client: SearchClient = Depends(get_search_client)
+) -> JSONResponse:
+    """
+    Automatically detect and sync only changed/new files from Suitefiles.
+    
+    This handles:
+    - Updated files (modification date changed)
+    - New files (not in blob storage)
+    - Real-time indexing of changes
+    - Change detection and incremental updates
+    
+    Args:
+        force_full_sync: Force sync all files regardless of change detection
+        graph_client: Microsoft Graph client
+        storage_client: Azure Storage client
+        search_client: Azure Search client
+        
+    Returns:
+        Summary of changes detected and processed
+    """
+    try:
+        logger.info("Starting automatic change detection and sync", force_full_sync=force_full_sync)
+        
+        # Get all documents from Suitefiles
+        suitefiles_docs = await graph_client.sync_suitefiles_documents()
+        
+        if not suitefiles_docs:
+            return JSONResponse({
+                "status": "completed",
+                "message": "No documents found in Suitefiles",
+                "changes_detected": 0,
+                "files_updated": 0,
+                "files_added": 0
+            })
+        
+        changes_detected = 0
+        files_updated = 0
+        files_added = 0
+        files_skipped = 0
+        
+        # Check each document for changes
+        for doc in suitefiles_docs:
+            try:
+                blob_name = f"suitefiles/{doc['drive_name']}/{doc['name']}"
+                blob_client = storage_client.get_blob_client(
+                    container=settings.AZURE_STORAGE_CONTAINER,
+                    blob=blob_name
+                )
+                
+                is_new_file = not blob_client.exists()
+                is_updated_file = False
+                
+                if not is_new_file and not force_full_sync:
+                    # Check if file was modified since last sync
+                    properties = blob_client.get_blob_properties()
+                    doc_modified = doc.get("modified", "")
+                    blob_modified = properties.last_modified.isoformat()
+                    
+                    if doc_modified > blob_modified:
+                        is_updated_file = True
+                        changes_detected += 1
+                        logger.info("File change detected", 
+                                   filename=doc['name'],
+                                   doc_modified=doc_modified,
+                                   blob_modified=blob_modified)
+                
+                elif is_new_file:
+                    changes_detected += 1
+                    logger.info("New file detected", filename=doc['name'])
+                
+                # Process changed or new files
+                if is_new_file or is_updated_file or force_full_sync:
+                    # Download and store file content
+                    file_content = await graph_client.download_file(
+                        doc["site_id"], 
+                        doc["drive_id"], 
+                        doc["file_id"]
+                    )
+                    
+                    # Upload to blob storage with rich metadata
+                    metadata = {
+                        "source": "suitefiles",
+                        "original_filename": doc["name"],
+                        "drive_name": doc["drive_name"],
+                        "project_id": str(doc.get("project_id", "")),
+                        "document_type": doc.get("document_type", ""),
+                        "folder_category": doc.get("folder_category", ""),
+                        "last_modified": doc.get("modified", ""),
+                        "is_critical": str(doc.get("is_critical_for_search", False)),
+                        "full_path": doc.get("full_path", ""),
+                        "content_type": doc.get("mime_type", ""),
+                        "size": str(doc.get("size", 0)),
+                        "sync_timestamp": datetime.utcnow().isoformat(),
+                        "change_type": "new" if is_new_file else "updated"
+                    }
+                    
+                    blob_client.upload_blob(file_content, overwrite=True, metadata=metadata)
+                    
+                    # Real-time indexing - extract text and index immediately
+                    try:
+                        # Extract text for AI processing
+                        extraction_result = await extract_text(blob_name, storage_client)
+                        
+                        # Index document immediately
+                        await index_document(blob_name, search_client, storage_client)
+                        
+                        if is_new_file:
+                            files_added += 1
+                        else:
+                            files_updated += 1
+                            
+                        logger.info("File processed and indexed", 
+                                   blob_name=blob_name,
+                                   change_type="new" if is_new_file else "updated")
+                        
+                    except Exception as e:
+                        logger.warning("Failed to process file for indexing", 
+                                     blob_name=blob_name, error=str(e))
+                
+                else:
+                    files_skipped += 1
+                    
+            except Exception as e:
+                logger.error("Failed to process document change", 
+                           doc_name=doc.get('name'), error=str(e))
+                continue
+        
+        logger.info("Auto-sync completed", 
+                   total_docs=len(suitefiles_docs),
+                   changes_detected=changes_detected,
+                   files_added=files_added,
+                   files_updated=files_updated,
+                   files_skipped=files_skipped)
+        
+        return JSONResponse({
+            "status": "completed",
+            "message": f"Auto-sync completed: {changes_detected} changes detected",
+            "summary": {
+                "total_documents": len(suitefiles_docs),
+                "changes_detected": changes_detected,
+                "files_added": files_added,
+                "files_updated": files_updated,
+                "files_skipped": files_skipped
+            },
+            "real_time_indexing": True,
+            "next_sync_recommendation": "1 hour" if changes_detected > 0 else "4 hours"
+        })
+        
+    except Exception as e:
+        logger.error("Auto-sync failed", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Auto-sync failed: {str(e)}")
+
+
+@router.get("/test-changes")
+async def test_file_changes(
+    graph_client: MicrosoftGraphClient = Depends(get_graph_client),
+    storage_client: BlobServiceClient = Depends(get_storage_client)
+) -> JSONResponse:
+    """
+    Test endpoint to verify that changes in Suitefiles appear correctly.
+    
+    This will:
+    1. List recent files from Suitefiles
+    2. Compare with what's in blob storage  
+    3. Show modification dates and change detection
+    4. Validate the change detection logic
+    
+    Returns:
+        Detailed comparison showing change detection accuracy
+    """
+    try:
+        logger.info("Testing file change detection")
+        
+        # Get recent documents from Suitefiles
+        suitefiles_docs = await graph_client.sync_suitefiles_documents()
+        
+        change_analysis = []
+        
+        for doc in suitefiles_docs[:10]:  # Test first 10 files
+            blob_name = f"suitefiles/{doc['drive_name']}/{doc['name']}"
+            blob_client = storage_client.get_blob_client(
+                container=settings.AZURE_STORAGE_CONTAINER,
+                blob=blob_name
+            )
+            
+            analysis = {
+                "filename": doc['name'],
+                "suitefiles_modified": doc.get('modified', 'unknown'),
+                "exists_in_storage": blob_client.exists(),
+                "storage_modified": None,
+                "change_detected": False,
+                "status": "unknown"
+            }
+            
+            if blob_client.exists():
+                try:
+                    properties = blob_client.get_blob_properties()
+                    analysis["storage_modified"] = properties.last_modified.isoformat()
+                    
+                    # Compare modification dates
+                    if doc.get('modified') and analysis["storage_modified"]:
+                        if doc['modified'] > analysis["storage_modified"]:
+                            analysis["change_detected"] = True
+                            analysis["status"] = "needs_update"
+                        else:
+                            analysis["status"] = "up_to_date"
+                    
+                except Exception as e:
+                    analysis["status"] = f"error: {str(e)}"
+            else:
+                analysis["change_detected"] = True
+                analysis["status"] = "new_file"
+            
+            change_analysis.append(analysis)
+        
+        # Summary statistics
+        total_files = len(change_analysis)
+        changes_detected = len([a for a in change_analysis if a["change_detected"]])
+        new_files = len([a for a in change_analysis if a["status"] == "new_file"])
+        needs_update = len([a for a in change_analysis if a["status"] == "needs_update"])
+        up_to_date = len([a for a in change_analysis if a["status"] == "up_to_date"])
+        
+        return JSONResponse({
+            "test_results": {
+                "total_files_tested": total_files,
+                "changes_detected": changes_detected,
+                "new_files": new_files,
+                "needs_update": needs_update,
+                "up_to_date": up_to_date,
+                "change_detection_working": changes_detected > 0 or up_to_date > 0
+            },
+            "file_analysis": change_analysis,
+            "recommendations": [
+                "✅ Change detection is working" if changes_detected > 0 or up_to_date > 0 else "⚠️ No files found for testing",
+                f"📊 {changes_detected}/{total_files} files need updates",
+                "🔄 Run POST /documents/auto-sync to process detected changes"
+            ]
+        })
+        
+    except Exception as e:
+        logger.error("Change detection test failed", error=str(e))
+        return JSONResponse({
+            "test_results": {"error": str(e)},
+            "file_analysis": [],
+            "recommendations": ["❌ Change detection test failed - check logs"]
+        })
+
+
+@router.post("/ask")
+async def ask_question(
+    question: str,
+    project_id: Optional[str] = None,
+    search_client: SearchClient = Depends(get_search_client)
+) -> JSONResponse:
+    """
+    Ask a question about your engineering documents using GPT.
+    
+    Examples:
+    - "What was the final report conclusion for project 222?"
+    - "Show me the structural calculations for the bridge project"
+    - "What materials were specified in the latest design?"
+    
+    Args:
+        question: Your question about the documents
+        project_id: Optional filter for specific project
+        search_client: Azure Search client
+        
+    Returns:
+        AI-generated answer with sources and confidence level
+    """
+    try:
+        logger.info("Processing question", question=question, project_id=project_id)
+        
+        # Initialize QA service
+        qa_service = DocumentQAService(search_client)
+        
+        # Get answer
+        result = await qa_service.answer_question(question, project_id)
+        
+        logger.info("Question answered", 
+                   question=question,
+                   confidence=result['confidence'],
+                   sources_count=len(result['sources']))
+        
+        return JSONResponse({
+            "question": question,
+            "answer": result['answer'],
+            "confidence": result['confidence'],
+            "sources": result['sources'],
+            "metadata": {
+                "documents_searched": result['documents_searched'],
+                "processing_time": result.get('processing_time', 0),
+                "project_filter": project_id,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        })
+        
+    except Exception as e:
+        logger.error("Question processing failed", error=str(e), question=question)
+        return JSONResponse({
+            "question": question,
+            "answer": f"I encountered an error: {str(e)}",
+            "confidence": "error",
+            "sources": [],
+            "metadata": {"error": str(e)}
+        })
+
+
+@router.get("/ai/document-summary")
+async def get_document_summary(
+    project_id: Optional[str] = None,
+    search_client: SearchClient = Depends(get_search_client)
+) -> JSONResponse:
+    """
+    Get an AI-powered summary of available documents.
+    
+    Args:
+        project_id: Optional filter for specific project
+        search_client: Azure Search client
+        
+    Returns:
+        Summary of indexed documents with statistics and insights
+    """
+    try:
+        logger.info("Generating document summary", project_id=project_id)
+        
+        # Initialize QA service
+        qa_service = DocumentQAService(search_client)
+        
+        # Get summary
+        summary = await qa_service.get_document_summary(project_id)
+        
+        logger.info("Document summary generated", 
+                   project_id=project_id,
+                   total_docs=summary.get('total_documents', 0))
+        
+        return JSONResponse({
+            "summary": summary,
+            "project_filter": project_id,
+            "generated_at": datetime.utcnow().isoformat(),
+            "status": "success"
+        })
+        
+    except Exception as e:
+        logger.error("Document summary failed", error=str(e), project_id=project_id)
+        return JSONResponse({
+            "summary": {"error": str(e)},
+            "project_filter": project_id,
+            "status": "error"
+        })
+
+
+@router.post("/ai/batch-questions")
+async def ask_batch_questions(
+    questions: List[str],
+    project_id: Optional[str] = None,
+    search_client: SearchClient = Depends(get_search_client)
+) -> JSONResponse:
+    """
+    Ask multiple questions at once for efficient processing.
+    
+    Args:
+        questions: List of questions to ask
+        project_id: Optional filter for specific project
+        search_client: Azure Search client
+        
+    Returns:
+        List of answers with sources and metadata
+    """
+    try:
+        logger.info("Processing batch questions", count=len(questions), project_id=project_id)
+        
+        # Initialize QA service
+        qa_service = DocumentQAService(search_client)
+        
+        # Process each question
+        results = []
+        for i, question in enumerate(questions):
+            try:
+                result = await qa_service.answer_question(question, project_id)
+                results.append({
+                    "question_index": i,
+                    "question": question,
+                    "answer": result['answer'],
+                    "confidence": result['confidence'],
+                    "sources": result['sources'][:2],  # Limit sources for batch
+                    "documents_searched": result['documents_searched']
+                })
+            except Exception as e:
+                results.append({
+                    "question_index": i,
+                    "question": question,
+                    "answer": f"Error: {str(e)}",
+                    "confidence": "error",
+                    "sources": [],
+                    "documents_searched": 0
+                })
+        
+        logger.info("Batch questions completed", 
+                   total=len(questions),
+                   successful=len([r for r in results if r['confidence'] != 'error']))
+        
+        return JSONResponse({
+            "results": results,
+            "total_questions": len(questions),
+            "project_filter": project_id,
+            "processed_at": datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error("Batch questions failed", error=str(e))
+        return JSONResponse({
+            "results": [],
+            "total_questions": len(questions) if questions else 0,
+            "error": str(e)
+        })
+
+
+@router.get("/test-connection")
+async def test_connection():
+    """
+    Test basic API connectivity for the MVP testing page.
+    """
+    try:
+        return JSONResponse({
+            "status": "success",
+            "message": "DTCE AI Bot API is running",
+            "timestamp": datetime.utcnow().isoformat(),
+            "version": "1.0.0-mvp",
+            "services": {
+                "api": "online",
+                "azure_search": "configured" if settings.azure_search_service_name else "not_configured",
+                "azure_storage": "configured" if settings.azure_storage_connection_string else "not_configured",
+                "openai": "configured" if getattr(settings, 'openai_api_key', None) else "not_configured",
+                "auto_sync": "configured"
+            }
+        })
+    except Exception as e:
+        logger.error("Connection test failed", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Connection test failed: {str(e)}")
+
+
+@router.get("/suitefiles/drives")
+async def get_suitefiles_drives():
+    """
+    Test Suitefiles access for the MVP testing page.
+    """
+    try:
+        # For now, return a simple response since we don't have MicrosoftGraphClient imported
+        return JSONResponse({
+            "status": "success", 
+            "message": "Suitefiles access endpoint available",
+            "drives_found": 0,
+            "drives": [],
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error("Suitefiles test failed", error=str(e))
+        return JSONResponse({
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        })

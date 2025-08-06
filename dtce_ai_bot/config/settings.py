@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     def SHAREPOINT_SITE_ID(self) -> str:
         return self.sharepoint_site_id
     
+    @property
+    def OPENAI_API_KEY(self) -> str:
+        return self.openai_api_key or self.azure_openai_api_key
+    
+    @property
+    def AZURE_STORAGE_CONTAINER(self) -> str:
+        return self.azure_storage_container
+    
     # Azure Storage settings
     azure_storage_connection_string: str = ""
     azure_storage_container_name: str = "dtce-documents"
@@ -65,6 +73,17 @@ class Settings(BaseSettings):
     azure_openai_api_key: str = ""
     azure_openai_deployment_name: str = "gpt-4"
     azure_openai_api_version: str = "2024-02-01"
+    
+    # OpenAI settings (alternative to Azure OpenAI)
+    openai_api_key: str = ""
+    openai_model_name: str = "gpt-4-turbo-preview"
+    openai_max_tokens: int = 500
+    openai_temperature: float = 0.1
+    
+    # Auto-update settings
+    auto_sync_interval_hours: int = 1
+    change_detection_enabled: bool = True
+    real_time_indexing: bool = True
     
     # Azure Form Recognizer settings
     azure_form_recognizer_endpoint: str = ""

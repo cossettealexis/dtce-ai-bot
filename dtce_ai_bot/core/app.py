@@ -2,8 +2,10 @@
 Core FastAPI application factory.
 """
 
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import structlog
 
 from ..config.settings import get_settings
@@ -75,7 +77,10 @@ def create_app() -> FastAPI:
     app.include_router(bot_router, prefix="/api", tags=["bot"])
     app.include_router(documents_router, prefix="/documents", tags=["documents"])
     
-    return app
+    # Mount static files for testing page
+    static_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "static")
+    if os.path.exists(static_path):
+        app.mount("/static", StaticFiles(directory=static_path), name="static")
     
     return app
 
