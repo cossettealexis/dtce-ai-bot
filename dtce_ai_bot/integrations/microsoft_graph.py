@@ -94,7 +94,7 @@ class MicrosoftGraphClient:
             logger.error("Failed to get drives", site_id=site_id, error=str(e))
             raise
     
-    async def get_files_in_drive(self, site_id: str, drive_id: str, folder_path: str = None, max_depth: int = 12, current_depth: int = 0) -> List[Dict[str, Any]]:
+    async def get_files_in_drive(self, site_id: str, drive_id: str, folder_path: str = None, max_depth: int = 15, current_depth: int = 0) -> List[Dict[str, Any]]:
         """
         Get files from a SharePoint drive, recursively exploring ALL subfolders.
         
@@ -136,9 +136,14 @@ class MicrosoftGraphClient:
                     all_files.append(item)
                     
                 elif "folder" in item:
-                    # It's a folder - recursively explore it
+                    # It's a folder - check if we should skip it before recursing
                     folder_name = item["name"]
                     subfolder_path = f"{folder_path}/{folder_name}" if folder_path else folder_name
+                    
+                    # Skip non-engineering folders early to save time
+                    if self._should_skip_folder(subfolder_path, folder_name):
+                        logger.debug("Skipping non-engineering folder", folder_name=folder_name, path=subfolder_path)
+                        continue
                     
                     logger.debug("Exploring subfolder", folder_name=folder_name, path=subfolder_path, depth=current_depth)
                     
@@ -360,6 +365,41 @@ class MicrosoftGraphClient:
         
         return metadata
     
+    def _should_skip_folder(self, folder_path: str, folder_name: str) -> bool:
+        """
+        Determine if a folder should be skipped entirely to avoid wasting time on non-engineering content.
+        """
+        folder_path_lower = folder_path.lower()
+        folder_name_lower = folder_name.lower()
+        
+        # Skip IT Support and software installation folders
+        skip_patterns = [
+            "it support", "software resources", "mathcad", "install cd", 
+            "program files", "microsoft", "microsft", "superseded",
+            "bin", "lib", "include", "sources", "library",
+            "workplace essentials", "company culture", "events",
+            "christmas", "photos", "pictures", "images",
+            "trash", "temp", "temporary", "backup", "archive",
+            "00_superseded", "0_archive", "old"
+        ]
+        
+        # Check if any skip pattern is in the folder path
+        for pattern in skip_patterns:
+            if pattern in folder_path_lower:
+                return True
+        
+        # Skip folders that look like software installations
+        software_indicators = [
+            "install", "setup", "software", "program", "system",
+            "application", "app", "tool", "utility", "driver"
+        ]
+        
+        for indicator in software_indicators:
+            if indicator in folder_name_lower and "project" not in folder_path_lower:
+                return True
+        
+        return False
+
     def _is_engineering_relevant(self, full_path: str, file_name: str) -> bool:
         """
         Determine if a file is relevant for engineering search based on path and name.
