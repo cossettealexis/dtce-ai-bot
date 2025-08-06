@@ -846,39 +846,38 @@ async def test_connection(
 async def list_documents(
     folder: Optional[str] = None,
     source: str = "suitefiles",  # Default to suitefiles, can be "storage" for blob storage
-    max_docs: int = 100,  # Limit number of documents to prevent timeout
     graph_client: MicrosoftGraphClient = Depends(get_graph_client),
     storage_client: BlobServiceClient = Depends(get_storage_client)
 ) -> JSONResponse:
     """
-    List documents from Suitefiles (SharePoint) or Azure Blob Storage.
+    List ALL documents from Suitefiles (SharePoint) or Azure Blob Storage.
+    Recursively explores every folder and subfolder to find ALL files.
     
     Args:
         folder: Optional folder to filter by
         source: "suitefiles" (default) or "storage" 
-        max_docs: Maximum number of documents to return (default 100)
         graph_client: Microsoft Graph client for Suitefiles access
         storage_client: Azure Storage client for blob storage
         
     Returns:
-        List of document metadata from the specified source
+        Complete list of ALL document metadata from the specified source
     """
     try:
-        logger.info("Listing documents", folder=folder, source=source, max_docs=max_docs)
+        logger.info("Listing ALL documents (no limits)", folder=folder, source=source)
         
         if source == "suitefiles":
             # List documents from Suitefiles via Microsoft Graph
             try:
                 import asyncio
                 
-                # Add timeout to prevent hanging
-                logger.info("Starting Suitefiles document sync with timeout...")
+                # Add timeout to prevent hanging but process ALL documents
+                logger.info("Starting comprehensive Suitefiles document sync (ALL files)...")
                 suitefiles_docs = await asyncio.wait_for(
                     graph_client.sync_suitefiles_documents(), 
-                    timeout=45.0  # 45 second timeout
+                    timeout=300.0  # Increased to 5 minutes for complete scan
                 )
                 
-                logger.info("Suitefiles sync completed", total_docs=len(suitefiles_docs))
+                logger.info("Suitefiles sync completed - found ALL documents", total_docs=len(suitefiles_docs))
                 
                 # Filter by folder if specified
                 if folder:
@@ -889,10 +888,7 @@ async def list_documents(
                     ]
                     logger.info("Filtered by folder", folder=folder, filtered_docs=len(suitefiles_docs))
                 
-                # Limit number of documents returned
-                if len(suitefiles_docs) > max_docs:
-                    suitefiles_docs = suitefiles_docs[:max_docs]
-                    logger.info("Limited document count", max_docs=max_docs)
+                # Return ALL documents - no artificial limits
                 
                 documents = []
                 for doc in suitefiles_docs:

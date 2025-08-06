@@ -224,30 +224,26 @@ class MicrosoftGraphClient:
             drives = await self.get_drives(site_id)
             documents = []
             
-            # Limit processing time by reducing max depth initially
-            max_depth = 8  # Reduced from 20 for initial testing
+            # Set high depth limit to get ALL folders and subfolders 
+            max_depth = 50  # Increased to ensure we get every child folder
             
             for drive in drives:
                 drive_id = drive["id"]
                 drive_name = drive.get("name", "Unknown")
                 
-                logger.info("Processing drive", drive_id=drive_id, name=drive_name)
+                logger.info("Processing drive for COMPLETE scan", drive_id=drive_id, name=drive_name)
                 
-                # Skip very large drives that are known to be problematic
-                if "workplace essentials" in drive_name.lower() or "it support" in drive_name.lower():
-                    logger.info("Skipping large non-engineering drive", drive_name=drive_name)
-                    continue
-                
+                # Process ALL drives - no skipping, user wants everything
                 try:
-                    # Recursively get files from this drive with timeout protection
+                    # Get ALL files from this drive with generous timeout
                     import asyncio
                     files = await asyncio.wait_for(
                         self.get_files_in_drive(site_id, drive_id, max_depth=max_depth),
-                        timeout=30.0  # 30 second timeout per drive
+                        timeout=180.0  # 3 minutes per drive for complete scan
                     )
-                    logger.info("Retrieved files from drive", drive_name=drive_name, file_count=len(files))
+                    logger.info("Retrieved ALL files from drive", drive_name=drive_name, file_count=len(files))
                 except asyncio.TimeoutError:
-                    logger.warning("Drive processing timed out, skipping", drive_name=drive_name)
+                    logger.warning("Drive processing timed out - may be incomplete", drive_name=drive_name)
                     continue
                 except Exception as e:
                     logger.error("Failed to process drive", drive_name=drive_name, error=str(e))
@@ -276,10 +272,10 @@ class MicrosoftGraphClient:
                         logger.debug("Skipping photo file", file_name=file_name, path=full_path)
                         continue
                     
-                    # Focus on engineering-relevant files
-                    if self._is_engineering_relevant(full_path, file_name):
-                        # Filter for document types we can process
-                        if any(file_name.lower().endswith(ext) for ext in ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.txt', '.md']):
+                    # Focus on ALL files - minimal filtering to get everything
+                    if True:  # Process ALL files, user wants everything
+                        # Include ALL document types, not just engineering ones
+                        if any(file_name.lower().endswith(ext) for ext in ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.txt', '.md', '.pptx', '.ppt', '.dwg', '.dxf', '.zip', '.rar']):
                             document_entry = {
                                 "site_id": site_id,
                                 "drive_id": drive_id,
@@ -301,9 +297,7 @@ class MicrosoftGraphClient:
                             }
                             documents.append(document_entry)
                         else:
-                            logger.debug("Skipping unsupported file type", file_name=file_name, path=full_path)
-                    else:
-                        logger.debug("Skipping non-engineering file", file_name=file_name, path=full_path)
+                            logger.debug("File type not supported for processing", file_name=file_name, path=full_path)
             
             # Final cleanup: Remove duplicates based on file_id and optimize results
             unique_documents = {}
@@ -434,55 +428,28 @@ class MicrosoftGraphClient:
     
     def _should_skip_folder(self, folder_path: str, folder_name: str) -> bool:
         """
-        Determine if a folder should be skipped entirely to avoid wasting time on non-engineering content.
+        Determine if a folder should be skipped - MINIMAL filtering since user wants ALL files.
+        Only skip folders that are definitely problematic or cause API errors.
         """
         folder_path_lower = folder_path.lower()
         folder_name_lower = folder_name.lower()
         
-        # Skip IT Support and software installation folders
-        skip_patterns = [
-            "it support", "software resources", "mathcad", "install cd", 
-            "program files", "microsoft", "microsft", "superseded",
-            "bin", "lib", "include", "sources", "library", "uninstall",
-            "workplace essentials", "company culture", "events",
-            "christmas", "photos", "pictures", "images",
-            "trash", "temp", "temporary", "backup", "archive",
-            "00_superseded", "0_archive", "old", "cache", "data"
+        # Only skip folders that cause technical issues - user wants everything else
+        problematic_only = [
+            "recycle bin", "$recycle.bin", "system volume information",
+            ".git", ".svn", "node_modules"  # Only technical/system folders
         ]
         
-        # Check if any skip pattern is in the folder path
-        for pattern in skip_patterns:
+        # Check if any problematic pattern is in the folder path
+        for pattern in problematic_only:
             if pattern in folder_path_lower:
                 return True
         
-        # Skip folders that look like software installations or build artifacts
-        software_indicators = [
-            "install", "setup", "software", "program", "system",
-            "application", "app", "tool", "utility", "driver",
-            "build", "dist", "node_modules", "cmake", "make",
-            "cppmicroservices", "declarativeservices", "logservice",
-            "postinstall", "registrykey", "shortcuts"
-        ]
+        # Skip folders with URL-problematic characters that cause API errors
+        if self._has_url_problematic_chars(folder_name):
+            return True
         
-        for indicator in software_indicators:
-            if indicator in folder_name_lower and "project" not in folder_path_lower:
-                return True
-        
-        # Skip folders with problematic characters that cause API issues
-        problematic_chars = ["#", "###", "%", "&", "+", "="]
-        for char in problematic_chars:
-            if char in folder_name:
-                return True
-        
-        # Skip extremely deep paths that are likely software installations
-        if current_depth := folder_path.count('/'):
-            if current_depth > 12 and any(indicator in folder_path_lower for indicator in [
-                "install", "uninstall", "program", "software", "system", "cache",
-                "bin", "lib", "include", "build", "dist", "node_modules"
-            ]):
-                return True
-        
-        return False
+        return False  # Don't skip anything else - user wants ALL folders and files
 
     def _has_url_problematic_chars(self, folder_name: str) -> bool:
         """Check if folder name has characters that cause URL encoding issues."""
