@@ -94,7 +94,7 @@ class MicrosoftGraphClient:
             logger.error("Failed to get drives", site_id=site_id, error=str(e))
             raise
     
-    async def get_files_in_drive(self, site_id: str, drive_id: str, folder_path: str = None, max_depth: int = 5, current_depth: int = 0) -> List[Dict[str, Any]]:
+    async def get_files_in_drive(self, site_id: str, drive_id: str, folder_path: str = None, max_depth: int = 12, current_depth: int = 0) -> List[Dict[str, Any]]:
         """
         Get files from a SharePoint drive, recursively exploring ALL subfolders.
         

@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     supported_file_types: List[str] = [".pdf", ".docx", ".txt", ".md", ".py", ".js", ".ts"]
     max_concurrent_processing: int = 5
     
+    # Folder exclusion settings
+    excluded_folders: List[str] = [
+        "09_Photos", "Photos", "Christmas", "Awards", "Past events", 
+        "Company Culture", "Workplace Essentials", "Trash", "00_Superseded",
+        "0_SS", "00_SS", "Superseded", "Archive", "0_Archive"
+    ]
+    
     class Config:
         env_file = ".env"
         case_sensitive = False

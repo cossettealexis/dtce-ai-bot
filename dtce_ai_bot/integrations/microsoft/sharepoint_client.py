@@ -252,7 +252,7 @@ class SharePointClient:
                             all_documents.extend(project_docs)
                 else:
                     # Scan Engineering folder
-                    engineering_docs = await self._scan_folder_recursively(target_folder)
+                    engineering_docs = await self._scan_folder_recursively(target_folder, 0, 12)
                     all_documents.extend(engineering_docs)
                     
             except Exception as e:
@@ -271,15 +271,15 @@ class SharePointClient:
             for item in project_contents:
                 folder_name = item.get("name", "")
                 
-                # Skip photos folder
-                if any(excluded in folder_name for excluded in self.settings.excluded_folders):
+                # Skip photos folder and other non-engineering folders
+                if self._should_exclude_folder(folder_name):
                     logger.debug("Skipping excluded folder", folder=folder_name)
                     continue
                 
                 if item.get("folder"):
                     # Recursively scan subfolder
                     subfolder_path = f"{project_path}/{folder_name}"
-                    subfolder_docs = await self._scan_folder_recursively(subfolder_path)
+                    subfolder_docs = await self._scan_folder_recursively(subfolder_path, 1, 12)
                     documents.extend(subfolder_docs)
                 else:
                     # Process file if it's a supported type
@@ -292,8 +292,12 @@ class SharePointClient:
         
         return documents
     
-    async def _scan_folder_recursively(self, folder_path: str) -> List[DocumentMetadata]:
-        """Recursively scan a folder for documents."""
+    async def _scan_folder_recursively(self, folder_path: str, depth: int = 0, max_depth: int = 12) -> List[DocumentMetadata]:
+        """Recursively scan a folder for documents with depth control."""
+        if depth > max_depth:
+            logger.warning("Max recursion depth reached", depth=depth, folder_path=folder_path)
+            return []
+            
         documents = []
         
         try:
@@ -306,10 +310,11 @@ class SharePointClient:
                     subfolder_path = f"{folder_path}/{subfolder_name}"
                     
                     # Skip excluded folders
-                    if any(excluded in subfolder_name for excluded in self.settings.excluded_folders):
+                    if self._should_exclude_folder(subfolder_name):
+                        logger.debug("Skipping excluded subfolder", folder=subfolder_name)
                         continue
                     
-                    subfolder_docs = await self._scan_folder_recursively(subfolder_path)
+                    subfolder_docs = await self._scan_folder_recursively(subfolder_path, depth + 1, max_depth)
                     documents.extend(subfolder_docs)
                 else:
                     # Process file if supported
@@ -322,6 +327,28 @@ class SharePointClient:
         
         return documents
     
+    def _should_exclude_folder(self, folder_name: str) -> bool:
+        """Check if a folder should be excluded from scanning based on improved rules."""
+        folder_lower = folder_name.lower()
+        
+        # Check against configured excluded folders (case-insensitive)
+        for excluded in self.settings.excluded_folders:
+            if excluded.lower() in folder_lower:
+                return True
+        
+        # Additional heuristic-based exclusions for non-engineering content
+        non_engineering_keywords = [
+            "photo", "image", "picture", "christmas", "party", "event", 
+            "culture", "workplace", "trash", "temp", "temporary",
+            "superseded", "archive", "old", "backup"
+        ]
+        
+        for keyword in non_engineering_keywords:
+            if keyword in folder_lower:
+                return True
+                
+        return False
+
     def _is_supported_file(self, file_data: Dict[str, Any]) -> bool:
         """Check if file is a supported type and size."""
         file_name = file_data.get("name", "")
