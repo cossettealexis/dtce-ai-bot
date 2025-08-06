@@ -94,7 +94,7 @@ class MicrosoftGraphClient:
             logger.error("Failed to get drives", site_id=site_id, error=str(e))
             raise
     
-    async def get_files_in_drive(self, site_id: str, drive_id: str, folder_path: str = None, max_depth: int = 15, current_depth: int = 0) -> List[Dict[str, Any]]:
+    async def get_files_in_drive(self, site_id: str, drive_id: str, folder_path: str = None, max_depth: int = 20, current_depth: int = 0) -> List[Dict[str, Any]]:
         """
         Get files from a SharePoint drive, recursively exploring ALL subfolders.
         
@@ -143,6 +143,11 @@ class MicrosoftGraphClient:
                     # Skip non-engineering folders early to save time
                     if self._should_skip_folder(subfolder_path, folder_name):
                         logger.debug("Skipping non-engineering folder", folder_name=folder_name, path=subfolder_path)
+                        continue
+                    
+                    # Skip folders with URL-problematic names to avoid API errors
+                    if self._has_url_problematic_chars(folder_name):
+                        logger.debug("Skipping folder with problematic characters", folder_name=folder_name)
                         continue
                     
                     logger.debug("Exploring subfolder", folder_name=folder_name, path=subfolder_path, depth=current_depth)
@@ -376,11 +381,11 @@ class MicrosoftGraphClient:
         skip_patterns = [
             "it support", "software resources", "mathcad", "install cd", 
             "program files", "microsoft", "microsft", "superseded",
-            "bin", "lib", "include", "sources", "library",
+            "bin", "lib", "include", "sources", "library", "uninstall",
             "workplace essentials", "company culture", "events",
             "christmas", "photos", "pictures", "images",
             "trash", "temp", "temporary", "backup", "archive",
-            "00_superseded", "0_archive", "old"
+            "00_superseded", "0_archive", "old", "cache", "data"
         ]
         
         # Check if any skip pattern is in the folder path
@@ -388,17 +393,39 @@ class MicrosoftGraphClient:
             if pattern in folder_path_lower:
                 return True
         
-        # Skip folders that look like software installations
+        # Skip folders that look like software installations or build artifacts
         software_indicators = [
             "install", "setup", "software", "program", "system",
-            "application", "app", "tool", "utility", "driver"
+            "application", "app", "tool", "utility", "driver",
+            "build", "dist", "node_modules", "cmake", "make",
+            "cppmicroservices", "declarativeservices", "logservice",
+            "postinstall", "registrykey", "shortcuts"
         ]
         
         for indicator in software_indicators:
             if indicator in folder_name_lower and "project" not in folder_path_lower:
                 return True
         
+        # Skip folders with problematic characters that cause API issues
+        problematic_chars = ["#", "###", "%", "&", "+", "="]
+        for char in problematic_chars:
+            if char in folder_name:
+                return True
+        
+        # Skip extremely deep paths that are likely software installations
+        if current_depth := folder_path.count('/'):
+            if current_depth > 12 and any(indicator in folder_path_lower for indicator in [
+                "install", "uninstall", "program", "software", "system", "cache",
+                "bin", "lib", "include", "build", "dist", "node_modules"
+            ]):
+                return True
+        
         return False
+
+    def _has_url_problematic_chars(self, folder_name: str) -> bool:
+        """Check if folder name has characters that cause URL encoding issues."""
+        problematic_chars = ["#", "###", "%", "&", "+", "=", ":", ";", "?", "[", "]", "{", "}"]
+        return any(char in folder_name for char in problematic_chars)
 
     def _is_engineering_relevant(self, full_path: str, file_name: str) -> bool:
         """

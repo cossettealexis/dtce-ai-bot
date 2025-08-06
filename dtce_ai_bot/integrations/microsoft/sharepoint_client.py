@@ -252,7 +252,7 @@ class SharePointClient:
                             all_documents.extend(project_docs)
                 else:
                     # Scan Engineering folder
-                    engineering_docs = await self._scan_folder_recursively(target_folder, 0, 15)
+                    engineering_docs = await self._scan_folder_recursively(target_folder, 0, 20)
                     all_documents.extend(engineering_docs)
                     
             except Exception as e:
@@ -279,7 +279,7 @@ class SharePointClient:
                 if item.get("folder"):
                     # Recursively scan subfolder
                     subfolder_path = f"{project_path}/{folder_name}"
-                    subfolder_docs = await self._scan_folder_recursively(subfolder_path, 1, 15)
+                    subfolder_docs = await self._scan_folder_recursively(subfolder_path, 1, 20)
                     documents.extend(subfolder_docs)
                 else:
                     # Process file if it's a supported type
@@ -292,7 +292,7 @@ class SharePointClient:
         
         return documents
     
-    async def _scan_folder_recursively(self, folder_path: str, depth: int = 0, max_depth: int = 15) -> List[DocumentMetadata]:
+    async def _scan_folder_recursively(self, folder_path: str, depth: int = 0, max_depth: int = 20) -> List[DocumentMetadata]:
         """Recursively scan a folder for documents with depth control."""
         if depth > max_depth:
             logger.warning("Max recursion depth reached", depth=depth, folder_path=folder_path)
