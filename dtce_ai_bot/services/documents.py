@@ -760,10 +760,93 @@ async def list_suitefiles_drives(
         })
 
 
+@router.get("/test-connection")
+async def test_connection(
+    graph_client: MicrosoftGraphClient = Depends(get_graph_client)
+) -> JSONResponse:
+    """
+    Test Microsoft Graph API connection without full document sync.
+    """
+    try:
+        logger.info("Testing Microsoft Graph API connection")
+        
+        # Test 1: Authentication
+        try:
+            token = await graph_client._get_access_token()
+            logger.info("Authentication successful", token_length=len(token))
+        except Exception as e:
+            return JSONResponse({
+                "status": "error",
+                "step": "authentication",
+                "error": str(e)
+            })
+        
+        # Test 2: Get sites
+        try:
+            sites = await graph_client.get_sites()
+            logger.info("Sites retrieved", count=len(sites))
+        except Exception as e:
+            return JSONResponse({
+                "status": "error", 
+                "step": "sites",
+                "error": str(e)
+            })
+        
+        # Test 3: Find target site
+        try:
+            suitefiles_site = await graph_client.get_site_by_name("suitefiles")
+            if not suitefiles_site:
+                suitefiles_site = await graph_client.get_site_by_name("dtce")
+            
+            if not suitefiles_site:
+                return JSONResponse({
+                    "status": "error",
+                    "step": "site_lookup", 
+                    "error": "No suitable SharePoint site found"
+                })
+                
+            site_id = suitefiles_site["id"]
+            logger.info("Found target site", site_id=site_id)
+        except Exception as e:
+            return JSONResponse({
+                "status": "error",
+                "step": "site_lookup",
+                "error": str(e)
+            })
+        
+        # Test 4: Get drives
+        try:
+            drives = await graph_client.get_drives(site_id)
+            logger.info("Drives retrieved", count=len(drives))
+        except Exception as e:
+            return JSONResponse({
+                "status": "error",
+                "step": "drives",
+                "error": str(e)
+            })
+        
+        return JSONResponse({
+            "status": "success",
+            "message": "Microsoft Graph API connection working",
+            "site_name": suitefiles_site.get("displayName"),
+            "drives_count": len(drives),
+            "drives": [{"name": d.get("name"), "id": d.get("id")} for d in drives]
+        })
+        
+    except Exception as e:
+        logger.error("Connection test failed", error=str(e))
+        return JSONResponse({
+            "status": "error",
+            "step": "unknown",
+            "error": str(e)
+        })
+
+
 @router.get("/list")
 async def list_documents(
     folder: Optional[str] = None,
     source: str = "suitefiles",  # Default to suitefiles, can be "storage" for blob storage
+    max_docs: int = 100,  # Limit number of documents to prevent timeout
     graph_client: MicrosoftGraphClient = Depends(get_graph_client),
     storage_client: BlobServiceClient = Depends(get_storage_client)
 ) -> JSONResponse:
@@ -773,6 +856,7 @@ async def list_documents(
     Args:
         folder: Optional folder to filter by
         source: "suitefiles" (default) or "storage" 
+        max_docs: Maximum number of documents to return (default 100)
         graph_client: Microsoft Graph client for Suitefiles access
         storage_client: Azure Storage client for blob storage
         
@@ -780,12 +864,21 @@ async def list_documents(
         List of document metadata from the specified source
     """
     try:
-        logger.info("Listing documents", folder=folder, source=source)
+        logger.info("Listing documents", folder=folder, source=source, max_docs=max_docs)
         
         if source == "suitefiles":
             # List documents from Suitefiles via Microsoft Graph
             try:
-                suitefiles_docs = await graph_client.sync_suitefiles_documents()
+                import asyncio
+                
+                # Add timeout to prevent hanging
+                logger.info("Starting Suitefiles document sync with timeout...")
+                suitefiles_docs = await asyncio.wait_for(
+                    graph_client.sync_suitefiles_documents(), 
+                    timeout=45.0  # 45 second timeout
+                )
+                
+                logger.info("Suitefiles sync completed", total_docs=len(suitefiles_docs))
                 
                 # Filter by folder if specified
                 if folder:
@@ -794,6 +887,12 @@ async def list_documents(
                         if folder.lower() in doc.get("drive_name", "").lower() or 
                            folder.lower() in doc.get("name", "").lower()
                     ]
+                    logger.info("Filtered by folder", folder=folder, filtered_docs=len(suitefiles_docs))
+                
+                # Limit number of documents returned
+                if len(suitefiles_docs) > max_docs:
+                    suitefiles_docs = suitefiles_docs[:max_docs]
+                    logger.info("Limited document count", max_docs=max_docs)
                 
                 documents = []
                 for doc in suitefiles_docs:

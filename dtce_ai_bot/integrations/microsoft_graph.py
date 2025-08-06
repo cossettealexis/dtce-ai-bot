@@ -224,19 +224,49 @@ class MicrosoftGraphClient:
             drives = await self.get_drives(site_id)
             documents = []
             
+            # Limit processing time by reducing max depth initially
+            max_depth = 8  # Reduced from 20 for initial testing
+            
             for drive in drives:
                 drive_id = drive["id"]
                 drive_name = drive.get("name", "Unknown")
                 
                 logger.info("Processing drive", drive_id=drive_id, name=drive_name)
                 
-                # Recursively get ALL files from this drive exploring all subfolders
-                files = await self.get_files_in_drive(site_id, drive_id)
+                # Skip very large drives that are known to be problematic
+                if "workplace essentials" in drive_name.lower() or "it support" in drive_name.lower():
+                    logger.info("Skipping large non-engineering drive", drive_name=drive_name)
+                    continue
+                
+                try:
+                    # Recursively get files from this drive with timeout protection
+                    import asyncio
+                    files = await asyncio.wait_for(
+                        self.get_files_in_drive(site_id, drive_id, max_depth=max_depth),
+                        timeout=30.0  # 30 second timeout per drive
+                    )
+                    logger.info("Retrieved files from drive", drive_name=drive_name, file_count=len(files))
+                except asyncio.TimeoutError:
+                    logger.warning("Drive processing timed out, skipping", drive_name=drive_name)
+                    continue
+                except Exception as e:
+                    logger.error("Failed to process drive", drive_name=drive_name, error=str(e))
+                    continue
+                
+                # Track processed files to avoid duplicates
+                processed_files = set()
                 
                 for file in files:
                     file_name = file.get("name", "")
                     full_path = file.get("full_path", "")
                     folder_path = file.get("folder_path", "")
+                    file_id = file.get("id", "")
+                    
+                    # Skip duplicate files (same file_id)
+                    if file_id in processed_files:
+                        logger.debug("Skipping duplicate file", file_name=file_name, file_id=file_id)
+                        continue
+                    processed_files.add(file_id)
                     
                     # Extract project metadata based on folder structure
                     project_metadata = self._extract_project_metadata(full_path, file_name, folder_path)
@@ -250,10 +280,10 @@ class MicrosoftGraphClient:
                     if self._is_engineering_relevant(full_path, file_name):
                         # Filter for document types we can process
                         if any(file_name.lower().endswith(ext) for ext in ['.pdf', '.docx', '.doc', '.xlsx', '.xls', '.txt', '.md']):
-                            documents.append({
+                            document_entry = {
                                 "site_id": site_id,
                                 "drive_id": drive_id,
-                                "file_id": file["id"],
+                                "file_id": file_id,
                                 "name": file_name,
                                 "size": file.get("size", 0),
                                 "modified": file.get("lastModifiedDateTime"),
@@ -268,10 +298,42 @@ class MicrosoftGraphClient:
                                 "document_type": project_metadata.get("document_type"),
                                 "folder_category": project_metadata.get("folder_category"),
                                 "is_critical_for_search": project_metadata.get("is_critical_for_search", False)
-                            })
+                            }
+                            documents.append(document_entry)
+                        else:
+                            logger.debug("Skipping unsupported file type", file_name=file_name, path=full_path)
+                    else:
+                        logger.debug("Skipping non-engineering file", file_name=file_name, path=full_path)
             
-            logger.info("Comprehensive Suitefiles sync completed", total_documents=len(documents))
-            return documents
+            # Final cleanup: Remove duplicates based on file_id and optimize results
+            unique_documents = {}
+            for doc in documents:
+                file_id = doc.get("file_id")
+                if file_id and file_id not in unique_documents:
+                    unique_documents[file_id] = doc
+                elif file_id:
+                    # Keep the more recent version if duplicate
+                    existing_modified = unique_documents[file_id].get("modified", "")
+                    current_modified = doc.get("modified", "")
+                    if current_modified > existing_modified:
+                        unique_documents[file_id] = doc
+                        logger.debug("Replaced older duplicate with newer version", file_id=file_id)
+            
+            # Convert back to list and sort by relevance
+            final_documents = list(unique_documents.values())
+            
+            # Sort by: 1) Critical for search, 2) Project files, 3) Engineering files, 4) Size (larger first)
+            final_documents.sort(key=lambda x: (
+                not x.get("is_critical_for_search", False),  # Critical first (False sorts before True)
+                not bool(x.get("project_id")),  # Project files first
+                "engineering" not in x.get("document_type", "").lower(),  # Engineering files first
+                -x.get("size", 0)  # Larger files first
+            ))
+            
+            logger.info("Comprehensive Suitefiles sync completed", 
+                       total_documents=len(final_documents),
+                       duplicates_removed=len(documents) - len(final_documents))
+            return final_documents
             
         except Exception as e:
             logger.error("Failed to sync Suitefiles documents", error=str(e))
