@@ -70,6 +70,14 @@ class Settings(BaseSettings):
     azure_form_recognizer_endpoint: str = ""
     azure_form_recognizer_key: str = ""
     
+    # Microsoft Graph API URLs (centralized configuration)
+    microsoft_graph_base_url: str = "https://graph.microsoft.com/v1.0"
+    microsoft_login_authority_base: str = "https://login.microsoftonline.com"
+    microsoft_graph_scope: str = "https://graph.microsoft.com/.default"
+    
+    # Azure Search URL template (centralized configuration)
+    azure_search_base_url: str = "https://{service_name}.search.windows.net"
+    
     # Storage container names
     azure_storage_container: str = "dtce-documents"
     

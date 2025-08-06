@@ -10,6 +10,7 @@ import aiohttp
 import structlog
 from azure.identity.aio import ClientSecretCredential
 from ..config.settings import get_settings
+from ..utils.graph_urls import graph_urls
 
 logger = structlog.get_logger(__name__)
 settings = get_settings()
@@ -22,7 +23,6 @@ class MicrosoftGraphClient:
         self.tenant_id = settings.MICROSOFT_TENANT_ID
         self.client_id = settings.MICROSOFT_CLIENT_ID
         self.client_secret = settings.MICROSOFT_CLIENT_SECRET
-        self.base_url = "https://graph.microsoft.com/v1.0"
         self._credential = None
         self._access_token = None
         
@@ -35,7 +35,7 @@ class MicrosoftGraphClient:
                 client_secret=self.client_secret
             )
         
-        token = await self._credential.get_token("https://graph.microsoft.com/.default")
+        token = await self._credential.get_token(graph_urls.graph_scope())
         return token.token
     
     async def _make_request(self, endpoint: str, method: str = "GET") -> Dict[str, Any]:
@@ -46,7 +46,7 @@ class MicrosoftGraphClient:
             "Content-Type": "application/json"
         }
         
-        url = f"{self.base_url}/{endpoint}"
+        url = f"{graph_urls.graph_base_url()}/{endpoint}"
         
         async with aiohttp.ClientSession() as session:
             async with session.request(method, url, headers=headers) as response:
@@ -173,7 +173,7 @@ class MicrosoftGraphClient:
             
             access_token = await self._get_access_token()
             headers = {"Authorization": f"Bearer {access_token}"}
-            url = f"{self.base_url}/{endpoint}"
+            url = f"{graph_urls.graph_base_url()}/{endpoint}"
             
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=headers) as response:

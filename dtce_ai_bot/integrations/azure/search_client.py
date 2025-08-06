@@ -31,7 +31,7 @@ class AzureSearchClient:
         self.admin_key = self.settings.azure_search_admin_key
         self.index_name = self.settings.azure_search_index_name
         
-        self.endpoint = f"https://{self.service_name}.search.windows.net"
+        self.endpoint = self.settings.azure_search_base_url.format(service_name=self.service_name)
         self.credential = AzureKeyCredential(self.admin_key)
         
         self.search_client = SearchClient(

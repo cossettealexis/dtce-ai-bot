@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 def get_search_client() -> SearchClient:
     """Get Azure Search client."""
     settings = get_settings()
-    endpoint = f"https://{settings.azure_search_service_name}.search.windows.net"
+    endpoint = settings.azure_search_base_url.format(service_name=settings.azure_search_service_name)
     return SearchClient(
         endpoint=endpoint,
         index_name=settings.azure_search_index_name,
@@ -32,7 +32,7 @@ def get_search_client() -> SearchClient:
 def get_search_index_client() -> SearchIndexClient:
     """Get Azure Search Index Management client."""
     settings = get_settings()
-    endpoint = f"https://{settings.azure_search_service_name}.search.windows.net"
+    endpoint = settings.azure_search_base_url.format(service_name=settings.azure_search_service_name)
     return SearchIndexClient(
         endpoint=endpoint,
         credential=AzureKeyCredential(settings.azure_search_admin_key)

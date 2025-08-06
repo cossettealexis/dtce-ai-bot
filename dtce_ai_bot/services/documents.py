@@ -549,140 +549,30 @@ async def analyze_suitefiles_structure(
         })
 
 
-@router.get("/engineering/project-225-test")
-async def test_project_225(
-    graph_client: MicrosoftGraphClient = Depends(get_graph_client)
-) -> JSONResponse:
-    """
-    Test endpoint for Project 225 validation as mentioned in development plan.
-    
-    This will help validate:
-    - We can extract meaningful metadata from project folder structure
-    - Search returns the correct files for a specific project
-    - Document categorization works correctly
-    """
-    try:
-        logger.info("Testing Project 225 metadata extraction and search")
-        
-        # Get all documents and filter for project 225
-        all_docs = await graph_client.sync_suitefiles_documents()
-        project_225_docs = [doc for doc in all_docs if doc.get("project_id") == 225]
-        
-        if not project_225_docs:
-            return JSONResponse({
-                "status": "no_project_225_found",
-                "message": "No documents found for Project 225. Check if project folder exists.",
-                "total_documents_scanned": len(all_docs),
-                "suggested_projects": list(set([doc.get("project_id") for doc in all_docs if doc.get("project_id")]))
-            })
-        
-        # Categorize documents by folder type
-        categorized = {}
-        for doc in project_225_docs:
-            folder_cat = doc.get("folder_category", "Uncategorized")
-            if folder_cat not in categorized:
-                categorized[folder_cat] = []
-            categorized[folder_cat].append({
-                "filename": doc["name"],
-                "document_type": doc.get("document_type"),
-                "size": doc.get("size", 0),
-                "last_modified": doc.get("modified"),
-                "is_critical": doc.get("is_critical_for_search", False)
-            })
-        
-        # Count critical vs non-critical
-        critical_count = sum(1 for doc in project_225_docs if doc.get("is_critical_for_search", False))
-        
-        # Sample searches to test
-        sample_searches = []
-        
-        # Test: "final report for project 225"
-        final_reports = [doc for doc in project_225_docs 
-                        if doc.get("document_type") == "Report/Specification"]
-        sample_searches.append({
-            "query": "final report for project 225",
-            "matches": len(final_reports),
-            "sample_files": [doc["name"] for doc in final_reports[:3]]
-        })
-        
-        # Test: "calculations for project 225"
-        calculations = [doc for doc in project_225_docs 
-                      if doc.get("document_type") == "Calculation"]
-        sample_searches.append({
-            "query": "calculations for project 225", 
-            "matches": len(calculations),
-            "sample_files": [doc["name"] for doc in calculations[:3]]
-        })
-        
-        # Test: "what was issued to client for project 225"
-        issued_docs = [doc for doc in project_225_docs 
-                      if "05_Issued" in doc.get("folder_category", "")]
-        sample_searches.append({
-            "query": "what was issued to client for project 225",
-            "matches": len(issued_docs),
-            "sample_files": [doc["name"] for doc in issued_docs[:3]]
-        })
-        
-        logger.info("Project 225 test completed", 
-                   total_docs=len(project_225_docs),
-                   critical_docs=critical_count)
-        
-        return JSONResponse({
-            "status": "success",
-            "project_id": 225,
-            "summary": {
-                "total_documents": len(project_225_docs),
-                "critical_documents": critical_count,
-                "folder_categories": list(categorized.keys()),
-                "document_types": list(set([doc.get("document_type") for doc in project_225_docs]))
-            },
-            "categorized_documents": categorized,
-            "sample_search_tests": sample_searches,
-            "validation_results": {
-                "metadata_extraction": "✅ Working" if project_225_docs else "❌ Failed",
-                "folder_categorization": "✅ Working" if len(categorized) > 1 else "⚠️ Limited",
-                "critical_document_flagging": "✅ Working" if critical_count > 0 else "⚠️ No critical docs found",
-                "search_ready": "✅ Ready" if any(search["matches"] > 0 for search in sample_searches) else "⚠️ Needs content"
-            }
-        })
-        
-    except Exception as e:
-        logger.error("Project 225 test failed", error=str(e))
-        return JSONResponse({
-            "status": "error",
-            "message": f"Test failed: {str(e)}",
-            "suggestions": [
-                "Check if Project 225 folder exists in Suitefiles",
-                "Verify folder structure matches expected pattern",
-                "Ensure Microsoft Graph permissions are correct"
-            ]
-        })
-
-
 @router.get("/engineering/search")
 async def search_engineering_documents(
     query: str,
-    project_id: Optional[int] = None,
+    project_id: Optional[str] = None,
     document_type: Optional[str] = None,
     graph_client: MicrosoftGraphClient = Depends(get_graph_client)
 ) -> JSONResponse:
     """
-    Search engineering documents with natural language queries.
+    Search engineering documents with natural language queries for ANY project.
     
     Examples of engineer queries this should handle:
     - "Show me the final report for project 222"
     - "List all 2024 bridge projects with final specifications"
-    - "What was issued to the client for project 225?"
+    - "What was issued to the client for project 100?"
     - "Which projects had an internal review before issue?"
     
     Args:
         query: Natural language search query
-        project_id: Optional project filter (219-225)
+        project_id: Optional project filter (ANY project ID)
         document_type: Optional document type filter
         graph_client: Microsoft Graph client
         
     Returns:
-        Relevant engineering documents matching the query
+        Relevant engineering documents matching the query from ALL projects
     """
     try:
         logger.info("Searching engineering documents", 

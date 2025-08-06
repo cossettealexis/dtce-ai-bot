@@ -22,7 +22,11 @@ class SharePointClient:
         self.site_id = self.settings.sharepoint_site_id
         self.scopes = self.settings.sharepoint_scopes
         
-        self.authority = f"https://login.microsoftonline.com/{self.tenant_id}"
+        # Centralized URL configuration
+        self.graph_base_url = self.settings.microsoft_graph_base_url
+        self.authority = f"{self.settings.microsoft_login_authority_base}/{self.tenant_id}"
+        self.graph_scope = self.settings.microsoft_graph_scope
+        
         self.access_token = None
         self.token_expires_at = None
         
@@ -44,7 +48,7 @@ class SharePointClient:
         try:
             if self.client_secret:
                 # Client credentials flow (for production)
-                result = self.app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
+                result = self.app.acquire_token_for_client(scopes=[self.graph_scope])
             else:
                 # Device flow (for development/testing)
                 accounts = self.app.get_accounts()
@@ -98,8 +102,8 @@ class SharePointClient:
         if not await self._ensure_authenticated():
             raise Exception("Failed to authenticate with SharePoint")
         
-        # Construct the Graph API URL
-        url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drive/root:/{folder_path}:/children"
+        # Construct the Graph API URL using centralized base URL
+        url = f"{self.graph_base_url}/sites/{self.site_id}/drive/root:/{folder_path}:/children"
         
         headers = self._get_headers()
         
@@ -119,7 +123,7 @@ class SharePointClient:
         if not await self._ensure_authenticated():
             raise Exception("Failed to authenticate with SharePoint")
         
-        url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drive/root:/{file_path}"
+        url = f"{self.graph_base_url}/sites/{self.site_id}/drive/root:/{file_path}"
         headers = self._get_headers()
         
         try:
