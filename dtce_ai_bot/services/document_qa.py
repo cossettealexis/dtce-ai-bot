@@ -21,14 +21,13 @@ class DocumentQAService:
         self.search_client = search_client
         settings = get_settings()
         
-        # Initialize OpenAI client
+        # Initialize OpenAI client - Azure OpenAI doesn't use api_version with AsyncOpenAI
         self.openai_client = AsyncOpenAI(
-            api_key=settings.OPENAI_API_KEY,
-            base_url=getattr(settings, 'AZURE_OPENAI_ENDPOINT', None),
-            api_version=getattr(settings, 'AZURE_OPENAI_API_VERSION', '2024-02-01')
+            api_key=settings.azure_openai_api_key,
+            base_url=settings.azure_openai_endpoint
         )
         
-        self.model_name = getattr(settings, 'OPENAI_MODEL_NAME', 'gpt-4-turbo-preview')
+        self.model_name = settings.azure_openai_deployment_name
         self.max_context_length = 8000  # Conservative limit for context
         
     async def answer_question(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:

@@ -74,7 +74,7 @@ def create_app() -> FastAPI:
     
     # Include routers
     app.include_router(health_router, prefix="/health", tags=["health"])
-    app.include_router(bot_router, prefix="/api", tags=["bot"])
+    app.include_router(bot_router, prefix="/api/teams", tags=["teams-bot"])
     app.include_router(documents_router, prefix="/documents", tags=["documents"])
     
     # Mount static files for testing page
