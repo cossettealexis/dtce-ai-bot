@@ -7,7 +7,7 @@ import asyncio
 from typing import List, Dict, Any, Optional
 import structlog
 from azure.search.documents import SearchClient
-from openai import AsyncOpenAI
+from openai import AsyncAzureOpenAI
 from ..config.settings import get_settings
 
 logger = structlog.get_logger(__name__)
@@ -21,10 +21,11 @@ class DocumentQAService:
         self.search_client = search_client
         settings = get_settings()
         
-        # Initialize OpenAI client - Azure OpenAI doesn't use api_version with AsyncOpenAI
-        self.openai_client = AsyncOpenAI(
+        # Initialize Azure OpenAI client
+        self.openai_client = AsyncAzureOpenAI(
             api_key=settings.azure_openai_api_key,
-            base_url=settings.azure_openai_endpoint
+            azure_endpoint=settings.azure_openai_endpoint,
+            api_version=settings.azure_openai_api_version
         )
         
         self.model_name = settings.azure_openai_deployment_name
