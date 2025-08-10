@@ -1083,6 +1083,57 @@ async def delete_document(
         raise HTTPException(status_code=500, detail=f"Deletion failed: {str(e)}")
 
 
+@router.delete("/cleanup-duplicates/{project_id}")
+async def cleanup_duplicate_folders(
+    project_id: str,
+    storage_client: BlobServiceClient = Depends(get_storage_client)
+) -> JSONResponse:
+    """
+    Clean up duplicate folders that exist outside the correct SharePoint structure.
+    Specifically removes 01 Fees & Invoice, 02 Quality Assurance, and 03 RFI from top level,
+    keeping only the versions inside 01 Admin Documents.
+    """
+    try:
+        logger.info(f"Cleaning up duplicate folders for project {project_id}")
+        
+        container_client = storage_client.get_container_client(settings.azure_storage_container)
+        blobs = container_client.list_blobs(name_starts_with=f"Projects/219/{project_id}/")
+        
+        # Patterns for duplicate folders that should be removed
+        duplicate_patterns = [
+            f"Projects/219/{project_id}/01 Fees & Invoice/",
+            f"Projects/219/{project_id}/02 Quality Assurance/",  
+            f"Projects/219/{project_id}/03 RFI/"
+        ]
+        
+        deleted_files = []
+        for blob in blobs:
+            for pattern in duplicate_patterns:
+                if blob.name.startswith(pattern):
+                    blob_client = storage_client.get_blob_client(
+                        container=settings.azure_storage_container,
+                        blob=blob.name
+                    )
+                    blob_client.delete_blob()
+                    deleted_files.append(blob.name)
+                    logger.info(f"Deleted duplicate file: {blob.name}")
+                    break
+        
+        logger.info(f"Cleaned up {len(deleted_files)} duplicate files for project {project_id}")
+        
+        return JSONResponse({
+            "status": "cleaned",
+            "project_id": project_id,
+            "deleted_count": len(deleted_files),
+            "deleted_files": deleted_files,
+            "message": f"Removed {len(deleted_files)} duplicate files from wrong standalone locations"
+        })
+        
+    except Exception as e:
+        logger.error(f"Failed to clean duplicates for project {project_id}", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Cleanup failed: {str(e)}")
+
+
 @router.post("/test-sync")
 async def test_sync_endpoint(
     path: Optional[str] = Query(None, description="Test path parameter")
@@ -1609,6 +1660,7 @@ async def auto_sync_changes(
     except Exception as e:
         logger.error("Auto-sync failed", error=str(e))
         raise HTTPException(status_code=500, detail=f"Auto-sync failed: {str(e)}")
+
 
 
 @router.get("/test-changes")
