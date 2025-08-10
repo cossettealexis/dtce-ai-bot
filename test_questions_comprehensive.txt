@@ -1,0 +1,93 @@
+# AI Chatbot Test Questions
+
+## Project-Specific Questions
+What files are in project 219200?
+Tell me about project 219200
+What documents are available for project 219200?
+List all files in the 219200 project folder
+What is the status of project 219200?
+
+## Folder Structure Questions
+What files are in the 01 Fees & Invoice folder?
+What files are in the 01 Fees & Invoice folder for project 219200?
+What's in the 02 Quality Assurance folder?
+What documents are in the 03 RFI folder?
+Show me the contents of the 01 Admin Documents folder
+What folders exist under project 219200?
+
+## Email-Specific Questions
+What emails are in project 219200?
+Show me all email communications for project 219200
+What email was sent on January 7, 2019?
+Who sent emails to DMT about this project?
+What was the last email about project 219200?
+
+## Document Type Questions
+What PDF files are in the system?
+Show me all Word documents
+What email messages (.msg files) are available?
+List all document types in project 219200
+
+## Content-Based Questions
+What does the brief email say?
+What was the initial communication about?
+Why did the project not proceed?
+What was discussed in the DMT emails?
+What are the key points from project 219200 communications?
+
+## General Search Questions
+Find documents related to DMT
+Search for files containing "brief"
+What documents mention "proceeding"?
+Find all files from January 2019
+Search for documents about not proceeding
+
+## Specific File Questions
+Tell me about the file "19 01 07 MH to DMT brief.msg"
+What's in the "19 04 08 SL to DMT not proceeding.msg" file?
+Show me details of the initial email from SL to DMT
+
+## Date-Based Questions
+What files were created in January 2019?
+Show me documents from April 2019
+What communications happened in 2019?
+List files by date for project 219200
+
+## People/Sender Questions
+What emails did MH send?
+Show me communications from SL
+Who was involved in project 219200 communications?
+What messages were sent to DMT?
+
+## Negative/No Results Questions (to test how AI handles empty results)
+What files are in project 999999?
+Show me documents in the Photos folder
+What's in the Archive folder?
+Find documents about project ABC123
+
+## Complex Questions
+Compare the initial email with the final email about not proceeding
+What was the timeline of communications for project 219200?
+Summarize the email thread between SL and DMT
+What can you tell me about the decision not to proceed with project 219200?
+
+## Testing AI Limitations
+What is the weather today? (should say it can only answer about documents)
+How do I cook pasta? (should redirect to document-based queries)
+What's the meaning of life? (should indicate it only works with uploaded documents)
+
+---
+
+## How to Test:
+Use this format to test each question:
+curl -X POST "http://localhost:8000/documents/ask?question=YOUR_QUESTION_HERE" | jq '.answer'
+
+Or for full response with sources:
+curl -X POST "http://localhost:8000/documents/ask?question=YOUR_QUESTION_HERE" | jq
+
+## Expected Behaviors:
+- Should find relevant documents when they exist
+- Should give honest "I cannot find" answers when no relevant docs exist
+- Should cite sources with blob URLs
+- Should focus only on document content
+- Should handle typos and variations in questions gracefully

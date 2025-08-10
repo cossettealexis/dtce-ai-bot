@@ -255,9 +255,9 @@ async def index_document(
                 
         except Exception as e:
             logger.warning("Text extraction failed, indexing without content", error=str(e))
-            # For unsupported file types like .msg, create basic metadata
+            # For unsupported file types, create basic metadata
             file_extension = os.path.splitext(blob_name)[1].lower()
-            if file_extension in ['.msg', '.eml']:
+            if file_extension in ['.eml']:  # Removed .msg since we now support it
                 extraction_data = {
                     "extracted_text": f"Email document: {metadata.get('original_filename', blob_name)}",
                     "file_type": "email",

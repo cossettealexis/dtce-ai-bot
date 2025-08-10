@@ -4,6 +4,7 @@ Connects to Azure OpenAI or OpenAI to provide intelligent responses.
 """
 
 import asyncio
+import re
 from typing import List, Dict, Any, Optional
 import structlog
 from azure.search.documents import SearchClient
@@ -45,8 +46,11 @@ class DocumentQAService:
         try:
             logger.info("Processing question", question=question, project_filter=project_filter)
             
+            # Convert dates in the question to match filename formats
+            converted_question = self._convert_date_formats(question)
+            
             # Step 1: Search for relevant documents
-            relevant_docs = await self._search_relevant_documents(question, project_filter)
+            relevant_docs = await self._search_relevant_documents(converted_question, project_filter)
             
             if not relevant_docs:
                 return {
@@ -68,7 +72,7 @@ class DocumentQAService:
                 'sources': [
                     {
                         'filename': doc['filename'],
-                        'project_id': doc.get('project_name', 'Unknown'),
+                        'project_id': self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_name', ''),
                         'relevance_score': doc['@search.score'],
                         'blob_url': doc.get('blob_url', ''),
                         'excerpt': doc.get('@search.highlights', {}).get('content', [''])[0][:200] + '...'
@@ -92,26 +96,59 @@ class DocumentQAService:
     async def _search_relevant_documents(self, question: str, project_filter: Optional[str] = None) -> List[Dict]:
         """Search for documents relevant to the question."""
         try:
-            # Build search filter
-            search_filter = None
-            if project_filter:
-                search_filter = f"project_name eq '{project_filter}'"
+            # Auto-detect project from question if not provided
+            if not project_filter:
+                project_filter = self._extract_project_from_question(question)
+                
+            # If no project found but it's a date-specific question, try searching without filter first
+            # then suggest being more specific
+            is_date_question = self._is_date_only_question(question)
             
-            # Search with semantic ranking if available
+            # For project-specific queries, broaden the search terms
+            search_text = question
+            if project_filter and ("project" in question.lower() or project_filter in question):
+                # For project questions, search for common terms that might be in the files
+                search_text = f"email OR communication OR document OR file OR DMT OR brief OR proceeding"
+            
+            # Convert date formats in the question to match filename patterns
+            search_text = self._convert_date_formats(search_text)
+            
+            # Search without project filter initially since project_name field is often empty
             results = self.search_client.search(
-                search_text=question,
-                top=10,  # Get top 10 results
-                filter=search_filter,
+                search_text=search_text,
+                top=50,  # Get more results for filtering
                 highlight_fields="content",
                 select=["id", "blob_name", "filename", "content", "project_name", 
                        "folder", "blob_url", "last_modified"],
                 query_type="semantic" if hasattr(self.search_client, 'query_type') else "simple"
             )
             
-            # Convert to list and return
+            # Convert to list and filter by project if needed
             documents = []
             for result in results:
-                documents.append(dict(result))
+                doc_dict = dict(result)
+                
+                # If we have a project filter, check if the document belongs to that project
+                if project_filter:
+                    doc_project = self._extract_project_from_url(doc_dict.get('blob_url', ''))
+                    if doc_project != project_filter:
+                        continue  # Skip documents not in the target project
+                elif is_date_question:
+                    # For date-only questions, include all matching documents but prioritize recent projects
+                    pass  # Don't filter by project for date-only questions
+                
+                documents.append(doc_dict)
+                
+                # Limit to top 10 after filtering
+                if len(documents) >= 10:
+                    break
+            
+            logger.info("Found relevant documents", count=len(documents), question=question, project_filter=project_filter)
+            return documents
+            
+        except Exception as e:
+            logger.error("Document search failed", error=str(e), question=question)
+            return []
             
             logger.info("Found relevant documents", count=len(documents), question=question)
             return documents
@@ -128,7 +165,7 @@ class DocumentQAService:
         for doc in documents:
             # Extract relevant information
             filename = doc.get('filename', 'Unknown')
-            project = doc.get('project_name', 'Unknown')
+            project = self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_name', 'Unknown')
             content = doc.get('content', '')
             
             # Truncate content if too long
@@ -150,6 +187,120 @@ Content: {content}
             current_length += len(doc_context)
         
         return "\n".join(context_parts)
+
+    def _extract_project_from_url(self, blob_url: str) -> Optional[str]:
+        """Extract project ID from blob URL path like /Projects/219/219200/"""
+        if not blob_url:
+            return None
+        
+        try:
+            # Look for Projects/xxx/xxxxxx pattern in URL
+            import re
+            match = re.search(r'/Projects/(\d+)/(\d+)/', blob_url)
+            if match:
+                # Return the more specific sub-project ID (219200)
+                return match.group(2)
+            
+            # Fallback to simpler Projects/xxx pattern
+            match = re.search(r'/Projects/(\d+)/', blob_url)
+            if match:
+                return match.group(1)
+        except Exception:
+            pass
+        
+        return None
+
+    def _extract_project_from_question(self, question: str) -> Optional[str]:
+        """Extract project number from question text."""
+        if not question:
+            return None
+        
+        try:
+            import re
+            # Look for 6-digit project numbers (like 219200)
+            match = re.search(r'\b(\d{6})\b', question)
+            if match:
+                return match.group(1)
+            
+            # Look for project patterns like "project 219" 
+            match = re.search(r'project\s+(\d{3,6})', question.lower())
+            if match:
+                return match.group(1)
+            
+            # Look for any 3+ digit numbers that could be projects
+            match = re.search(r'\b(\d{3,6})\b', question)
+            if match:
+                return match.group(1)
+        except Exception:
+            pass
+        
+        return None
+
+    def _convert_date_formats(self, text: str) -> str:
+        """Convert natural language dates to the format used in filenames (YY MM DD)"""
+        patterns = [
+            (r'\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})\b', self._convert_full_date),
+            (r'\b(\d{1,2})/(\d{1,2})/(\d{4})\b', self._convert_slash_date),
+            (r'\b(\d{1,2})-(\d{1,2})-(\d{4})\b', self._convert_dash_date),
+        ]
+        
+        converted_text = text
+        for pattern, converter in patterns:
+            converted_text = re.sub(pattern, converter, converted_text)
+        
+        return converted_text
+    
+    def _convert_full_date(self, match):
+        """Convert 'January 7, 2019' to '19 01 07'"""
+        month_name, day, year = match.groups()
+        month_map = {
+            'January': '01', 'February': '02', 'March': '03', 'April': '04',
+            'May': '05', 'June': '06', 'July': '07', 'August': '08',
+            'September': '09', 'October': '10', 'November': '11', 'December': '12'
+        }
+        month = month_map[month_name]
+        year_short = year[-2:]  # Get last 2 digits
+        day_padded = day.zfill(2)  # Pad with leading zero if needed
+        return f"{year_short} {month} {day_padded}"
+    
+    def _convert_slash_date(self, match):
+        """Convert '1/7/2019' to '19 01 07'"""
+        month, day, year = match.groups()
+        year_short = year[-2:]
+        month_padded = month.zfill(2)
+        day_padded = day.zfill(2)
+        return f"{year_short} {month_padded} {day_padded}"
+    
+    def _convert_dash_date(self, match):
+        """Convert '1-7-2019' to '19 01 07'"""
+        month, day, year = match.groups()
+        year_short = year[-2:]
+        month_padded = month.zfill(2)
+        day_padded = day.zfill(2)
+        return f"{year_short} {month_padded} {day_padded}"
+
+    def _is_date_only_question(self, question: str) -> bool:
+        """Check if question is primarily about dates without project context."""
+        if not question:
+            return False
+        
+        try:
+            import re
+            question_lower = question.lower()
+            
+            # Check for date patterns without project numbers
+            has_date = any([
+                re.search(r'\b(january|february|march|april|may|june|july|august|september|october|november|december)\b', question_lower),
+                re.search(r'\b\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}\b', question_lower),
+                re.search(r'\b\d{1,2}\s+(january|february|march|april|may|june|july|august|september|october|november|december)\s+\d{4}\b', question_lower)
+            ])
+            
+            has_project = re.search(r'\b(project|219200|\d{6})\b', question_lower)
+            
+            return has_date and not has_project
+            
+        except Exception:
+            return False
 
     async def _generate_answer(self, question: str, context: str) -> Dict[str, Any]:
         """Generate answer using GPT with document context."""

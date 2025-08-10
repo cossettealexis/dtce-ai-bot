@@ -15,6 +15,7 @@ from azure.storage.blob import BlobServiceClient
 import structlog
 import json
 from datetime import datetime
+import extract_msg
 
 logger = structlog.get_logger(__name__)
 
@@ -62,6 +63,9 @@ class EnhancedDocumentExtractor:
                     result = await self._extract_pdf_with_ocr(blob_data, blob_name)
                 elif content_type and any(doc_type in content_type.lower() for doc_type in ['word', 'docx', 'document']):
                     result = await self._extract_office_document(blob_data, blob_name)
+                elif blob_name.lower().endswith('.msg') or (content_type and 'vnd.ms-outlook' in content_type):
+                    # Handle Outlook MSG files
+                    result = await self._extract_msg_file(blob_data, blob_name)
                 elif self._is_unsupported_format(blob_name, content_type):
                     # Handle known unsupported formats gracefully
                     result = self._handle_unsupported_format(blob_name, content_type)
@@ -185,6 +189,76 @@ class EnhancedDocumentExtractor:
             logger.error("Office document extraction failed", blob_name=blob_name, error=str(e))
             raise
 
+    async def _extract_msg_file(self, blob_data: bytes, blob_name: str) -> Dict[str, Any]:
+        """Extract content from Outlook MSG files using extract-msg library."""
+        try:
+            logger.info("Extracting MSG file content", blob_name=blob_name)
+            
+            # Save blob data to temporary file since extract-msg works with files
+            with tempfile.NamedTemporaryFile(suffix='.msg', delete=False) as temp_file:
+                temp_file.write(blob_data)
+                temp_file_path = temp_file.name
+            
+            try:
+                # Extract MSG content
+                msg = extract_msg.Message(temp_file_path)
+                
+                # Build extracted text from MSG components
+                text_parts = []
+                
+                # Add subject
+                if msg.subject:
+                    text_parts.append(f"Subject: {msg.subject}")
+                
+                # Add sender
+                if msg.sender:
+                    text_parts.append(f"From: {msg.sender}")
+                
+                # Add recipients
+                if msg.to:
+                    text_parts.append(f"To: {msg.to}")
+                if msg.cc:
+                    text_parts.append(f"CC: {msg.cc}")
+                
+                # Add date
+                if msg.date:
+                    text_parts.append(f"Date: {msg.date}")
+                
+                # Add body content
+                if msg.body:
+                    text_parts.append("Content:")
+                    text_parts.append(msg.body)
+                
+                # Combine all parts
+                extracted_text = "\n\n".join(text_parts)
+                
+                return {
+                    'extracted_text': extracted_text.strip(),
+                    'character_count': len(extracted_text.strip()),
+                    'extraction_method': 'msg_parser',
+                    'subject': msg.subject or '',
+                    'sender': msg.sender or '',
+                    'recipients': msg.to or '',
+                    'date': str(msg.date) if msg.date else ''
+                }
+                
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+                    
+        except Exception as e:
+            logger.error("MSG file extraction failed", blob_name=blob_name, error=str(e))
+            # Fallback to basic metadata
+            return {
+                'extracted_text': f"Email message file: {os.path.basename(blob_name)}",
+                'character_count': 0,
+                'extraction_method': 'msg_parser_failed',
+                'note': f"MSG extraction failed: {str(e)}"
+            }
+
     async def _extract_with_form_recognizer(self, blob_data: bytes, blob_name: str) -> Dict[str, Any]:
         """Extract text using Form Recognizer's general read model."""
         try:
@@ -251,15 +325,16 @@ class EnhancedDocumentExtractor:
     def _is_unsupported_format(self, blob_name: str, content_type: Optional[str]) -> bool:
         """Check if file format is known to be unsupported by Form Recognizer."""
         file_extension = os.path.splitext(blob_name)[1].lower()
-        unsupported_extensions = {'.msg', '.eml', '.zip', '.rar', '.exe', '.dll', '.bin'}
+        # Remove .msg from unsupported formats since we now handle it
+        unsupported_extensions = {'.eml', '.zip', '.rar', '.exe', '.dll', '.bin'}
         
         # Check by file extension
         if file_extension in unsupported_extensions:
             return True
             
-        # Check by content type
+        # Check by content type (but not for .msg files which we now support)
         if content_type:
-            unsupported_types = {'application/vnd.ms-outlook', 'message/rfc822'}
+            unsupported_types = {'message/rfc822'}  # Removed 'application/vnd.ms-outlook'
             if content_type in unsupported_types:
                 return True
                 

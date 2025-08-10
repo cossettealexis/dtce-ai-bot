@@ -1,0 +1,49 @@
+# Project 219200 Specific Test Questions
+
+## Basic Project Questions
+What files are in project 219200?
+Tell me about project 219200
+What documents are available for project 219200?
+List all files in the 219200 project folder
+
+## Folder Structure Questions (based on SharePoint structure)
+What files are in the 01 Admin Documents folder for project 219200?
+What files are in the 01 Fees & Invoice folder for project 219200?
+What files are in the 02 Quality Assurance folder for project 219200?
+What files are in the 03 RFI folder for project 219200?
+What's in the 02 Emails folder for project 219200?
+
+## Email-Specific Questions (we know these exist)
+What emails are in project 219200?
+Show me all email communications for project 219200
+What email was sent on January 7, 2019?
+Who sent emails to DMT about this project?
+What was the last email about project 219200?
+
+## Specific File Questions (known files)
+Tell me about the file "19 01 07 MH to DMT brief.msg"
+What's in the "19 04 08 SL to DMT not proceeding.msg" file?
+Show me details of the initial email from SL to DMT
+
+## Content-Based Questions
+What does the brief email say?
+What was the initial communication about?
+Why did the project not proceed?
+What was discussed in the DMT emails?
+
+## Quick Test Commands (copy-paste ready):
+
+# Basic project question
+curl -X POST "http://localhost:8000/documents/ask?question=What%20files%20are%20in%20project%20219200" | jq '.answer'
+
+# Email-focused question  
+curl -X POST "http://localhost:8000/documents/ask?question=What%20emails%20are%20in%20project%20219200" | jq '.answer'
+
+# Specific folder question
+curl -X POST "http://localhost:8000/documents/ask?question=What%20files%20are%20in%20the%2002%20Emails%20folder%20for%20project%20219200" | jq '.answer'
+
+# Content question
+curl -X POST "http://localhost:8000/documents/ask?question=Why%20did%20the%20project%20not%20proceed" | jq '.answer'
+
+# Full response with sources to check project_id
+curl -X POST "http://localhost:8000/documents/ask?question=What%20files%20are%20in%20project%20219200" | jq '.sources'

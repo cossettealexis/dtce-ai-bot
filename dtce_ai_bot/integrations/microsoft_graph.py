@@ -1116,19 +1116,45 @@ class MicrosoftGraphClient:
                 # Next part should be a project folder (e.g., "219", "220", etc.)
                 project_part = path_parts[i + 1]
                 if project_part.isdigit() or any(char.isdigit() for char in project_part):
-                    metadata["project_id"] = project_part
-                    metadata["project_folder"] = project_part
+                    # Check if there's a sub-project folder (e.g., Projects/219/219200)
+                    if i + 2 < len(path_parts):
+                        sub_project_part = path_parts[i + 2]
+                        if sub_project_part.isdigit() or any(char.isdigit() for char in sub_project_part):
+                            # Use the more specific sub-project ID
+                            metadata["project_id"] = sub_project_part
+                            metadata["project_folder"] = f"{project_part}/{sub_project_part}"
+                            folder_offset = 3  # Look at path_parts[i + 3] for document type
+                        else:
+                            # No sub-project, use main project
+                            metadata["project_id"] = project_part
+                            metadata["project_folder"] = project_part
+                            folder_offset = 2  # Look at path_parts[i + 2] for document type
+                    else:
+                        # Only main project folder
+                        metadata["project_id"] = project_part
+                        metadata["project_folder"] = project_part
+                        folder_offset = 2
+                    
                     metadata["is_critical_for_search"] = True
                     
                     # Determine document type based on subsequent folder structure
-                    if i + 2 < len(path_parts):
-                        subfolder = path_parts[i + 2].lower()
+                    if i + folder_offset < len(path_parts):
+                        subfolder = path_parts[i + folder_offset].lower()
                         if "fees" in subfolder or "invoice" in subfolder:
                             metadata["document_type"] = "fees_invoices"
                             metadata["folder_category"] = "01_Fees_and_Invoices"
                         elif "email" in subfolder:
                             metadata["document_type"] = "emails"
                             metadata["folder_category"] = "02_Emails"
+                        elif "admin" in subfolder:
+                            metadata["document_type"] = "admin_documents"
+                            metadata["folder_category"] = "01_Admin_Documents"
+                        elif "quality" in subfolder or "assurance" in subfolder:
+                            metadata["document_type"] = "quality_assurance"
+                            metadata["folder_category"] = "02_Quality_Assurance"
+                        elif "rfi" in subfolder:
+                            metadata["document_type"] = "rfi"
+                            metadata["folder_category"] = "03_RFI"
                         elif "internal" in subfolder or "review" in subfolder:
                             metadata["document_type"] = "internal_review"
                             metadata["folder_category"] = "03_For_internal_review"
