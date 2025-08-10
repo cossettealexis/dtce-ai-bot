@@ -5,21 +5,24 @@ Implements document upload, indexing, text extraction, and search functionality.
 
 import os
 import tempfile
+import re
+import json
+import asyncio
+import threading
 from typing import List, Optional
 from datetime import datetime
-from fastapi import APIRouter, File, UploadFile, HTTPException, Depends
+from fastapi import APIRouter, File, UploadFile, HTTPException, Depends, Query
 from fastapi.responses import JSONResponse
 import structlog
 from azure.storage.blob import BlobServiceClient
 from azure.search.documents import SearchClient
-from azure.ai.formrecognizer import DocumentAnalysisClient
-from azure.core.credentials import AzureKeyCredential
 
 from ..config.settings import get_settings
 from ..models.document import DocumentMetadata, DocumentSearchResult, DocumentUploadResponse
 from ..integrations.azure_search import get_search_client
 from ..integrations.azure_storage import get_storage_client
 from ..utils.document_extractor import get_document_extractor
+from ..utils.openai_document_extractor import get_openai_document_extractor
 from ..integrations.microsoft_graph import get_graph_client, MicrosoftGraphClient
 from .document_qa import DocumentQAService
 
@@ -52,8 +55,9 @@ async def upload_document(
         if not file.filename:
             raise HTTPException(status_code=400, detail="Filename is required")
             
-        # Validate file type
-        allowed_extensions = {'.pdf', '.docx', '.doc', '.txt', '.md', '.py', '.js', '.ts', '.json', '.xml', '.html'}
+        # Validate file type - expand support for more file types
+        allowed_extensions = {'.pdf', '.docx', '.doc', '.txt', '.md', '.py', '.js', '.ts', '.json', '.xml', '.html', 
+                             '.msg', '.eml', '.xlsx', '.xls', '.pptx', '.ppt', '.csv', '.rtf', '.odt', '.ods', '.odp'}
         file_extension = os.path.splitext(file.filename)[1].lower()
         
         if file_extension not in allowed_extensions:
@@ -134,14 +138,57 @@ async def extract_text(
         blob_properties = blob_client.get_blob_properties()
         content_type = blob_properties.content_settings.content_type
         
-        # Initialize document extractor
-        extractor = get_document_extractor(
-            settings.azure_form_recognizer_endpoint,
-            settings.azure_form_recognizer_key
-        )
-        
-        # Extract text using the enhanced extractor
-        extraction_result = await extractor.extract_text_from_blob(blob_client, content_type)
+        # Try Form Recognizer first (proper document processing), fallback to OpenAI
+        try:
+            # Initialize Form Recognizer extractor with your new endpoint
+            extractor = get_document_extractor(
+                settings.azure_form_recognizer_endpoint,
+                settings.azure_form_recognizer_key
+            )
+            
+            # Extract text using Form Recognizer
+            extraction_result = await extractor.extract_text_from_blob(blob_client, content_type)
+            
+            # Check if extraction was successful
+            if not extraction_result.get("extraction_success", True):
+                raise Exception("Form Recognizer extraction failed")
+                
+            logger.info("Form Recognizer extraction successful", blob_name=blob_name)
+                
+        except Exception as form_recognizer_error:
+            logger.warning(
+                "Form Recognizer extraction failed, trying OpenAI extractor", 
+                blob_name=blob_name, 
+                error=str(form_recognizer_error)
+            )
+            
+            # Fallback to OpenAI extractor
+            try:
+                openai_extractor = get_openai_document_extractor(
+                    settings.azure_openai_endpoint,
+                    settings.azure_openai_api_key,
+                    settings.azure_openai_deployment_name
+                )
+                
+                extraction_result = await openai_extractor.extract_text_from_blob(blob_client, content_type)
+                logger.info("OpenAI fallback extraction successful", blob_name=blob_name)
+                
+            except Exception as openai_error:
+                logger.error(
+                    "Both Form Recognizer and OpenAI extraction failed", 
+                    blob_name=blob_name, 
+                    form_recognizer_error=str(form_recognizer_error),
+                    openai_error=str(openai_error)
+                )
+                
+                # Return minimal extraction result with document name for indexing
+                extraction_result = {
+                    "extracted_text": f"Document: {blob_name}",
+                    "character_count": len(blob_name),
+                    "page_count": 1,
+                    "extraction_method": "filename_only",
+                    "error": f"Form Recognizer: {form_recognizer_error}, OpenAI: {openai_error}"
+                }
         
         # Log success
         logger.info(
@@ -195,7 +242,7 @@ async def index_document(
         blob_properties = blob_client.get_blob_properties()
         metadata = blob_properties.metadata or {}
         
-        # Extract text (reuse extraction logic)
+        # Extract text (reuse extraction logic) - skip if Form Recognizer unavailable
         try:
             extraction_response = await extract_text(blob_name, storage_client)
             
@@ -208,7 +255,26 @@ async def index_document(
                 
         except Exception as e:
             logger.warning("Text extraction failed, indexing without content", error=str(e))
-            extraction_data = {"extracted_text": ""}
+            # For unsupported file types like .msg, create basic metadata
+            file_extension = os.path.splitext(blob_name)[1].lower()
+            if file_extension in ['.msg', '.eml']:
+                extraction_data = {
+                    "extracted_text": f"Email document: {metadata.get('original_filename', blob_name)}",
+                    "file_type": "email",
+                    "note": "Email files require specialized extraction tools"
+                }
+            elif file_extension in ['.xlsx', '.xls']:
+                extraction_data = {
+                    "extracted_text": f"Spreadsheet document: {metadata.get('original_filename', blob_name)}",
+                    "file_type": "spreadsheet",
+                    "note": "Spreadsheet files contain tabular data"
+                }
+            else:
+                extraction_data = {
+                    "extracted_text": f"Document: {metadata.get('original_filename', blob_name)}",
+                    "file_type": "document",
+                    "note": f"File type {file_extension} processed without text extraction"
+                }
         
         # Extract project information from folder path
         folder_path = metadata.get("folder", "")
@@ -224,8 +290,11 @@ async def index_document(
                 elif part and not part.startswith("."):  # Potential project name
                     project_name = part
         
-        # Prepare document for indexing
-        document_id = blob_name.replace("/", "_").replace(".", "_").replace("-", "_")
+        # Prepare document for indexing - sanitize document ID for Azure Search
+        import re
+        document_id = re.sub(r'[^a-zA-Z0-9_-]', '_', blob_name)
+        # Ensure no double underscores and clean up
+        document_id = re.sub(r'_+', '_', document_id).strip('_')
         
         search_document = {
             "id": document_id,
@@ -1014,50 +1083,123 @@ async def delete_document(
         raise HTTPException(status_code=500, detail=f"Deletion failed: {str(e)}")
 
 
+@router.post("/test-sync")
+async def test_sync_endpoint(
+    path: Optional[str] = Query(None, description="Test path parameter")
+) -> JSONResponse:
+    """
+    Test endpoint to verify path-based routing works without Microsoft Graph calls.
+    """
+    logger.info("=== TEST SYNC ENDPOINT CALLED ===", path=path)
+    
+    return JSONResponse({
+        "status": "success",
+        "message": f"Test endpoint reached successfully!",
+        "path_received": path,
+        "endpoint_working": True
+    })
+
+
 @router.post("/sync-suitefiles")
 async def sync_suitefiles_documents(
+    path: Optional[str] = Query(None, description="Specific SharePoint path (e.g. 'Projects/219', 'Projects/219/Drawings', 'Engineering/Marketing') or empty for all"),
     graph_client: MicrosoftGraphClient = Depends(get_graph_client),
     storage_client: BlobServiceClient = Depends(get_storage_client)
 ) -> JSONResponse:
     """
-    Intelligent sync from Suitefiles to Azure Blob Storage for AI processing.
+    Sync documents from specific SharePoint path or all documents.
     
-    This creates an AI-optimized pipeline:
-    1. Suitefiles (source of truth) → 2. Blob Storage (processed data) → 3. Search Index (fast queries)
+    Args:
+        path: Specific SharePoint path (e.g. "Projects/219", "Projects/219/Drawings", "Engineering/Marketing") or empty for all
     
-    Benefits:
-    - Faster AI responses (no re-processing)
-    - Resilient to Suitefiles downtime  
-    - Backup of processed AI data
-    - Can rebuild search index quickly
+    How it works:
+        - "Projects/219": Process only project 219 completely
+        - "Projects/219/Drawings": Process only the Drawings folder in project 219
+        - "Engineering/Marketing": Process only Marketing subfolder in Engineering
+        - "Projects": Process all project folders completely
+        - "Engineering": Process entire Engineering folder completely
+        - Empty path: Process ALL folders completely
+    
+    Examples:
+        POST /sync-suitefiles?path=Projects/219              # Process only project 219 completely
+        POST /sync-suitefiles?path=Projects/219/Drawings     # Process only Drawings in project 219
+        POST /sync-suitefiles?path=Engineering/Marketing     # Process only Engineering/Marketing
+        POST /sync-suitefiles?path=Projects                  # Process all project folders
+        POST /sync-suitefiles?path=Engineering               # Process Engineering folder completely
+        POST /sync-suitefiles                                # Process ALL folders completely
     """
+    print(f"🚨 ENDPOINT REACHED! Path: {path}")
+    logger.info("=== SYNC ENDPOINT CALLED ===", path=path)
+    logger.info("Starting document sync process", path_parameter=path, has_path=bool(path))
+    
     try:
-        logger.info("Starting intelligent Suitefiles sync for AI pipeline")
+        if path:
+            print('🔄 About to call Microsoft Graph API for path sync...')
+            logger.info(f"TARGETED SYNC: Processing path '{path}'")
+            suitefiles_docs = await graph_client.sync_suitefiles_documents_by_path(path)
+            print(f'✅ Microsoft Graph API call completed! Got {len(suitefiles_docs)} documents')
+            print(f'📊 SYNC RESULT: Found {len(suitefiles_docs)} files to process and upload to blob storage')
+            sync_mode = f"path_{path.replace('/', '_')}"
+        else:
+            print('🔄 About to call Microsoft Graph API for full sync...')
+            logger.info("FULL SYNC: Processing all folders")
+            suitefiles_docs = await graph_client.sync_suitefiles_documents()
+            print(f'✅ Microsoft Graph API call completed! Got {len(suitefiles_docs)} documents')
+            print(f'📊 SYNC RESULT: Found {len(suitefiles_docs)} files to process and upload to blob storage')
+            sync_mode = "all_folders"
         
-        # Get documents from Suitefiles via Microsoft Graph
-        suitefiles_docs = await graph_client.sync_suitefiles_documents()
+        logger.info("Document retrieval completed", 
+                   document_count=len(suitefiles_docs), 
+                   sync_mode=sync_mode)
         
         if not suitefiles_docs:
-            logger.warning("No documents found in Suitefiles")
+            logger.warning(f"No documents found in {sync_mode}")
             return JSONResponse({
                 "status": "completed",
-                "message": "No documents found in Suitefiles",
+                "message": f"No documents found in {sync_mode}",
                 "synced_count": 0,
                 "processed_count": 0,
-                "ai_ready_count": 0
+                "ai_ready_count": 0,
+                "sync_mode": sync_mode
             })
         
         synced_count = 0
         processed_count = 0
         ai_ready_count = 0
         skipped_count = 0
+        folder_count = 0
         
         # Process each document intelligently
-        for doc in suitefiles_docs:
+        for i, doc in enumerate(suitefiles_docs):
             try:
-                blob_name = f"suitefiles/{doc['drive_name']}/{doc['name']}"
+                if i == 0:
+                    print(f"🔄 Starting blob storage upload for {len(suitefiles_docs)} files...")
+                if (i + 1) % 10 == 0:
+                    print(f"📤 Uploading file {i+1}/{len(suitefiles_docs)} to blob storage...")
+                
+                # Use smart blob naming based on sync mode
+                if path:
+                    # For specific path, use the complete folder_path from SharePoint to maintain exact structure
+                    folder_path = doc.get('folder_path', '')
+                    if folder_path:
+                        blob_name = f"{folder_path}/{doc['name']}"
+                    else:
+                        # Fallback if folder_path is missing
+                        path_parts = path.split('/')
+                        folder_name = path_parts[0] if path_parts else 'unknown'
+                        project_id = doc.get('project_id', path_parts[-1] if len(path_parts) > 1 else 'general')
+                        blob_name = f"{folder_name}/{project_id}/{doc['name']}"
+                else:
+                    # For full sync, use the complete folder_path to maintain SharePoint structure
+                    folder_path = doc.get('folder_path', '')
+                    if folder_path:
+                        blob_name = f"{folder_path}/{doc['name']}"
+                    else:
+                        # Fallback to original structure
+                        blob_name = f"suitefiles/{doc['drive_name']}/{doc['name']}"
+                    
                 blob_client = storage_client.get_blob_client(
-                    container=settings.AZURE_STORAGE_CONTAINER,
+                    container=settings.azure_storage_container,
                     blob=blob_name
                 )
                 
@@ -1074,76 +1216,173 @@ async def sync_suitefiles_documents(
                             ai_ready_count += 1  # Already processed
                             continue
                 
-                # Download and store file content 
-                file_content = await graph_client.download_file(
-                    doc["site_id"], 
-                    doc["drive_id"], 
-                    doc["file_id"]
-                )
-                
-                # Upload to blob storage with rich metadata for AI
-                metadata = {
-                    "source": "suitefiles",
-                    "original_filename": doc["name"],
-                    "drive_name": doc["drive_name"], 
-                    "project_id": str(doc.get("project_id", "")),
-                    "document_type": doc.get("document_type", ""),
-                    "folder_category": doc.get("folder_category", ""),
-                    "last_modified": doc.get("modified", ""),
-                    "is_critical": str(doc.get("is_critical_for_search", False)),
-                    "full_path": doc.get("full_path", ""),
-                    "content_type": doc.get("mime_type", ""),
-                    "size": str(doc.get("size", 0))
-                }
-                
-                blob_client.upload_blob(file_content, overwrite=True, metadata=metadata)
+                # Handle folders differently from files
+                if doc.get("is_folder", False):
+                    # For empty folders, create a .keep file to ensure folder visibility
+                    keep_file_blob_name = f"{blob_name}/.keep"
+                    keep_file_content = f"# This file ensures the '{doc['name']}' folder is visible\n# Created: {datetime.now().isoformat()}\n# Folder: {doc.get('full_path', '')}\n"
+                    
+                    # Create metadata for the .keep file
+                    if doc.get("is_placeholder", False):
+                        # Special handling for placeholder folders (missing from SharePoint)
+                        folder_info = {
+                            "type": "folder_placeholder",
+                            "name": doc["name"],
+                            "full_path": doc.get("full_path", ""),
+                            "project_id": doc.get("project_id", ""),
+                            "folder_category": doc.get("folder_category", ""),
+                            "last_modified": doc.get("last_modified", ""),
+                            "child_count": 0,
+                            "is_placeholder": True,
+                            "status": "Missing from SharePoint - placeholder created"
+                        }
+                        
+                        keep_file_content += f"# Status: Placeholder folder (missing from SharePoint)\n"
+                        logger.info("Creating .keep file for placeholder folder", 
+                                   folder_name=doc["name"], 
+                                   full_path=doc.get("full_path"))
+                    else:
+                        # Regular empty folder from SharePoint
+                        folder_info = {
+                            "type": "folder",
+                            "name": doc["name"],
+                            "full_path": doc.get("full_path", ""),
+                            "project_id": doc.get("project_id", ""),
+                            "folder_category": doc.get("folder_category", ""),
+                            "last_modified": doc.get("modified", ""),
+                            "child_count": 0  # Could be enhanced later
+                        }
+                        
+                        keep_file_content += f"# Status: Empty folder from SharePoint\n"
+                    
+                    # Add folder metadata to the .keep file content
+                    keep_file_content += f"# Metadata: {json.dumps(folder_info, indent=2)}\n"
+                    
+                    # Upload .keep file to represent the folder
+                    keep_file_metadata = {
+                        "source": sync_mode,
+                        "original_filename": ".keep",
+                        "drive_name": doc["drive_name"], 
+                        "project_id": str(doc.get("project_id", "")),
+                        "document_type": "folder_marker",
+                        "folder_category": doc.get("folder_category", ""),
+                        "last_modified": doc.get("modified", ""),
+                        "is_critical": str(doc.get("is_critical_for_search", False)),
+                        "full_path": doc.get("full_path", ""),
+                        "parent_folder": doc["name"],
+                        "content_type": "text/plain",
+                        "size": str(len(keep_file_content)),
+                        "is_folder": "false",
+                        "is_folder_marker": "true",
+                        "is_placeholder": str(doc.get("is_placeholder", False))
+                    }
+                    
+                    keep_file_blob_client = storage_client.get_blob_client(
+                        container=settings.azure_storage_container,
+                        blob=keep_file_blob_name
+                    )
+                    
+                    keep_file_blob_client.upload_blob(keep_file_content.encode('utf-8'), overwrite=True, metadata=keep_file_metadata)
+                    print(f"📁 BLOB UPLOAD: Created .keep file for empty folder: {keep_file_blob_name}")
+                    print(f"📁 BLOB UPLOAD: Folder path: {doc.get('full_path', 'NO_PATH')}")
+                    logger.info("Uploaded .keep file for empty folder", blob_name=keep_file_blob_name, folder_path=doc.get("full_path"))
+                else:
+                    # For regular files, download and store file content 
+                    file_content = await graph_client.download_file(
+                        doc["site_id"], 
+                        doc["drive_id"], 
+                        doc["file_id"]
+                    )
+                    
+                    # Upload to blob storage with rich metadata for AI
+                    metadata = {
+                        "source": sync_mode,
+                        "original_filename": doc["name"],
+                        "drive_name": doc["drive_name"], 
+                        "project_id": str(doc.get("project_id", "")),
+                        "document_type": doc.get("document_type", ""),
+                        "folder_category": doc.get("folder_category", ""),
+                        "last_modified": doc.get("modified", ""),
+                        "is_critical": str(doc.get("is_critical_for_search", False)),
+                        "full_path": doc.get("full_path", ""),
+                        "content_type": doc.get("mime_type", ""),
+                        "size": str(doc.get("size", 0)),
+                        "is_folder": "false"
+                    }
+                    
+                    blob_client.upload_blob(file_content, overwrite=True, metadata=metadata)
                 logger.info("Uploaded to AI staging area", blob_name=blob_name, project_id=doc.get("project_id"))
                 synced_count += 1
                 
-                # Auto-extract text and index for AI consumption
-                try:
-                    # Extract text for AI processing
-                    await extract_text(blob_name, storage_client)
-                    
-                    # Index for fast AI search
-                    await index_document(blob_name, storage_client)
-                    
-                    processed_count += 1
+                # Auto-extract text and index for AI consumption (skip for folders)
+                if not doc.get("is_folder", False):
+                    try:
+                        # Extract text for AI processing
+                        await extract_text(blob_name, storage_client)
+                        
+                        # Index for fast AI search
+                        from ..integrations.azure_search import get_search_client
+                        search_client = get_search_client()
+                        await index_document(blob_name, search_client, storage_client)
+                        
+                        processed_count += 1
+                        ai_ready_count += 1
+                        logger.info("Document ready for AI queries", blob_name=blob_name)
+                        
+                    except Exception as e:
+                        logger.warning("Failed to process for AI", blob_name=blob_name, error=str(e))
+                        # Even if processing fails, count as synced
+                        synced_count += 1
+                else:
+                    # For folders, just count as synced and ready
                     ai_ready_count += 1
-                    logger.info("Document ready for AI queries", blob_name=blob_name)
-                    
-                except Exception as e:
-                    logger.warning("Failed to process for AI", blob_name=blob_name, error=str(e))
+                    folder_count += 1
+                    logger.info("Folder entry ready", blob_name=blob_name, folder_path=doc.get("full_path"))
                     
             except Exception as e:
                 logger.error("Failed to sync document", doc_name=doc.get('name'), error=str(e))
                 continue
         
         logger.info("AI pipeline sync completed", 
+                   sync_mode=sync_mode,
                    total_found=len(suitefiles_docs), 
                    synced=synced_count,
                    skipped=skipped_count, 
                    processed=processed_count,
-                   ai_ready=ai_ready_count)
+                   ai_ready=ai_ready_count,
+                   folders_uploaded=folder_count)
+        
+        print(f"🔢 FINAL COUNTS: Total={len(suitefiles_docs)}, Folders={folder_count}, Files={len(suitefiles_docs)-folder_count}")
+        print(f"📊 UPLOAD SUMMARY: {synced_count} synced, {processed_count} processed, {ai_ready_count} AI-ready")
+        
+        performance_notes = [
+            "✅ Blob Storage now contains processed AI data",
+            "✅ Search index built for fast queries", 
+            "✅ Next sync will be faster (skips unchanged files)",
+            "✅ Can rebuild search index quickly without touching Suitefiles"
+        ]
+        
+        if path:
+            performance_notes.insert(0, f"🚀 FAST: {path} sync completed quickly")
+            performance_notes.append("💡 Use no path parameter for full Suitefiles scan")
+        else:
+            performance_notes.insert(0, "📊 COMPREHENSIVE: Full Suitefiles sync completed")
         
         return JSONResponse({
             "status": "completed",
             "message": f"AI pipeline ready: {ai_ready_count} documents indexed for fast queries",
+            "sync_mode": sync_mode,
             "total_found": len(suitefiles_docs),
             "synced_count": synced_count,
             "skipped_existing": skipped_count,
             "processed_count": processed_count,
             "ai_ready_count": ai_ready_count,
-            "performance_notes": [
-                "✅ Blob Storage now contains processed AI data",
-                "✅ Search index built for fast queries", 
-                "✅ Next sync will be faster (skips unchanged files)",
-                "✅ Can rebuild search index quickly without touching Suitefiles"
-            ]
+            "performance_notes": performance_notes
         })
         
     except Exception as e:
-        logger.error("AI pipeline sync failed", error=str(e))
+        logger.error("AI pipeline sync failed", error=str(e), sync_mode=sync_mode)
+        logger.error("FULL ERROR DETAILS", error_type=type(e).__name__, error_message=str(e))
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
 
 

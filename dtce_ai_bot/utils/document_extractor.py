@@ -62,6 +62,9 @@ class EnhancedDocumentExtractor:
                     result = await self._extract_pdf_with_ocr(blob_data, blob_name)
                 elif content_type and any(doc_type in content_type.lower() for doc_type in ['word', 'docx', 'document']):
                     result = await self._extract_office_document(blob_data, blob_name)
+                elif self._is_unsupported_format(blob_name, content_type):
+                    # Handle known unsupported formats gracefully
+                    result = self._handle_unsupported_format(blob_name, content_type)
                 else:
                     # Try Form Recognizer for unknown types
                     result = await self._extract_with_form_recognizer(blob_data, blob_name)
@@ -244,6 +247,52 @@ class EnhancedDocumentExtractor:
                 if hasattr(line, 'confidence') and line.confidence is not None:
                     scores.append(line.confidence)
         return scores
+
+    def _is_unsupported_format(self, blob_name: str, content_type: Optional[str]) -> bool:
+        """Check if file format is known to be unsupported by Form Recognizer."""
+        file_extension = os.path.splitext(blob_name)[1].lower()
+        unsupported_extensions = {'.msg', '.eml', '.zip', '.rar', '.exe', '.dll', '.bin'}
+        
+        # Check by file extension
+        if file_extension in unsupported_extensions:
+            return True
+            
+        # Check by content type
+        if content_type:
+            unsupported_types = {'application/vnd.ms-outlook', 'message/rfc822'}
+            if content_type in unsupported_types:
+                return True
+                
+        return False
+
+    def _handle_unsupported_format(self, blob_name: str, content_type: Optional[str]) -> Dict[str, Any]:
+        """Handle unsupported file formats gracefully."""
+        file_extension = os.path.splitext(blob_name)[1].lower()
+        
+        # Create appropriate metadata based on file type
+        if file_extension in ['.msg', '.eml']:
+            extracted_text = f"Email message file: {os.path.basename(blob_name)}"
+            file_type = "email"
+            note = "Email files require specialized extraction tools not currently available"
+        elif file_extension in ['.zip', '.rar']:
+            extracted_text = f"Archive file: {os.path.basename(blob_name)}"
+            file_type = "archive"
+            note = "Archive files contain compressed data"
+        else:
+            extracted_text = f"Unsupported file format: {os.path.basename(blob_name)}"
+            file_type = "unsupported"
+            note = f"File format {file_extension} is not supported for text extraction"
+        
+        return {
+            'extracted_text': extracted_text,
+            'character_count': len(extracted_text),
+            'page_count': 1,
+            'extraction_method': 'unsupported_format_handler',
+            'file_type': file_type,
+            'note': note,
+            'file_extension': file_extension,
+            'content_type': content_type or 'unknown'
+        }
 
     def get_extraction_stats(self) -> Dict[str, Any]:
         """Get statistics about extraction performance (for monitoring)."""
