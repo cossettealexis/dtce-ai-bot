@@ -478,7 +478,7 @@ class MicrosoftGraphClient:
                                     logger.info(f"Processing '{target_folder_name}' completely...")
                                     folder_documents = await self._process_folder_completely_recursive(
                                         site_id, drive_id, target_folder_id, target_folder_name,
-                                        subfolder_filter, 0, 500, drive_name
+                                        subfolder_filter, 0, None, drive_name
                                     )
                                     documents.extend(folder_documents)
                                     logger.info(f"Completed '{target_folder_name}' - Got {len(folder_documents)} documents")
@@ -673,54 +673,13 @@ class MicrosoftGraphClient:
             logger.info(f"⚡ Processing target folder at path '{path}' with smart limits")
             print(f"⚡ SMART SYNC: Processing '{path}' with document limits to ensure completion")
             
-            # CHECK FOR PLACEHOLDER CREATION - Do this BEFORE processing subfolders
+            # NO PLACEHOLDER LOGIC - Just process what actually exists in SharePoint
             documents = []
-            print(f"🔍 PLACEHOLDER CHECK: path='{path}' == 'Projects/219/219200': {path == 'Projects/219/219200'}")
-            if path == "Projects/219/219200":  # Only for the main project folder
-                print(f"🎯 MAIN FOLDER DETECTED: Creating placeholders for missing standard folders")
-                
-                # Get the existing folder items in this directory
-                endpoint = f"sites/{site_id}/drives/{drive_id}/items/{current_folder_id}/children"
-                response = await self._make_request(endpoint)
-                
-                existing_items = response.get("value", [])
-                existing_folder_names = {item.get("name", "") for item in existing_items if "folder" in item}
-                
-                print(f"📊 EXISTING PROJECT FOLDERS: {sorted(existing_folder_names)}")
-                
-                standard_folders = [
-                    "01 Admin Documents", "02 Emails", "03 Phone Records", 
-                    "04 Received", "05 Issued", "06 Calculations", 
-                    "07 Drawings", "08 Reports & Specifications", "09 Photos", "10 Site Visits"
-                ]
-                
-                for standard_folder in standard_folders:
-                    if standard_folder not in existing_folder_names:
-                        print(f"📁 MISSING: Creating placeholder for '{standard_folder}' (not in SharePoint)")
-                        # Create a placeholder folder entry for missing standard folders
-                        placeholder_entry = {
-                            "type": "folder",
-                            "name": standard_folder,
-                            "full_path": f"{path}/{standard_folder}",
-                            "folder_path": path,
-                            "project_id": "219200",
-                            "folder_category": f"Standard_{standard_folder.split()[0]}",
-                            "last_modified": "2025-08-10T18:30:00Z",
-                            "child_count": 0,
-                            "is_folder": True,
-                            "is_placeholder": True,
-                            "site_id": site_id,
-                            "drive_id": drive_id,
-                            "drive_name": drive_name
-                        }
-                        documents.append(placeholder_entry)
-                        print(f"📁 DEBUG: Created PLACEHOLDER folder entry for '{path}/{standard_folder}'")
-                        
-                print(f"✅ PLACEHOLDER CHECK COMPLETE: Created {len(documents)} placeholder folders")
+            print(f"� PROCESSING: Getting ALL actual folders and files from SharePoint path '{path}'")
             
-            # Now process the actual folder contents
+            # Process the actual folder contents
             folder_documents = await self._process_folder_completely_recursive(
-                site_id, drive_id, current_folder_id, path, None, 0, max_documents=200, drive_name=drive_name
+                site_id, drive_id, current_folder_id, path, None, 0, max_documents=None, drive_name=drive_name
             )
             documents.extend(folder_documents)
             
@@ -798,7 +757,7 @@ class MicrosoftGraphClient:
             # Process this ONE project completely - go to the very bottom
             project_path = f"Projects/{project_folder_name}"
             project_docs = await self._process_folder_completely_recursive(
-                site_id, drive_id, project_folder_id, project_path, subfolder_filter, 0, 500, drive_name
+                site_id, drive_id, project_folder_id, project_path, subfolder_filter, 0, None, drive_name
             )
             
             documents.extend(project_docs)
@@ -812,21 +771,18 @@ class MicrosoftGraphClient:
 
     async def _process_folder_completely_recursive(self, site_id: str, drive_id: str, folder_id: str,
                                                   folder_path: str, subfolder_filter: str = None, 
-                                                  depth: int = 0, max_documents: int = 500, drive_name: str = "Unknown") -> List[Dict[str, Any]]:
+                                                  depth: int = 0, max_documents: int = None, drive_name: str = "Unknown") -> List[Dict[str, Any]]:
         """
-        Process a folder completely and recursively with limits to prevent timeouts.
-        This processes files and subfolders but stops at reasonable limits.
+        Process a folder completely and recursively with NO LIMITS.
+        This processes ALL files and subfolders to ensure engineers have access to everything.
         """
         documents = []
         
         try:
             indent = "  " * depth
-            logger.info(f"{indent}Processing folder: {folder_path} (depth {depth}, max_docs: {max_documents})")
+            logger.info(f"{indent}Processing folder: {folder_path} (depth {depth}) - NO LIMITS")
             
-            # Stop if we have enough documents or are too deep
-            if len(documents) >= max_documents or depth > 8:
-                logger.info(f"{indent}Stopping - reached limits (docs: {len(documents)}, depth: {depth})")
-                return documents
+            # NO LIMITS - Process everything the engineers need
             
             # Get ALL items in this folder
             endpoint = f"sites/{site_id}/drives/{drive_id}/items/{folder_id}/children"
@@ -863,10 +819,7 @@ class MicrosoftGraphClient:
             
             # Process files first (they're most important)
             for file_item in files_in_folder:
-                if len(documents) >= max_documents:
-                    logger.info(f"{indent}Reached document limit, stopping file processing")
-                    break
-                    
+                # NO LIMITS - Process ALL files for engineers
                 document = await self._create_document_entry(
                     site_id, drive_id, file_item, folder_path, subfolder_filter, drive_name
                 )
@@ -875,15 +828,8 @@ class MicrosoftGraphClient:
             
             logger.info(f"{indent}Processed {len(files_in_folder)} files in {folder_path}")
             
-            # Process subfolders (limit to prevent endless traversal)
-            processed_subfolders = 0
-            max_subfolders = 20  # Limit subfolders per level
-            
+            # Process ALL subfolders - NO LIMITS for engineers
             for subfolder_item in subfolders_in_folder:
-                if len(documents) >= max_documents or processed_subfolders >= max_subfolders:
-                    logger.info(f"{indent}Stopping subfolder processing - limits reached")
-                    break
-                    
                 subfolder_name = subfolder_item.get("name", "")
                 subfolder_path = f"{folder_path}/{subfolder_name}"
                 
@@ -894,15 +840,13 @@ class MicrosoftGraphClient:
                 
                 logger.info(f"{indent}Going deeper into: {subfolder_name}")
                 
-                # Recursively process this subfolder with remaining document budget
-                remaining_docs = max_documents - len(documents)
+                # Recursively process this subfolder with NO LIMITS
                 subfolder_docs = await self._process_folder_completely_recursive(
                     site_id, drive_id, subfolder_item["id"], subfolder_path,
-                    subfolder_filter, depth + 1, remaining_docs, drive_name
+                    subfolder_filter, depth + 1, None, drive_name
                 )
                 
                 documents.extend(subfolder_docs)
-                processed_subfolders += 1
                 logger.info(f"{indent}Completed subfolder '{subfolder_name}' - got {len(subfolder_docs)} documents")
             
             logger.info(f"{indent}COMPLETED {folder_path} - Total: {len(documents)} documents")
@@ -981,7 +925,7 @@ class MicrosoftGraphClient:
                 
                 folder_docs = await self._process_folder_completely_recursive(
                     site_id, drive_id, folder_item["id"], folder_name,
-                    subfolder_filter, 0, 500, drive_name
+                    subfolder_filter, 0, None, drive_name
                 )
                 
                 documents.extend(folder_docs)
@@ -1237,7 +1181,8 @@ class MicrosoftGraphClient:
 
     def _has_url_problematic_chars(self, folder_name: str) -> bool:
         """Check if folder name has characters that cause URL encoding issues."""
-        problematic_chars = ["#", "###", "%", "&", "+", "=", ":", ";", "?", "[", "]", "{", "}"]
+        # Removed "&" since it's common in folder names like "Fees & Invoice"
+        problematic_chars = ["#", "###", "%", "+", "=", ":", ";", "?", "[", "]", "{", "}"]
         return any(char in folder_name for char in problematic_chars)
 
     def _is_engineering_relevant(self, full_path: str, file_name: str) -> bool:
@@ -1254,6 +1199,78 @@ class MicrosoftGraphClient:
         """
         return False  # Don't skip any folders, include photos too
 
+    async def _get_project_folder_template(self, site_id: str, drive_id: str, current_project_id: str) -> List[str]:
+        """
+        Dynamically analyze other projects to determine what folder structure should exist.
+        This creates a template based on the most common folders found across all projects.
+        """
+        try:
+            print(f"🔍 DYNAMIC ANALYSIS: Analyzing other projects to create folder template for {current_project_id}")
+            
+            # Find the Projects folder
+            projects_folder_id = await self._find_folder_in_root(site_id, drive_id, "Projects")
+            if not projects_folder_id:
+                print("⚠️ No Projects folder found, unable to create template")
+                return []  # Return an empty list if no Projects folder is found
+
+            # Get all project folders
+            projects_response = await self._make_request(f"sites/{site_id}/drives/{drive_id}/items/{projects_folder_id}/children")
+            project_folders = [item for item in projects_response.get("value", []) if "folder" in item]
+
+            folder_frequency = {}
+            projects_analyzed = 0
+
+            print(f"📊 ANALYSIS: Found {len(project_folders)} projects to analyze")
+
+            # Analyze up to 5 other projects to build folder template
+            for project_item in project_folders[:5]:
+                project_name = project_item.get("name", "")
+
+                # Skip the current project
+                if project_name == current_project_id:
+                    continue
+
+                try:
+                    # Get folders in this project
+                    project_response = await self._make_request(f"sites/{site_id}/drives/{drive_id}/items/{project_item['id']}/children")
+                    project_subfolders = [item.get("name", "") for item in project_response.get("value", []) if "folder" in item]
+
+                    print(f"📋 Project {project_name} has folders: {sorted(project_subfolders)}")
+
+                    # Count frequency of each folder
+                    for folder_name in project_subfolders:
+                        if folder_name:  # Skip empty names
+                            folder_frequency[folder_name] = folder_frequency.get(folder_name, 0) + 1
+
+                    projects_analyzed += 1
+
+                except Exception as e:
+                    print(f"⚠️ Failed to analyze project {project_name}: {str(e)}")
+                    continue
+
+            if projects_analyzed == 0:
+                print("⚠️ No projects could be analyzed, unable to create template")
+                return []  # Return an empty list if no projects could be analyzed
+
+            # Create template from folders that appear in at least 50% of projects
+            min_frequency = max(1, projects_analyzed // 2)
+            template_folders = [
+                folder for folder, freq in folder_frequency.items() 
+                if freq >= min_frequency
+            ]
+
+            # Sort template folders naturally
+            template_folders.sort()
+
+            print(f"📋 TEMPLATE CREATED: {len(template_folders)} folders found in {projects_analyzed} projects")
+            print(f"📋 TEMPLATE FOLDERS: {template_folders}")
+
+            return template_folders
+
+        except Exception as e:
+            print(f"❌ Error analyzing projects for template: {str(e)}")
+            return []  # Return an empty list in case of error
+        
 
 async def get_graph_client() -> MicrosoftGraphClient:
     """Dependency injection for Microsoft Graph client."""
