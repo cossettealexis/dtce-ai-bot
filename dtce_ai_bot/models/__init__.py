@@ -1,21 +1,48 @@
 # Models Module
 """
-Data models and schemas.
+Pydantic models for request/response validation.
+Following SOLID principles with proper model separation.
 """
 
-from .document import DocumentMetadata, DocumentUploadResponse, DocumentSearchResult, DocumentIndexRequest
-from .project import ProjectRequestModel, ProjectAnalysisResponse, ProjectCharacteristics, SimilarProject, ProjectAnalysisError
+from .document import (
+    DocumentMetadata,
+    DocumentSearchResult,
+    DocumentUploadResponse
+)
+
+from .project import (
+    ProjectRequestModel,
+    ProjectAnalysisResponse,
+    ProjectCharacteristics,
+    SimilarProject
+)
+
+from .sync_job import (
+    SyncJob,
+    SyncJobStatus,
+    SyncJobRequest,
+    SyncJobProgress,
+    SyncJobResult,
+    SyncJobSummary
+)
 
 __all__ = [
     # Document models
     "DocumentMetadata",
-    "DocumentUploadResponse", 
-    "DocumentSearchResult",
-    "DocumentIndexRequest",
+    "DocumentSearchResult", 
+    "DocumentUploadResponse",
+    
     # Project models
     "ProjectRequestModel",
-    "ProjectAnalysisResponse",
+    "ProjectAnalysisResponse", 
     "ProjectCharacteristics",
-    "SimilarProject", 
-    "ProjectAnalysisError"
+    "SimilarProject",
+    
+    # Sync job models
+    "SyncJob",
+    "SyncJobStatus",
+    "SyncJobRequest",
+    "SyncJobProgress",
+    "SyncJobResult",
+    "SyncJobSummary"
 ]

@@ -19,12 +19,14 @@ from azure.search.documents import SearchClient
 
 from ..config.settings import get_settings
 from ..models.document import DocumentMetadata, DocumentSearchResult, DocumentUploadResponse
+from ..models.sync_job import SyncJob, SyncJobRequest, SyncJobStatus, SyncJobSummary
 from ..integrations.azure_search import get_search_client
 from ..integrations.azure_storage import get_storage_client
 from ..utils.document_extractor import get_document_extractor
 from ..utils.openai_document_extractor import get_openai_document_extractor
 from ..integrations.microsoft_graph import get_graph_client, MicrosoftGraphClient
 from ..services.document_qa import DocumentQAService
+from ..services.sync_job_service import get_sync_job_service
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -1995,6 +1997,236 @@ async def get_suitefiles_drives():
         
     except Exception as e:
         logger.error("Suitefiles test failed", error=str(e))
+        return JSONResponse({
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+
+# =============================================================================
+# ASYNC SYNC JOB ENDPOINTS - NO TIMEOUT SOLUTION FOR MANUAL SYNC
+# =============================================================================
+
+@router.post("/sync-async/start")
+async def start_async_sync(
+    request: SyncJobRequest,
+    graph_client: MicrosoftGraphClient = Depends(get_graph_client),
+    storage_client: BlobServiceClient = Depends(get_storage_client)
+) -> JSONResponse:
+    """
+    Start an async document sync job that runs in the background without timeout.
+    
+    This solves the manual sync timeout problem by:
+    1. Starting the sync job immediately (returns job ID)
+    2. Running the actual sync in background thread
+    3. Allowing progress monitoring via separate endpoint
+    
+    Examples:
+        POST /documents/sync-async/start
+        {
+            "path": "Projects/219",
+            "description": "Sync project 219 documents"
+        }
+        
+        Returns: {"job_id": "abc-123", "status": "running"}
+    """
+    try:
+        sync_service = get_sync_job_service()
+        
+        # Create and start the job
+        job = sync_service.create_job(request)
+        sync_service.start_job(job.job_id, graph_client, storage_client)
+        
+        logger.info("Started async sync job", 
+                   job_id=job.job_id, 
+                   path=request.path)
+        
+        return JSONResponse({
+            "status": "success",
+            "message": "Sync job started successfully",
+            "job_id": job.job_id,
+            "job_status": job.status.value,
+            "description": job.description,
+            "path": job.path,
+            "created_at": job.created_at.isoformat(),
+            "monitor_url": f"/documents/sync-async/status/{job.job_id}",
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error("Failed to start async sync", error=str(e))
+        return JSONResponse({
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+
+@router.get("/sync-async/status/{job_id}")
+async def get_sync_job_status(job_id: str) -> JSONResponse:
+    """
+    Get the status and progress of an async sync job.
+    
+    Returns real-time progress without any timeout limits.
+    Call this endpoint repeatedly to monitor progress.
+    
+    Example:
+        GET /documents/sync-async/status/abc-123
+        
+        Returns: {
+            "job_id": "abc-123",
+            "status": "running",
+            "progress": {
+                "percentage": 45.2,
+                "processed_files": 226,
+                "total_files": 500,
+                "current_file": "project_report.pdf",
+                "estimated_remaining_minutes": 12.5
+            }
+        }
+    """
+    try:
+        sync_service = get_sync_job_service()
+        job = sync_service.get_job(job_id)
+        
+        if not job:
+            return JSONResponse({
+                "status": "error",
+                "error": f"Job {job_id} not found",
+                "timestamp": datetime.utcnow().isoformat()
+            })
+        
+        # Calculate duration
+        duration_minutes = None
+        if job.started_at:
+            end_time = job.completed_at or datetime.utcnow()
+            duration = end_time - job.started_at
+            duration_minutes = duration.total_seconds() / 60
+        
+        response_data = {
+            "status": "success",
+            "job_id": job.job_id,
+            "job_status": job.status.value,
+            "description": job.description,
+            "path": job.path,
+            "created_at": job.created_at.isoformat(),
+            "started_at": job.started_at.isoformat() if job.started_at else None,
+            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+            "duration_minutes": round(duration_minutes, 2) if duration_minutes else None,
+            "progress": {
+                "percentage": round(job.progress.percentage, 1),
+                "total_files": job.progress.total_files,
+                "processed_files": job.progress.processed_files,
+                "successful_files": job.progress.successful_files,
+                "failed_files": job.progress.failed_files,
+                "current_file": job.progress.current_file,
+                "current_operation": job.progress.current_operation,
+                "estimated_remaining_minutes": round(job.progress.estimated_remaining_minutes, 1) if job.progress.estimated_remaining_minutes else None
+            },
+            "timestamp": datetime.utcnow().isoformat()
+        }
+        
+        # Add result data if completed
+        if job.status in [SyncJobStatus.COMPLETED, SyncJobStatus.FAILED] and job.result:
+            response_data["result"] = {
+                "synced_count": job.result.synced_count,
+                "processed_count": job.result.processed_count,
+                "ai_ready_count": job.result.ai_ready_count,
+                "skipped_count": job.result.skipped_count,
+                "error_count": job.result.error_count,
+                "performance_notes": job.result.performance_notes
+            }
+        
+        # Add error message if failed
+        if job.status == SyncJobStatus.FAILED and job.error_message:
+            response_data["error_message"] = job.error_message
+        
+        # Add recent logs
+        response_data["recent_logs"] = job.logs[-5:] if job.logs else []
+        
+        return JSONResponse(response_data)
+        
+    except Exception as e:
+        logger.error("Failed to get sync job status", job_id=job_id, error=str(e))
+        return JSONResponse({
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+
+@router.get("/sync-async/jobs")
+async def list_sync_jobs(limit: int = 20) -> JSONResponse:
+    """
+    List recent sync jobs with their status.
+    
+    Useful for monitoring and troubleshooting sync operations.
+    """
+    try:
+        sync_service = get_sync_job_service()
+        jobs = sync_service.list_jobs(limit)
+        
+        job_summaries = []
+        for job in jobs:
+            duration_minutes = None
+            if job.started_at:
+                end_time = job.completed_at or datetime.utcnow()
+                duration = end_time - job.started_at
+                duration_minutes = duration.total_seconds() / 60
+            
+            job_summaries.append({
+                "job_id": job.job_id,
+                "status": job.status.value,
+                "description": job.description,
+                "path": job.path,
+                "created_at": job.created_at.isoformat(),
+                "progress_percentage": round(job.progress.percentage, 1),
+                "duration_minutes": round(duration_minutes, 2) if duration_minutes else None,
+                "files_processed": f"{job.progress.processed_files}/{job.progress.total_files}"
+            })
+        
+        return JSONResponse({
+            "status": "success",
+            "jobs": job_summaries,
+            "total_jobs": len(job_summaries),
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error("Failed to list sync jobs", error=str(e))
+        return JSONResponse({
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.utcnow().isoformat()
+        })
+
+
+@router.post("/sync-async/cancel/{job_id}")
+async def cancel_sync_job(job_id: str) -> JSONResponse:
+    """
+    Cancel a running sync job.
+    """
+    try:
+        sync_service = get_sync_job_service()
+        success = sync_service.cancel_job(job_id)
+        
+        if success:
+            return JSONResponse({
+                "status": "success",
+                "message": f"Sync job {job_id} cancelled successfully",
+                "job_id": job_id,
+                "timestamp": datetime.utcnow().isoformat()
+            })
+        else:
+            return JSONResponse({
+                "status": "error",
+                "error": f"Could not cancel job {job_id} (not found or not running)",
+                "timestamp": datetime.utcnow().isoformat()
+            })
+        
+    except Exception as e:
+        logger.error("Failed to cancel sync job", job_id=job_id, error=str(e))
         return JSONResponse({
             "status": "error",
             "error": str(e),
