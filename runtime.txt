@@ -1,0 +1,11 @@
+# Build settings
+[build]
+  command = "pip install -r requirements.txt"
+  
+# Runtime settings  
+[runtime]
+  version = "3.11"
+  
+# Application startup
+[app]
+  startup = "python startup.py"

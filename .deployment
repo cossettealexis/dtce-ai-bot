@@ -1,0 +1,31 @@
+# Azure App Service deployment configuration
+
+# Python version (use the version you've been developing with)
+python_version=3.11
+
+# Startup command for Azure App Service
+# This tells Azure how to start your application
+startup_command=python startup.py
+
+# Build commands (run during deployment)
+# Install dependencies and set up the application
+build_commands=pip install -r requirements.txt
+
+# Environment variables that should be set in Azure App Service
+# (These are examples - set actual values in Azure Portal)
+ENVIRONMENT=production
+API_HOST=0.0.0.0
+API_PORT=8000
+
+# Azure service environment variables (set these in Azure App Service Configuration)
+# AZURE_STORAGE_ACCOUNT_NAME=your_storage_account
+# AZURE_STORAGE_ACCOUNT_KEY=your_storage_key
+# AZURE_STORAGE_CONTAINER=your_container
+# AZURE_SEARCH_SERVICE_NAME=your_search_service
+# AZURE_SEARCH_API_KEY=your_search_key
+# AZURE_OPENAI_ENDPOINT=your_openai_endpoint
+# AZURE_OPENAI_API_KEY=your_openai_key
+# AZURE_OPENAI_DEPLOYMENT_NAME=your_deployment_name
+# MICROSOFT_TENANT_ID=your_tenant_id
+# MICROSOFT_CLIENT_ID=your_client_id
+# MICROSOFT_CLIENT_SECRET=your_client_secret
