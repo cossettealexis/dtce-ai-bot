@@ -27,6 +27,7 @@ from ..utils.openai_document_extractor import get_openai_document_extractor
 from ..integrations.microsoft_graph import get_graph_client, MicrosoftGraphClient
 from ..services.document_qa import DocumentQAService
 from ..services.sync_job_service import get_sync_job_service
+from ..services.document_sync_service import get_document_sync_service
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
