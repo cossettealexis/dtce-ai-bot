@@ -308,40 +308,69 @@ Content: {content}
             import time
             start_time = time.time()
             
-            # Prepare system prompt
-            system_prompt = """You are an AI assistant helping engineers find information from project documents. 
-            
-            Your role:
-            - Answer questions based ONLY on the provided document context
-            - Be specific and cite relevant details from the documents
-            - If the context doesn't contain the answer, clearly state that
-            - Focus on engineering-relevant information like specifications, calculations, reports, and project details
-            - Be concise but thorough
-            
-            Context format: Each document includes filename, project, and content.
+            # Prepare enhanced system prompt for comprehensive question answering
+            system_prompt = """You are an advanced AI assistant for DTCE (engineering consultancy) that can answer ALL types of questions using available documentation and professional knowledge.
+
+            YOUR CAPABILITIES:
+            1. DOCUMENT-BASED ANSWERS: Answer questions using the provided document context
+            2. BUSINESS PROCESS GUIDANCE: Provide advice on business processes, procedures, and workflows
+            3. ENGINEERING EXPERTISE: Answer technical engineering questions
+            4. ADMINISTRATIVE SUPPORT: Help with office procedures, software usage, and administrative tasks
+            5. GENERAL PROFESSIONAL ADVICE: Provide reasonable professional guidance when documents don't contain the answer
+
+            QUESTION TYPES YOU HANDLE:
+            - Engineering: specifications, calculations, reports, drawings, project details
+            - Business Processes: WorkflowMax, billing, time entry, invoicing, project management
+            - Administrative: procedures, guidelines, company policies, software usage
+            - Project Management: scheduling, communication, client relations
+            - Financial: fee structures, billing procedures, cost estimation
+            - General Professional: best practices, recommendations, troubleshooting
+
+            RESPONSE STRATEGY:
+            1. PRIMARY: Use document context when available - cite specific documents and details
+            2. SECONDARY: If documents don't contain the answer, provide professional guidance based on:
+               - Industry best practices
+               - Common business procedures
+               - Logical recommendations
+               - Professional experience patterns
+            3. Always be helpful and provide actionable advice
+            4. Clearly indicate whether your answer is from documents or professional guidance
+            5. For business process questions (like WorkflowMax), provide step-by-step guidance
+            6. For technical questions without documentation, suggest where to find the information
+
+            EXAMPLE APPROACHES:
+            - "Based on the documents..." (when using document context)
+            - "While I don't see this specific procedure in your documents, here's the recommended approach..." (professional guidance)
+            - "For WorkflowMax time entry, the standard process is..." (business process guidance)
             """
             
-            # Prepare user prompt
+            # Prepare enhanced user prompt
             user_prompt = f"""
-            Based on the following document context, please answer this question:
-            
             Question: {question}
-            
-            Document Context:
-            {context}
-            
-            Please provide a clear, specific answer based on the documents provided.
+
+            Available Document Context:
+            {context if context.strip() else "No specific documents found for this query."}
+
+            INSTRUCTIONS:
+            - If documents contain relevant information, use them as your primary source and cite specific details
+            - If documents don't contain the answer, provide professional guidance and best practices
+            - For business process questions (WorkflowMax, billing, etc.), provide step-by-step guidance
+            - For technical questions, suggest where to find additional information if needed
+            - Always be helpful and provide actionable advice
+            - Be specific and detailed in your response
+
+            Please provide a comprehensive answer addressing the question above.
             """
             
-            # Call OpenAI/Azure OpenAI
+            # Call OpenAI/Azure OpenAI with enhanced parameters
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=[
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.1,  # Low temperature for factual responses
-                max_tokens=500   # Reasonable limit for answers
+                temperature=0.3,  # Slightly higher for more creative business guidance
+                max_tokens=800   # Increased for more comprehensive answers
             )
             
             answer = response.choices[0].message.content

@@ -188,11 +188,6 @@ class MicrosoftGraphClient:
                         logger.debug("Skipping non-engineering folder", folder_name=folder_name, path=subfolder_path)
                         continue
                     
-                    # Skip folders with URL-problematic names to avoid API errors
-                    if self._has_url_problematic_chars(folder_name):
-                        logger.debug("Skipping folder with problematic characters", folder_name=folder_name)
-                        continue
-                    
                     logger.debug("Exploring subfolder", folder_name=folder_name, path=subfolder_path, depth=current_depth)
                     
                     # Recursively get files from this subfolder
@@ -425,7 +420,7 @@ class MicrosoftGraphClient:
     
     async def sync_suitefiles_documents(self, folders: List[str] = None, subfolder_filter: str = None) -> List[Dict[str, Any]]:
         """
-        Sync documents from Suitefiles with folder-by-folder processing.
+        Sync documents from Suitefiles with folder-by-folder processing and IMMEDIATE UPLOAD.
         
         Args:
             folders: List of specific folders to sync (e.g., ["Projects", "Engineering"])
@@ -436,7 +431,12 @@ class MicrosoftGraphClient:
         """
         try:
             sync_mode = f"targeted ({', '.join(folders)})" if folders else "comprehensive"
-            logger.info(f"Starting {sync_mode} Suitefiles document sync with level-by-level traversal")
+            logger.info(f"Starting {sync_mode} Suitefiles document sync with IMMEDIATE UPLOAD")
+            print(f"🚀 COMPREHENSIVE IMMEDIATE SYNC: All files will be uploaded instantly as they're processed!")
+            
+            # IMMEDIATE UPLOAD MODE - Import storage client
+            from ..integrations.azure_storage import get_storage_client
+            storage_client = get_storage_client()
             
             # Find the Suitefiles site
             suitefiles_site = await self.get_site_by_name("suitefiles")
@@ -459,36 +459,36 @@ class MicrosoftGraphClient:
                 drive_id = drive["id"]
                 drive_name = drive.get("name", "Unknown")
                         
-                logger.info(f"Processing drive for level-by-level scan", drive_id=drive_id, name=drive_name)
+                logger.info(f"Processing drive for immediate upload scan", drive_id=drive_id, name=drive_name)
                 
                 try:
                     if folders:
-                        # Process each specified folder one by one, completely
+                        # Process each specified folder one by one, completely with immediate upload
                         for target_folder_name in folders:
-                            logger.info(f"Processing target folder: '{target_folder_name}'")
+                            logger.info(f"Processing target folder: '{target_folder_name}' with immediate upload")
                             
                             if target_folder_name.lower() == "projects":
                                 # Special handling for Projects - process each project folder completely
-                                await self._process_projects_folder_by_folder(site_id, drive_id, documents, subfolder_filter, drive_name)
+                                await self._process_projects_folder_by_folder(site_id, drive_id, documents, subfolder_filter, drive_name, storage_client)
                             else:
                                 # Find and process other folders
                                 target_folder_id = await self._find_folder_in_root(site_id, drive_id, target_folder_name)
                                 
                                 if target_folder_id:
-                                    logger.info(f"Processing '{target_folder_name}' completely...")
+                                    logger.info(f"Processing '{target_folder_name}' completely with immediate upload...")
                                     folder_documents = await self._process_folder_completely_recursive(
                                         site_id, drive_id, target_folder_id, target_folder_name,
-                                        subfolder_filter, 0, None, drive_name
+                                        subfolder_filter, 0, None, drive_name, storage_client, True
                                     )
                                     documents.extend(folder_documents)
                                     logger.info(f"Completed '{target_folder_name}' - Got {len(folder_documents)} documents")
                                 else:
                                     logger.warning(f"Target folder '{target_folder_name}' not found in drive {drive_name}")
                     else:
-                        # Comprehensive scan - process all root folders completely
-                        logger.info(f"Starting comprehensive scan of all folders in drive '{drive_name}'")
+                        # Comprehensive scan - process all root folders completely with immediate upload
+                        logger.info(f"Starting comprehensive scan of all folders in drive '{drive_name}' with immediate upload")
                         folder_documents = await self._process_all_folders_completely(
-                            site_id, drive_id, subfolder_filter
+                            site_id, drive_id, subfolder_filter, drive_name, storage_client
                         )
                         documents.extend(folder_documents)
                     
@@ -673,13 +673,18 @@ class MicrosoftGraphClient:
             logger.info(f"⚡ Processing target folder at path '{path}' with smart limits")
             print(f"⚡ SMART SYNC: Processing '{path}' with document limits to ensure completion")
             
+            # IMMEDIATE UPLOAD MODE - Import storage client here
+            from ..integrations.azure_storage import get_storage_client
+            storage_client = get_storage_client()
+            
             # NO PLACEHOLDER LOGIC - Just process what actually exists in SharePoint
             documents = []
-            print(f"� PROCESSING: Getting ALL actual folders and files from SharePoint path '{path}'")
+            print(f"📤 PROCESSING: Getting ALL actual folders and files from SharePoint path '{path}' with IMMEDIATE UPLOAD")
             
-            # Process the actual folder contents
+            # Process the actual folder contents with immediate upload
             folder_documents = await self._process_folder_completely_recursive(
-                site_id, drive_id, current_folder_id, path, None, 0, max_documents=None, drive_name=drive_name
+                site_id, drive_id, current_folder_id, path, None, 0, max_documents=None, drive_name=drive_name,
+                storage_client=storage_client, immediate_upload=True
             )
             documents.extend(folder_documents)
             
@@ -728,17 +733,123 @@ class MicrosoftGraphClient:
             logger.error(f"Failed to find folder '{folder_name}' in root", error=str(e))
             return None
 
+    async def _upload_document_immediately(self, document: Dict[str, Any], storage_client) -> bool:
+        """
+        Upload a document to blob storage immediately after processing.
+        This provides instant feedback and progress to the user.
+        """
+        try:
+            from ..config.settings import get_settings
+            import json
+            from datetime import datetime
+            
+            settings = get_settings()
+            
+            # Use folder_path to maintain SharePoint structure
+            folder_path = document.get('folder_path', '')
+            if folder_path:
+                blob_name = f"{folder_path}/{document['name']}"
+            else:
+                # Fallback to basic structure
+                blob_name = f"suitefiles/{document['drive_name']}/{document['name']}"
+                
+            blob_client = storage_client.get_blob_client(
+                container=settings.azure_storage_container,
+                blob=blob_name
+            )
+            
+            # Check if already exists and up-to-date
+            if blob_client.exists():
+                properties = blob_client.get_blob_properties()
+                if document.get("modified") and properties.last_modified:
+                    doc_modified = document.get("modified")
+                    blob_modified = properties.last_modified.isoformat()
+                    if doc_modified <= blob_modified:
+                        print(f"⏭️ SKIPPED: {document['name']} (already up-to-date)")
+                        return True
+            
+            # Handle folders vs files differently
+            if document.get("is_folder", False):
+                # Create .keep file for empty folders
+                keep_file_blob_name = f"{blob_name}/.keep"
+                keep_file_content = f"# Folder: {document['name']}\n# Created: {datetime.now().isoformat()}\n# Path: {document.get('full_path', '')}\n"
+                
+                folder_info = {
+                    "type": "folder",
+                    "name": document["name"],
+                    "full_path": document.get("full_path", ""),
+                    "project_id": document.get("project_id", ""),
+                    "folder_category": document.get("folder_category", ""),
+                    "last_modified": document.get("modified", "")
+                }
+                
+                keep_file_content += f"# Metadata: {json.dumps(folder_info, indent=2)}\n"
+                
+                metadata = {
+                    "source": "immediate_sync",
+                    "original_filename": ".keep",
+                    "drive_name": document["drive_name"], 
+                    "project_id": str(document.get("project_id", "")),
+                    "document_type": "folder_marker",
+                    "folder_category": document.get("folder_category", ""),
+                    "last_modified": document.get("modified", ""),
+                    "is_critical": str(document.get("is_critical_for_search", False)),
+                    "full_path": document.get("full_path", ""),
+                    "content_type": "text/plain",
+                    "is_folder_marker": "true"
+                }
+                
+                keep_file_blob_client = storage_client.get_blob_client(
+                    container=settings.azure_storage_container,
+                    blob=keep_file_blob_name
+                )
+                
+                keep_file_blob_client.upload_blob(keep_file_content.encode('utf-8'), overwrite=True, metadata=metadata)
+                
+            else:
+                # Download and upload file content immediately
+                file_content = await self.download_file(
+                    document["site_id"], 
+                    document["drive_id"], 
+                    document["file_id"]
+                )
+                
+                metadata = {
+                    "source": "immediate_sync",
+                    "original_filename": document["name"],
+                    "drive_name": document["drive_name"], 
+                    "project_id": str(document.get("project_id", "")),
+                    "document_type": document.get("document_type", ""),
+                    "folder_category": document.get("folder_category", ""),
+                    "last_modified": document.get("modified", ""),
+                    "is_critical": str(document.get("is_critical_for_search", False)),
+                    "full_path": document.get("full_path", ""),
+                    "content_type": document.get("mime_type", ""),
+                    "size": str(document.get("size", 0)),
+                    "is_folder": "false"
+                }
+                
+                blob_client.upload_blob(file_content, overwrite=True, metadata=metadata)
+            
+            return True
+            
+        except Exception as e:
+            print(f"❌ UPLOAD FAILED: {document.get('name', 'Unknown')} - {str(e)}")
+            logger.error(f"Failed to upload document immediately", doc_name=document.get('name'), error=str(e))
+            return False
+
     async def _process_single_project_completely(self, site_id: str, drive_id: str, 
                                                projects_folder_id: str, project_folder_name: str,
-                                               subfolder_filter: str = None, drive_name: str = "Unknown") -> List[Dict[str, Any]]:
+                                               subfolder_filter: str = None, drive_name: str = "Unknown", storage_client=None) -> List[Dict[str, Any]]:
         """
-        Process ONE project folder completely to the very bottom before moving to next.
+        Process ONE project folder completely to the very bottom before moving to next with immediate upload.
         This processes the entire project folder tree completely.
         """
         documents = []
+        immediate_upload = storage_client is not None
         
         try:
-            logger.info(f"Starting COMPLETE processing of project '{project_folder_name}'")
+            logger.info(f"Starting COMPLETE processing of project '{project_folder_name}' with immediate upload: {immediate_upload}")
             
             # Get the specific project folder
             projects_response = await self._make_request(f"sites/{site_id}/drives/{drive_id}/items/{projects_folder_id}/children")
@@ -754,10 +865,10 @@ class MicrosoftGraphClient:
                 logger.warning(f"Project folder '{project_folder_name}' not found")
                 return []
             
-            # Process this ONE project completely - go to the very bottom
+            # Process this ONE project completely - go to the very bottom with immediate upload
             project_path = f"Projects/{project_folder_name}"
             project_docs = await self._process_folder_completely_recursive(
-                site_id, drive_id, project_folder_id, project_path, subfolder_filter, 0, None, drive_name
+                site_id, drive_id, project_folder_id, project_path, subfolder_filter, 0, None, drive_name, storage_client, immediate_upload
             )
             
             documents.extend(project_docs)
@@ -771,18 +882,17 @@ class MicrosoftGraphClient:
 
     async def _process_folder_completely_recursive(self, site_id: str, drive_id: str, folder_id: str,
                                                   folder_path: str, subfolder_filter: str = None, 
-                                                  depth: int = 0, max_documents: int = None, drive_name: str = "Unknown") -> List[Dict[str, Any]]:
+                                                  depth: int = 0, max_documents: int = None, drive_name: str = "Unknown",
+                                                  storage_client=None, immediate_upload: bool = True) -> List[Dict[str, Any]]:
         """
-        Process a folder completely and recursively with NO LIMITS.
-        This processes ALL files and subfolders to ensure engineers have access to everything.
+        Process a folder completely and recursively with IMMEDIATE UPLOAD.
+        This uploads each file immediately after processing it so you see progress right away!
         """
         documents = []
         
         try:
             indent = "  " * depth
-            logger.info(f"{indent}Processing folder: {folder_path} (depth {depth}) - NO LIMITS")
-            
-            # NO LIMITS - Process everything the engineers need
+            logger.info(f"{indent}Processing folder: {folder_path} (depth {depth}) - IMMEDIATE UPLOAD MODE")
             
             # Get ALL items in this folder
             endpoint = f"sites/{site_id}/drives/{drive_id}/items/{folder_id}/children"
@@ -799,6 +909,7 @@ class MicrosoftGraphClient:
                     subfolders_in_folder.append(item)
             
             logger.info(f"{indent}Found {len(files_in_folder)} files and {len(subfolders_in_folder)} subfolders")
+            print(f"{indent}📂 PROCESSING: {folder_path} - {len(files_in_folder)} files, {len(subfolders_in_folder)} folders")
             
             # CREATE FOLDER ENTRIES for all subfolders (even empty ones)
             for subfolder_item in subfolders_in_folder:
@@ -809,26 +920,40 @@ class MicrosoftGraphClient:
                 if self._should_skip_folder(subfolder_path, subfolder_name):
                     continue
                     
-                # Create a folder entry so it appears in blob storage
+                # Create a folder entry
                 folder_entry = await self._create_folder_entry(
                     site_id, drive_id, subfolder_item, folder_path, drive_name
                 )
                 if folder_entry:
                     documents.append(folder_entry)
-                    print(f"📁 DEBUG: Created folder entry for '{subfolder_path}'")
+                    
+                    # IMMEDIATE UPLOAD for folder if storage_client provided
+                    if immediate_upload and storage_client:
+                        await self._upload_document_immediately(folder_entry, storage_client)
+                        print(f"📁 UPLOADED: Folder {subfolder_path}")
             
-            # Process files first (they're most important)
-            for file_item in files_in_folder:
-                # NO LIMITS - Process ALL files for engineers
-                document = await self._create_document_entry(
-                    site_id, drive_id, file_item, folder_path, subfolder_filter, drive_name
-                )
-                if document:
-                    documents.append(document)
+            # Process files IMMEDIATELY - upload each one right after processing
+            for i, file_item in enumerate(files_in_folder):
+                try:
+                    # Create document entry
+                    document = await self._create_document_entry(
+                        site_id, drive_id, file_item, folder_path, subfolder_filter, drive_name
+                    )
+                    if document:
+                        documents.append(document)
+                        
+                        # IMMEDIATE UPLOAD if storage_client provided
+                        if immediate_upload and storage_client:
+                            await self._upload_document_immediately(document, storage_client)
+                            print(f"📄 UPLOADED: {i+1}/{len(files_in_folder)} - {document['name']} in {folder_path}")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to process file {file_item.get('name', '')}", error=str(e))
+                    continue
             
             logger.info(f"{indent}Processed {len(files_in_folder)} files in {folder_path}")
             
-            # Process ALL subfolders - NO LIMITS for engineers
+            # Process ALL subfolders recursively
             for subfolder_item in subfolders_in_folder:
                 subfolder_name = subfolder_item.get("name", "")
                 subfolder_path = f"{folder_path}/{subfolder_name}"
@@ -840,10 +965,10 @@ class MicrosoftGraphClient:
                 
                 logger.info(f"{indent}Going deeper into: {subfolder_name}")
                 
-                # Recursively process this subfolder with NO LIMITS
+                # Recursively process this subfolder with immediate upload
                 subfolder_docs = await self._process_folder_completely_recursive(
                     site_id, drive_id, subfolder_item["id"], subfolder_path,
-                    subfolder_filter, depth + 1, None, drive_name
+                    subfolder_filter, depth + 1, None, drive_name, storage_client, immediate_upload
                 )
                 
                 documents.extend(subfolder_docs)
@@ -857,9 +982,9 @@ class MicrosoftGraphClient:
             return documents
 
     async def _process_projects_folder_by_folder(self, site_id: str, drive_id: str, 
-                                               documents: List[Dict], subfolder_filter: str = None, drive_name: str = "Unknown"):
+                                               documents: List[Dict], subfolder_filter: str = None, drive_name: str = "Unknown", storage_client=None):
         """
-        Process Projects folder by going through each project folder completely.
+        Process Projects folder by going through each project folder completely with immediate upload.
         Each project is processed to the very bottom before moving to the next.
         """
         try:
@@ -889,7 +1014,7 @@ class MicrosoftGraphClient:
                 
                 # Process this project folder completely to the very bottom
                 project_docs = await self._process_single_project_completely(
-                    site_id, drive_id, projects_folder_id, project_name, subfolder_filter, drive_name
+                    site_id, drive_id, projects_folder_id, project_name, subfolder_filter, drive_name, storage_client
                 )
                 
                 documents.extend(project_docs)
@@ -900,9 +1025,11 @@ class MicrosoftGraphClient:
             logger.error("Failed to process Projects folder by folder", error=str(e))
 
     async def _process_all_folders_completely(self, site_id: str, drive_id: str,
-                                            subfolder_filter: str = None, drive_name: str = "Unknown") -> List[Dict[str, Any]]:
-        """Process all root folders completely - each folder to the very bottom."""
+                                            subfolder_filter: str = None, drive_name: str = "Unknown", 
+                                            storage_client=None) -> List[Dict[str, Any]]:
+        """Process all root folders completely - each folder to the very bottom with immediate upload."""
         documents = []
+        immediate_upload = storage_client is not None
         
         try:
             # Get all root folders
@@ -911,6 +1038,9 @@ class MicrosoftGraphClient:
             
             root_folders = [item for item in root_items if "folder" in item]
             logger.info(f"Found {len(root_folders)} root folders to process completely")
+            
+            if immediate_upload:
+                print(f"🚀 COMPREHENSIVE IMMEDIATE UPLOAD: Processing {len(root_folders)} root folders with instant file uploads!")
             
             # Process each root folder completely
             for i, folder_item in enumerate(root_folders):
@@ -925,7 +1055,7 @@ class MicrosoftGraphClient:
                 
                 folder_docs = await self._process_folder_completely_recursive(
                     site_id, drive_id, folder_item["id"], folder_name,
-                    subfolder_filter, 0, None, drive_name
+                    subfolder_filter, 0, None, drive_name, storage_client, immediate_upload
                 )
                 
                 documents.extend(folder_docs)
@@ -1161,43 +1291,19 @@ class MicrosoftGraphClient:
         """
         folder_path_lower = folder_path.lower()
         folder_name_lower = folder_name.lower()
-        
+
         # Only skip folders that cause technical issues - user wants everything else
         problematic_only = [
             "recycle bin", "$recycle.bin", "system volume information",
             ".git", ".svn", "node_modules"  # Only technical/system folders
         ]
-        
+
         # Check if any problematic pattern is in the folder path
         for pattern in problematic_only:
             if pattern in folder_path_lower:
                 return True
-        
-        # Skip folders with URL-problematic characters that cause API errors
-        if self._has_url_problematic_chars(folder_name):
-            return True
-        
+
         return False  # Don't skip anything else - user wants ALL folders and files
-
-    def _has_url_problematic_chars(self, folder_name: str) -> bool:
-        """Check if folder name has characters that cause URL encoding issues."""
-        # Removed "&" since it's common in folder names like "Fees & Invoice"
-        problematic_chars = ["#", "###", "%", "+", "=", ":", ";", "?", "[", "]", "{", "}"]
-        return any(char in folder_name for char in problematic_chars)
-
-    def _is_engineering_relevant(self, full_path: str, file_name: str) -> bool:
-        """
-        Support ALL files - no filtering based on content or file type.
-        User wants all files to be included in the system.
-        """
-        # Include ALL files - no restrictions
-        return True
-    
-    def _is_photos_folder(self, full_path: str) -> bool:
-        """
-        Support ALL files including photos - user wants everything.
-        """
-        return False  # Don't skip any folders, include photos too
 
     async def _get_project_folder_template(self, site_id: str, drive_id: str, current_project_id: str) -> List[str]:
         """

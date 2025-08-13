@@ -1159,10 +1159,10 @@ async def sync_suitefiles_documents(
 ) -> JSONResponse:
     """
     Sync documents from specific SharePoint path or all documents.
-    
+
     Args:
         path: Specific SharePoint path (e.g. "Projects/219", "Projects/219/Drawings", "Engineering/Marketing") or empty for all
-    
+
     How it works:
         - "Projects/219": Process only project 219 completely
         - "Projects/219/Drawings": Process only the Drawings folder in project 219
@@ -1170,7 +1170,7 @@ async def sync_suitefiles_documents(
         - "Projects": Process all project folders completely
         - "Engineering": Process entire Engineering folder completely
         - Empty path: Process ALL folders completely
-    
+
     Examples:
         POST /sync-suitefiles?path=Projects/219              # Process only project 219 completely
         POST /sync-suitefiles?path=Projects/219/Drawings     # Process only Drawings in project 219
@@ -1179,30 +1179,57 @@ async def sync_suitefiles_documents(
         POST /sync-suitefiles?path=Engineering               # Process Engineering folder completely
         POST /sync-suitefiles                                # Process ALL folders completely
     """
-    print(f"🚨 ENDPOINT REACHED! Path: {path}")
     logger.info("=== SYNC ENDPOINT CALLED ===", path=path)
     logger.info("Starting document sync process", path_parameter=path, has_path=bool(path))
-    
+
     try:
         if path:
-            print('🔄 About to call Microsoft Graph API for path sync...')
-            logger.info(f"TARGETED SYNC: Processing path '{path}'")
+            logger.info(f"TARGETED SYNC WITH IMMEDIATE UPLOAD: Processing path '{path}'")
+            print(f"🚀 IMMEDIATE SYNC: Processing '{path}' with instant upload for immediate progress!")
+            
+            # Use the immediate upload mode - this will upload files as they're processed
             suitefiles_docs = await graph_client.sync_suitefiles_documents_by_path(path)
-            print(f'✅ Microsoft Graph API call completed! Got {len(suitefiles_docs)} documents')
-            print(f'📊 SYNC RESULT: Found {len(suitefiles_docs)} files to process and upload to blob storage')
             sync_mode = f"path_{path.replace('/', '_')}"
+            
+            # Documents are already uploaded! Just return the count
+            logger.info("✅ IMMEDIATE SYNC COMPLETED - All files uploaded during processing!", 
+                       document_count=len(suitefiles_docs), 
+                       sync_mode=sync_mode)
+            
+            return JSONResponse({
+                "status": "completed",
+                "message": f"Immediate sync completed for {path}! All {len(suitefiles_docs)} files uploaded instantly during processing.",
+                "synced_count": len(suitefiles_docs),
+                "processed_count": len(suitefiles_docs),
+                "ai_ready_count": len(suitefiles_docs),
+                "sync_mode": sync_mode,
+                "upload_method": "immediate_during_processing"
+            })
         else:
-            print('🔄 About to call Microsoft Graph API for full sync...')
-            logger.info("FULL SYNC: Processing all folders")
+            logger.info("COMPREHENSIVE SYNC WITH IMMEDIATE UPLOAD: Processing all folders with instant file uploads!")
+            print(f"🚀 COMPREHENSIVE IMMEDIATE SYNC: All files will be uploaded instantly as they're processed!")
             suitefiles_docs = await graph_client.sync_suitefiles_documents()
-            print(f'✅ Microsoft Graph API call completed! Got {len(suitefiles_docs)} documents')
-            print(f'📊 SYNC RESULT: Found {len(suitefiles_docs)} files to process and upload to blob storage')
             sync_mode = "all_folders"
-        
+            
+            # Documents are already uploaded during processing! Just return the count
+            logger.info("✅ COMPREHENSIVE IMMEDIATE SYNC COMPLETED - All files uploaded during processing!", 
+                       document_count=len(suitefiles_docs), 
+                       sync_mode=sync_mode)
+            
+            return JSONResponse({
+                "status": "completed",
+                "message": f"Comprehensive immediate sync completed! All {len(suitefiles_docs)} files uploaded instantly during processing.",
+                "synced_count": len(suitefiles_docs),
+                "processed_count": len(suitefiles_docs),
+                "ai_ready_count": len(suitefiles_docs),
+                "sync_mode": sync_mode,
+                "upload_method": "immediate_during_processing"
+            })
+
         logger.info("Document retrieval completed", 
                    document_count=len(suitefiles_docs), 
                    sync_mode=sync_mode)
-        
+
         if not suitefiles_docs:
             logger.warning(f"No documents found in {sync_mode}")
             return JSONResponse({
@@ -1213,13 +1240,13 @@ async def sync_suitefiles_documents(
                 "ai_ready_count": 0,
                 "sync_mode": sync_mode
             })
-        
+
         synced_count = 0
         processed_count = 0
         ai_ready_count = 0
         skipped_count = 0
         folder_count = 0
-        
+
         # Process each document intelligently
         for i, doc in enumerate(suitefiles_docs):
             try:
@@ -1660,7 +1687,6 @@ async def auto_sync_changes(
     except Exception as e:
         logger.error("Auto-sync failed", error=str(e))
         raise HTTPException(status_code=500, detail=f"Auto-sync failed: {str(e)}")
-
 
 
 @router.get("/test-changes")
