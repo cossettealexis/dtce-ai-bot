@@ -1182,288 +1182,36 @@ async def sync_suitefiles_documents(
         POST /sync-suitefiles?path=Engineering               # Process Engineering folder completely
         POST /sync-suitefiles                                # Process ALL folders completely
     """
-    logger.info("=== SYNC ENDPOINT CALLED ===", path=path)
-    logger.info("Starting document sync process", path_parameter=path, has_path=bool(path))
+    logger.info("Starting synchronous document sync", path=path)
 
     try:
-        if path:
-            logger.info(f"TARGETED SYNC WITH IMMEDIATE UPLOAD: Processing path '{path}'")
-            print(f"🚀 IMMEDIATE SYNC: Processing '{path}' with instant upload for immediate progress!")
-            
-            # Use the immediate upload mode - this will upload files as they're processed
-            suitefiles_docs = await graph_client.sync_suitefiles_documents_by_path(path)
-            sync_mode = f"path_{path.replace('/', '_')}"
-            
-            # Documents are already uploaded! Just return the count
-            logger.info("✅ IMMEDIATE SYNC COMPLETED - All files uploaded during processing!", 
-                       document_count=len(suitefiles_docs), 
-                       sync_mode=sync_mode)
-            
-            return JSONResponse({
-                "status": "completed",
-                "message": f"Immediate sync completed for {path}! All {len(suitefiles_docs)} files uploaded instantly during processing.",
-                "synced_count": len(suitefiles_docs),
-                "processed_count": len(suitefiles_docs),
-                "ai_ready_count": len(suitefiles_docs),
-                "sync_mode": sync_mode,
-                "upload_method": "immediate_during_processing"
-            })
-        else:
-            logger.info("COMPREHENSIVE SYNC WITH IMMEDIATE UPLOAD: Processing all folders with instant file uploads!")
-            print(f"🚀 COMPREHENSIVE IMMEDIATE SYNC: All files will be uploaded instantly as they're processed!")
-            suitefiles_docs = await graph_client.sync_suitefiles_documents()
-            sync_mode = "all_folders"
-            
-            # Documents are already uploaded during processing! Just return the count
-            logger.info("✅ COMPREHENSIVE IMMEDIATE SYNC COMPLETED - All files uploaded during processing!", 
-                       document_count=len(suitefiles_docs), 
-                       sync_mode=sync_mode)
-            
-            return JSONResponse({
-                "status": "completed",
-                "message": f"Comprehensive immediate sync completed! All {len(suitefiles_docs)} files uploaded instantly during processing.",
-                "synced_count": len(suitefiles_docs),
-                "processed_count": len(suitefiles_docs),
-                "ai_ready_count": len(suitefiles_docs),
-                "sync_mode": sync_mode,
-                "upload_method": "immediate_during_processing"
-            })
-
-        logger.info("Document retrieval completed", 
-                   document_count=len(suitefiles_docs), 
-                   sync_mode=sync_mode)
-
-        if not suitefiles_docs:
-            logger.warning(f"No documents found in {sync_mode}")
-            return JSONResponse({
-                "status": "completed",
-                "message": f"No documents found in {sync_mode}",
-                "synced_count": 0,
-                "processed_count": 0,
-                "ai_ready_count": 0,
-                "sync_mode": sync_mode
-            })
-
-        synced_count = 0
-        processed_count = 0
-        ai_ready_count = 0
-        skipped_count = 0
-        folder_count = 0
-
-        # Process each document intelligently
-        for i, doc in enumerate(suitefiles_docs):
-            try:
-                if i == 0:
-                    print(f"🔄 Starting blob storage upload for {len(suitefiles_docs)} files...")
-                if (i + 1) % 10 == 0:
-                    print(f"📤 Uploading file {i+1}/{len(suitefiles_docs)} to blob storage...")
-                
-                # Use smart blob naming based on sync mode
-                if path:
-                    # For specific path, use the complete folder_path from SharePoint to maintain exact structure
-                    folder_path = doc.get('folder_path', '')
-                    if folder_path:
-                        blob_name = f"{folder_path}/{doc['name']}"
-                    else:
-                        # Fallback if folder_path is missing
-                        path_parts = path.split('/')
-                        folder_name = path_parts[0] if path_parts else 'unknown'
-                        project_id = doc.get('project_id', path_parts[-1] if len(path_parts) > 1 else 'general')
-                        blob_name = f"{folder_name}/{project_id}/{doc['name']}"
-                else:
-                    # For full sync, use the complete folder_path to maintain SharePoint structure
-                    folder_path = doc.get('folder_path', '')
-                    if folder_path:
-                        blob_name = f"{folder_path}/{doc['name']}"
-                    else:
-                        # Fallback to original structure
-                        blob_name = f"suitefiles/{doc['drive_name']}/{doc['name']}"
-                    
-                blob_client = storage_client.get_blob_client(
-                    container=settings.azure_storage_container,
-                    blob=blob_name
-                )
-                
-                # Check if already processed (avoid re-downloading)
-                if blob_client.exists():
-                    properties = blob_client.get_blob_properties()
-                    # Compare modification dates
-                    if doc.get("modified") and properties.last_modified:
-                        doc_modified = doc.get("modified")
-                        blob_modified = properties.last_modified.isoformat()
-                        if doc_modified <= blob_modified:
-                            logger.debug("Document already up-to-date in blob storage", blob_name=blob_name)
-                            skipped_count += 1
-                            ai_ready_count += 1  # Already processed
-                            continue
-                
-                # Handle folders differently from files
-                if doc.get("is_folder", False):
-                    # For empty folders, create a .keep file to ensure folder visibility
-                    keep_file_blob_name = f"{blob_name}/.keep"
-                    keep_file_content = f"# This file ensures the '{doc['name']}' folder is visible\n# Created: {datetime.now().isoformat()}\n# Folder: {doc.get('full_path', '')}\n"
-                    
-                    # Create metadata for the .keep file
-                    if doc.get("is_placeholder", False):
-                        # Special handling for placeholder folders (missing from SharePoint)
-                        folder_info = {
-                            "type": "folder_placeholder",
-                            "name": doc["name"],
-                            "full_path": doc.get("full_path", ""),
-                            "project_id": doc.get("project_id", ""),
-                            "folder_category": doc.get("folder_category", ""),
-                            "last_modified": doc.get("last_modified", ""),
-                            "child_count": 0,
-                            "is_placeholder": True,
-                            "status": "Missing from SharePoint - placeholder created"
-                        }
-                        
-                        keep_file_content += f"# Status: Placeholder folder (missing from SharePoint)\n"
-                        logger.info("Creating .keep file for placeholder folder", 
-                                   folder_name=doc["name"], 
-                                   full_path=doc.get("full_path"))
-                    else:
-                        # Regular empty folder from SharePoint
-                        folder_info = {
-                            "type": "folder",
-                            "name": doc["name"],
-                            "full_path": doc.get("full_path", ""),
-                            "project_id": doc.get("project_id", ""),
-                            "folder_category": doc.get("folder_category", ""),
-                            "last_modified": doc.get("modified", ""),
-                            "child_count": 0  # Could be enhanced later
-                        }
-                        
-                        keep_file_content += f"# Status: Empty folder from SharePoint\n"
-                    
-                    # Add folder metadata to the .keep file content
-                    keep_file_content += f"# Metadata: {json.dumps(folder_info, indent=2)}\n"
-                    
-                    # Upload .keep file to represent the folder
-                    keep_file_metadata = {
-                        "source": sync_mode,
-                        "original_filename": ".keep",
-                        "drive_name": doc["drive_name"], 
-                        "project_id": str(doc.get("project_id", "")),
-                        "document_type": "folder_marker",
-                        "folder_category": doc.get("folder_category", ""),
-                        "last_modified": doc.get("modified", ""),
-                        "is_critical": str(doc.get("is_critical_for_search", False)),
-                        "full_path": doc.get("full_path", ""),
-                        "parent_folder": doc["name"],
-                        "content_type": "text/plain",
-                        "size": str(len(keep_file_content)),
-                        "is_folder": "false",
-                        "is_folder_marker": "true",
-                        "is_placeholder": str(doc.get("is_placeholder", False))
-                    }
-                    
-                    keep_file_blob_client = storage_client.get_blob_client(
-                        container=settings.azure_storage_container,
-                        blob=keep_file_blob_name
-                    )
-                    
-                    keep_file_blob_client.upload_blob(keep_file_content.encode('utf-8'), overwrite=True, metadata=keep_file_metadata)
-                    print(f"📁 BLOB UPLOAD: Created .keep file for empty folder: {keep_file_blob_name}")
-                    print(f"📁 BLOB UPLOAD: Folder path: {doc.get('full_path', 'NO_PATH')}")
-                    logger.info("Uploaded .keep file for empty folder", blob_name=keep_file_blob_name, folder_path=doc.get("full_path"))
-                else:
-                    # For regular files, download and store file content 
-                    file_content = await graph_client.download_file(
-                        doc["site_id"], 
-                        doc["drive_id"], 
-                        doc["file_id"]
-                    )
-                    
-                    # Upload to blob storage with rich metadata for AI
-                    metadata = {
-                        "source": sync_mode,
-                        "original_filename": doc["name"],
-                        "drive_name": doc["drive_name"], 
-                        "project_id": str(doc.get("project_id", "")),
-                        "document_type": doc.get("document_type", ""),
-                        "folder_category": doc.get("folder_category", ""),
-                        "last_modified": doc.get("modified", ""),
-                        "is_critical": str(doc.get("is_critical_for_search", False)),
-                        "full_path": doc.get("full_path", ""),
-                        "content_type": doc.get("mime_type", ""),
-                        "size": str(doc.get("size", 0)),
-                        "is_folder": "false"
-                    }
-                    
-                    blob_client.upload_blob(file_content, overwrite=True, metadata=metadata)
-                logger.info("Uploaded to AI staging area", blob_name=blob_name, project_id=doc.get("project_id"))
-                synced_count += 1
-                
-                # Auto-extract text and index for AI consumption (skip for folders)
-                if not doc.get("is_folder", False):
-                    try:
-                        # Extract text for AI processing
-                        await extract_text(blob_name, storage_client)
-                        
-                        # Index for fast AI search
-                        from ..integrations.azure_search import get_search_client
-                        search_client = get_search_client()
-                        await index_document(blob_name, search_client, storage_client)
-                        
-                        processed_count += 1
-                        ai_ready_count += 1
-                        logger.info("Document ready for AI queries", blob_name=blob_name)
-                        
-                    except Exception as e:
-                        logger.warning("Failed to process for AI", blob_name=blob_name, error=str(e))
-                        # Even if processing fails, count as synced
-                        synced_count += 1
-                else:
-                    # For folders, just count as synced and ready
-                    ai_ready_count += 1
-                    folder_count += 1
-                    logger.info("Folder entry ready", blob_name=blob_name, folder_path=doc.get("full_path"))
-                    
-            except Exception as e:
-                logger.error("Failed to sync document", doc_name=doc.get('name'), error=str(e))
-                continue
+        # Use centralized sync service (same logic as async endpoints)
+        sync_service = get_document_sync_service(storage_client)
+        sync_result = await sync_service.sync_documents(
+            graph_client=graph_client,
+            path=path
+        )
         
-        logger.info("AI pipeline sync completed", 
-                   sync_mode=sync_mode,
-                   total_found=len(suitefiles_docs), 
-                   synced=synced_count,
-                   skipped=skipped_count, 
-                   processed=processed_count,
-                   ai_ready=ai_ready_count,
-                   folders_uploaded=folder_count)
-        
-        print(f"🔢 FINAL COUNTS: Total={len(suitefiles_docs)}, Folders={folder_count}, Files={len(suitefiles_docs)-folder_count}")
-        print(f"📊 UPLOAD SUMMARY: {synced_count} synced, {processed_count} processed, {ai_ready_count} AI-ready")
-        
-        performance_notes = [
-            "✅ Blob Storage now contains processed AI data",
-            "✅ Search index built for fast queries", 
-            "✅ Next sync will be faster (skips unchanged files)",
-            "✅ Can rebuild search index quickly without touching Suitefiles"
-        ]
-        
-        if path:
-            performance_notes.insert(0, f"🚀 FAST: {path} sync completed quickly")
-            performance_notes.append("💡 Use no path parameter for full Suitefiles scan")
-        else:
-            performance_notes.insert(0, "📊 COMPREHENSIVE: Full Suitefiles sync completed")
+        logger.info("Synchronous sync completed", 
+                   synced_count=sync_result.synced_count,
+                   processed_count=sync_result.processed_count,
+                   ai_ready_count=sync_result.ai_ready_count)
         
         return JSONResponse({
             "status": "completed",
-            "message": f"AI pipeline ready: {ai_ready_count} documents indexed for fast queries",
-            "sync_mode": sync_mode,
-            "total_found": len(suitefiles_docs),
-            "synced_count": synced_count,
-            "skipped_existing": skipped_count,
-            "processed_count": processed_count,
-            "ai_ready_count": ai_ready_count,
-            "performance_notes": performance_notes
+            "message": f"Sync completed! {sync_result.ai_ready_count} documents ready for AI queries.",
+            "synced_count": sync_result.synced_count,
+            "processed_count": sync_result.processed_count,
+            "ai_ready_count": sync_result.ai_ready_count,
+            "skipped_count": sync_result.skipped_count,
+            "error_count": sync_result.error_count,
+            "folder_count": sync_result.folder_count,
+            "performance_notes": sync_result.performance_notes,
+            "sync_mode": f"path_{path.replace('/', '_')}" if path else "full_sync"
         })
         
     except Exception as e:
-        logger.error("AI pipeline sync failed", error=str(e), sync_mode=sync_mode)
-        logger.error("FULL ERROR DETAILS", error_type=type(e).__name__, error_message=str(e))
+        logger.error("Synchronous sync failed", error=str(e), path=path)
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
 
 
