@@ -1,11 +1,11 @@
-# 🚀 Async Sync Job Usage Guide
+# Async Sync Job Usage Guide
 
 ## Problem Solved
-**Manual sync timeout issue fixed!** No more 504 Gateway Timeout errors when syncing large document sets.
+Manual sync timeout issue fixed. No more 504 Gateway Timeout errors when syncing large document sets.
 
 ## How It Works
 
-### 🎯 **Start Sync Job** (Returns Immediately)
+### Start Sync Job (Returns Immediately)
 ```bash
 curl -X POST "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net/documents/sync-async/start" \
   -H "Content-Type: application/json" \
@@ -26,7 +26,7 @@ curl -X POST "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewe
 }
 ```
 
-### 📊 **Monitor Progress** (No Timeout)
+### Monitor Progress (No Timeout)
 ```bash
 curl "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net/documents/sync-async/status/abc-123-def"
 ```
@@ -51,16 +51,16 @@ curl "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.n
 }
 ```
 
-## 📋 **Usage Examples**
+## Usage Examples
 
-### **Full Sync** (All Documents)
+### Full Sync (All Documents)
 ```bash
 curl -X POST ".../sync-async/start" \
   -H "Content-Type: application/json" \
   -d '{"description": "Full document sync"}'
 ```
 
-### **Project-Specific Sync**
+### Project-Specific Sync
 ```bash
 curl -X POST ".../sync-async/start" \
   -H "Content-Type: application/json" \
@@ -70,7 +70,7 @@ curl -X POST ".../sync-async/start" \
   }'
 ```
 
-### **Engineering Documents Only**
+### Engineering Documents Only
 ```bash
 curl -X POST ".../sync-async/start" \
   -H "Content-Type: application/json" \
@@ -80,40 +80,40 @@ curl -X POST ".../sync-async/start" \
   }'
 ```
 
-## 🎛️ **Management Commands**
+## Management Commands
 
-### **List All Jobs**
+### List All Jobs
 ```bash
 curl "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net/documents/sync-async/jobs"
 ```
 
-### **Cancel Running Job**
+### Cancel Running Job
 ```bash
 curl -X POST "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net/documents/sync-async/cancel/abc-123-def"
 ```
 
-## 🔍 **Job Status Values**
+## Job Status Values
 
-- **`pending`** - Job created, waiting to start
-- **`running`** - Currently processing documents
-- **`completed`** - Successfully finished
-- **`failed`** - Error occurred during processing
-- **`cancelled`** - Manually cancelled
+- **pending** - Job created, waiting to start
+- **running** - Currently processing documents
+- **completed** - Successfully finished
+- **failed** - Error occurred during processing
+- **cancelled** - Manually cancelled
 
-## ⚡ **Benefits**
+## Benefits
 
-1. **✅ No Timeout Issues** - Start sync and monitor progress separately
-2. **📊 Real-time Progress** - See exactly what's happening
-3. **🔄 Background Processing** - Doesn't block other operations
-4. **📝 Detailed Logging** - Track what files are being processed
-5. **⏱️ Time Estimates** - Know how long remaining
-6. **🛑 Cancellation Support** - Stop long-running jobs if needed
+1. No Timeout Issues - Start sync and monitor progress separately
+2. Real-time Progress - See exactly what's happening
+3. Background Processing - Does not block other operations
+4. Detailed Logging - Track what files are being processed
+5. Time Estimates - Know how long remaining
+6. Cancellation Support - Stop long-running jobs if needed
 
-## 🎯 **Perfect for Your Workflow**
+## Perfect for Your Workflow
 
-- **Manual Sync**: Start job when you need fresh documents
-- **Progress Monitoring**: Check progress anytime without timeout
-- **Periodic Maintenance**: Set up scheduled jobs for regular updates
-- **Troubleshooting**: Detailed logs help identify any issues
+- Manual Sync: Start job when you need fresh documents
+- Progress Monitoring: Check progress anytime without timeout
+- Periodic Maintenance: Set up scheduled jobs for regular updates
+- Troubleshooting: Detailed logs help identify any issues
 
-**No more waiting for timeouts - start your sync and monitor it safely!** 🚀
+No more waiting for timeouts - start your sync and monitor it safely.
