@@ -47,8 +47,8 @@ def create_app() -> FastAPI:
         title="DTCE AI Assistant",
         description="Internal AI assistant for DTCE engineering teams",
         version="1.0.0",
-        docs_url="/docs" if settings.environment == "development" else None,
-        redoc_url="/redoc" if settings.environment == "development" else None
+        docs_url="/docs",  # Always enable docs for internal tool
+        redoc_url="/redoc"  # Always enable redoc for internal tool
     )
     
     # Configure CORS
@@ -76,6 +76,21 @@ def create_app() -> FastAPI:
     app.include_router(health_router, prefix="/health", tags=["health"])
     app.include_router(bot_router, prefix="/api/teams", tags=["teams-bot"])
     app.include_router(documents_router, prefix="/documents", tags=["documents"])
+    
+    # Add root route
+    @app.get("/")
+    async def root():
+        """Root endpoint with API information."""
+        return {
+            "message": "DTCE AI Assistant API",
+            "version": "1.0.0",
+            "docs": "/docs",
+            "health": "/health",
+            "endpoints": {
+                "teams_bot": "/api/teams",
+                "documents": "/documents"
+            }
+        }
     
     # Mount static files for testing page
     static_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "static")
