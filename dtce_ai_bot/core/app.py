@@ -9,9 +9,10 @@ from fastapi.staticfiles import StaticFiles
 import structlog
 
 from ..config.settings import get_settings
-from ..services.health import router as health_router
+from ..api.health import router as health_router
 from ..bot.endpoints import router as bot_router
-from ..services.documents import router as documents_router
+from ..api.documents import router as documents_router
+from ..api.project_scoping import router as project_scoping_router
 from ..integrations.azure_search import create_search_index_if_not_exists
 
 
@@ -76,6 +77,7 @@ def create_app() -> FastAPI:
     app.include_router(health_router, prefix="/health", tags=["health"])
     app.include_router(bot_router, prefix="/api/teams", tags=["teams-bot"])
     app.include_router(documents_router, prefix="/documents", tags=["documents"])
+    app.include_router(project_scoping_router, prefix="/projects", tags=["project-scoping"])
     
     # Add root route
     @app.get("/")
@@ -88,7 +90,8 @@ def create_app() -> FastAPI:
             "health": "/health",
             "endpoints": {
                 "teams_bot": "/api/teams",
-                "documents": "/documents"
+                "documents": "/documents",
+                "project_scoping": "/projects"
             }
         }
     

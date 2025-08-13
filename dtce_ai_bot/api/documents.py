@@ -24,7 +24,7 @@ from ..integrations.azure_storage import get_storage_client
 from ..utils.document_extractor import get_document_extractor
 from ..utils.openai_document_extractor import get_openai_document_extractor
 from ..integrations.microsoft_graph import get_graph_client, MicrosoftGraphClient
-from .document_qa import DocumentQAService
+from ..services.document_qa import DocumentQAService
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
