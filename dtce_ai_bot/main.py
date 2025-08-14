@@ -58,10 +58,11 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
+    """Health check endpoint with real-time timestamp."""
     return JSONResponse({
         "status": "healthy",
         "service": "dtce-ai-bot",
+        "version": "1.0.0",
         "timestamp": datetime.utcnow().isoformat() + "Z"
     })
 
