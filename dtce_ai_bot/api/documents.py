@@ -1717,10 +1717,7 @@ async def test_async_endpoint() -> JSONResponse:
     })
 
 @router.post("/sync-async/start")
-async def start_async_sync(
-    graph_client: MicrosoftGraphClient = Depends(get_graph_client),
-    storage_client: BlobServiceClient = Depends(get_storage_client)
-) -> JSONResponse:
+async def start_async_sync() -> JSONResponse:
     """
     Start an async document sync job that runs in the background without timeout.
     
