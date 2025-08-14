@@ -38,7 +38,7 @@ os.environ.setdefault("ENVIRONMENT", "production")
 os.environ.setdefault("API_HOST", "0.0.0.0")
 os.environ.setdefault("API_PORT", "8000")
 
-print("🚀 Starting DTCE AI Bot on Azure App Service...")
+print("🚀 Starting DTCE AI Bot on Azure App Service (v2024-08-14)...")
 
 # Import and create the app
 from dtce_ai_bot.core.app import create_app
