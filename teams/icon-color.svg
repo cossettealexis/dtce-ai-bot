@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192" width="192" height="192">
+  <rect width="192" height="192" fill="#0078D4" rx="24"/>
+  <g fill="white">
+    <!-- AI Brain Icon -->
+    <circle cx="96" cy="96" r="60" fill="none" stroke="white" stroke-width="4"/>
+    
+    <!-- Neural Network Nodes -->
+    <circle cx="96" cy="60" r="6" fill="white"/>
+    <circle cx="76" cy="80" r="4" fill="white"/>
+    <circle cx="116" cy="80" r="4" fill="white"/>
+    <circle cx="66" cy="110" r="4" fill="white"/>
+    <circle cx="96" cy="110" r="6" fill="white"/>
+    <circle cx="126" cy="110" r="4" fill="white"/>
+    <circle cx="96" cy="132" r="6" fill="white"/>
+    
+    <!-- Connections -->
+    <line x1="96" y1="60" x2="76" y2="80" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="96" y1="60" x2="116" y2="80" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="76" y1="80" x2="66" y2="110" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="76" y1="80" x2="96" y2="110" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="116" y1="80" x2="96" y2="110" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="116" y1="80" x2="126" y2="110" stroke="white" stroke-width="2" opacity="0.7"/>
+    <line x1="96" y1="110" x2="96" y2="132" stroke="white" stroke-width="2" opacity="0.7"/>
+    
+    <!-- Text -->
+    <text x="96" y="158" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="16" font-weight="bold" fill="white">AI</text>
+    <text x="96" y="174" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="12" fill="white">DTCE</text>
+  </g>
+</svg>

@@ -10,6 +10,7 @@ from datetime import datetime
 
 from dtce_ai_bot.config.settings import get_settings
 from dtce_ai_bot.api.documents import router as documents_router
+from dtce_ai_bot.bot.endpoints import router as bot_router
 
 # Configure structured logging
 logger = structlog.get_logger(__name__)
@@ -35,6 +36,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(documents_router, prefix="/documents", tags=["Documents"])
+app.include_router(bot_router, prefix="/api/bot", tags=["Bot"])
 
 @app.get("/")
 async def root():
