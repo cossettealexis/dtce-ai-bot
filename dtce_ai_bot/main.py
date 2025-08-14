@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import structlog
+from datetime import datetime
 
 from dtce_ai_bot.config.settings import get_settings
 from dtce_ai_bot.api.documents import router as documents_router
@@ -61,7 +62,7 @@ async def health_check():
     return JSONResponse({
         "status": "healthy",
         "service": "dtce-ai-bot",
-        "timestamp": "2024-01-01T00:00:00Z"
+        "timestamp": datetime.utcnow().isoformat() + "Z"
     })
 
 if __name__ == "__main__":
