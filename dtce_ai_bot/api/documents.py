@@ -1712,30 +1712,6 @@ async def ask_batch_questions(
         })
 
 
-@router.get("/test-connection")
-async def test_connection():
-    """
-    Test basic API connectivity for the MVP testing page.
-    """
-    try:
-        return JSONResponse({
-            "status": "success",
-            "message": "DTCE AI Bot API is running",
-            "timestamp": datetime.utcnow().isoformat(),
-            "version": "1.0.0-mvp",
-            "services": {
-                "api": "online",
-                "azure_search": "configured" if settings.azure_search_service_name else "not_configured",
-                "azure_storage": "configured" if settings.azure_storage_connection_string else "not_configured",
-                "openai": "configured" if getattr(settings, 'openai_api_key', None) else "not_configured",
-                "auto_sync": "configured"
-            }
-        })
-    except Exception as e:
-        logger.error("Connection test failed", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Connection test failed: {str(e)}")
-
-
 @router.get("/suitefiles/drives")
 async def get_suitefiles_drives():
     """
