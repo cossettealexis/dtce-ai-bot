@@ -8,7 +8,7 @@ from fastapi.responses import JSONResponse
 import structlog
 
 from dtce_ai_bot.config.settings import get_settings
-from dtce_ai_bot.services.documents import router as documents_router
+from dtce_ai_bot.api.documents import router as documents_router
 
 # Configure structured logging
 logger = structlog.get_logger(__name__)
