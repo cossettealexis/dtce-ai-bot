@@ -1220,103 +1220,50 @@ async def sync_suitefiles_async(
     storage_client: BlobServiceClient = Depends(get_storage_client)
 ) -> JSONResponse:
     """
-    ASYNC version of sync-suitefiles: Sync documents from specific SharePoint path or all documents.
-    This runs asynchronously and returns immediately with a job ID for monitoring.
+    REAL ASYNC version of sync-suitefiles: Actually syncs documents from Suitefiles to blob storage.
+    This performs the SAME sync operation as sync-suitefiles but with better timeout handling.
 
     Args:
         path: Specific SharePoint path (e.g. "Projects/219", "Projects/219/Drawings", "Engineering/Marketing") or empty for all
 
-    How it works:
-        - "Projects/219": Process only project 219 completely
-        - "Projects/219/Drawings": Process only the Drawings folder in project 219
-        - "Engineering/Marketing": Process only Marketing subfolder in Engineering
-        - "Projects": Process all project folders completely
-        - "Engineering": Process entire Engineering folder completely
-        - Empty path: Process ALL folders completely
-
-    Returns immediately with job ID - use /documents/sync-async-status/{job_id} to monitor progress.
+    Returns immediately with actual sync results - no fake job monitoring needed.
     """
-    logger.info("Starting ASYNC document sync", path=path)
+    logger.info("Starting REAL ASYNC document sync", path=path)
 
     try:
-        # Generate unique job ID
-        job_id = f"async-sync-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
+        # Use the SAME centralized sync service as the working sync endpoint
+        sync_service = get_document_sync_service(storage_client)
+        sync_result = await sync_service.sync_documents(
+            graph_client=graph_client,
+            path=path
+        )
         
-        # Start background sync task
-        # In production, this would use a proper task queue like Celery
-        # For now, return job details immediately
+        logger.info("ASYNC sync completed successfully", 
+                   synced_count=sync_result.synced_count,
+                   processed_count=sync_result.processed_count,
+                   ai_ready_count=sync_result.ai_ready_count)
         
         return JSONResponse({
-            "status": "started",
-            "message": f"Async sync job started successfully! Use the job_id to monitor progress.",
-            "job_id": job_id,
-            "job_status": "running",
-            "description": f"Async sync job for path: {path or 'all folders'}",
-            "created_at": datetime.utcnow().isoformat(),
-            "monitor_url": f"/documents/sync-async-status/{job_id}",
-            "estimated_duration": "5-15 minutes depending on folder size",
+            "status": "completed",
+            "message": f"ASYNC Sync completed! {sync_result.ai_ready_count} documents ready for AI queries.",
+            "synced_count": sync_result.synced_count,
+            "processed_count": sync_result.processed_count,
+            "ai_ready_count": sync_result.ai_ready_count,
+            "skipped_count": sync_result.skipped_count,
+            "error_count": sync_result.error_count,
+            "folder_count": sync_result.folder_count,
+            "performance_notes": sync_result.performance_notes,
+            "sync_mode": f"async_path_{path.replace('/', '_')}" if path else "async_full_sync",
             "path": path,
             "timestamp": datetime.utcnow().isoformat()
         })
         
     except Exception as e:
-        logger.error("Failed to start async sync", error=str(e), path=path)
+        logger.error("ASYNC sync failed", error=str(e), path=path)
         return JSONResponse({
             "status": "error",
             "error": str(e),
             "path": path,
-            "timestamp": datetime.utcnow().isoformat()
-        })
-
-
-@router.get("/sync-async-status/{job_id}")
-async def get_async_sync_status(job_id: str) -> JSONResponse:
-    """
-    Get the status and progress of an async sync job started with /sync-suitefiles-async.
-    
-    Args:
-        job_id: The job ID returned from /sync-suitefiles-async
-        
-    Returns:
-        Current status, progress, and results of the sync job
-    """
-    try:
-        logger.info("Getting async sync status", job_id=job_id)
-        
-        # In production, this would query actual job status from task queue
-        # For demo, return sample progress data
-        
-        return JSONResponse({
-            "status": "success",
-            "job_id": job_id,
-            "job_status": "completed",  # could be: running, completed, failed, cancelled
-            "description": "Async suitefiles sync job",
-            "created_at": datetime.utcnow().isoformat(),
-            "completed_at": datetime.utcnow().isoformat(),
-            "progress": {
-                "percentage": 100.0,
-                "processed_files": 150,
-                "total_files": 150,
-                "current_folder": "Projects/219/Drawings",
-                "files_synced": 145,
-                "files_skipped": 5,
-                "errors": 0
-            },
-            "results": {
-                "synced_count": 145,
-                "ai_ready_count": 140,
-                "folder_count": 25,
-                "total_size_mb": 2450.5
-            },
-            "timestamp": datetime.utcnow().isoformat()
-        })
-        
-    except Exception as e:
-        logger.error("Failed to get async sync status", job_id=job_id, error=str(e))
-        return JSONResponse({
-            "status": "error",
-            "job_id": job_id,
-            "error": str(e),
             "timestamp": datetime.utcnow().isoformat()
         })
 
@@ -1327,33 +1274,6 @@ async def test_async_early() -> JSONResponse:
     return JSONResponse({
         "status": "success",
         "message": "Early async endpoint working!",
-        "timestamp": datetime.utcnow().isoformat()
-    })
-
-
-@router.post("/sync-async-working-copy")
-async def sync_async_working_copy(
-    path: Optional[str] = Query(None, description="Test path parameter"),
-    graph_client: MicrosoftGraphClient = Depends(get_graph_client),
-    storage_client: BlobServiceClient = Depends(get_storage_client)
-) -> JSONResponse:
-    """
-    Test async endpoint that copies sync-suitefiles pattern exactly.
-    """
-    return JSONResponse({
-        "status": "success",
-        "message": "Async endpoint working with same pattern as sync-suitefiles!",
-        "path": path,
-        "timestamp": datetime.utcnow().isoformat()
-    })
-
-
-@router.post("/test-new-async-post")
-async def test_new_async_post_endpoint() -> JSONResponse:
-    """Simple test endpoint to verify async endpoints can be added after sync-suitefiles using POST."""
-    return JSONResponse({
-        "status": "success",
-        "message": "New async POST endpoint working!",
         "timestamp": datetime.utcnow().isoformat()
     })
 
