@@ -19,14 +19,12 @@ from azure.search.documents import SearchClient
 
 from ..config.settings import get_settings
 from ..models.document import DocumentMetadata, DocumentSearchResult, DocumentUploadResponse
-from ..models.sync_job import SyncJob, SyncJobRequest, SyncJobStatus, SyncJobSummary
 from ..integrations.azure_search import get_search_client
 from ..integrations.azure_storage import get_storage_client
 from ..utils.document_extractor import get_document_extractor
 from ..utils.openai_document_extractor import get_openai_document_extractor
 from ..integrations.microsoft_graph import get_graph_client, MicrosoftGraphClient
 from ..services.document_qa import DocumentQAService
-from ..services.sync_job_service import get_sync_job_service
 from ..services.document_sync_service import get_document_sync_service
 
 logger = structlog.get_logger(__name__)
@@ -1788,7 +1786,7 @@ async def start_async_sync() -> JSONResponse:
         })
         
     except Exception as e:
-        logger.error("Failed to start async sync", error=str(e))
+        # logger.error("Failed to start async sync", error=str(e))
         return JSONResponse({
             "status": "error",
             "error": str(e),
