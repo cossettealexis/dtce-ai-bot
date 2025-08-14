@@ -14,8 +14,8 @@ async def health_check() -> Dict[str, Any]:
     """Basic health check endpoint."""
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
-        "service": "DTCE AI Assistant",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "service": "dtce-ai-bot",
         "version": "1.0.0"
     }
 

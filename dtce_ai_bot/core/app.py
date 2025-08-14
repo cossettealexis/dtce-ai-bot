@@ -91,6 +91,13 @@ def create_app() -> FastAPI:
             "endpoints": {
                 "teams_bot": "/api/teams",
                 "documents": "/documents",
+                "sync_suitefiles": "/documents/sync-suitefiles",
+                "sync_async_start": "/documents/sync-async/start",
+                "sync_async_status": "/documents/sync-async/status/{job_id}",
+                "sync_async_jobs": "/documents/sync-async/jobs",
+                "sync_async_cancel": "/documents/sync-async/cancel/{job_id}",
+                "list_documents": "/documents/list",
+                "test_connection": "/documents/test-connection",
                 "project_scoping": "/projects"
             }
         }
