@@ -1213,6 +1213,16 @@ async def sync_suitefiles_documents(
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
 
 
+@router.get("/test-new-async")
+async def test_new_async_endpoint() -> JSONResponse:
+    """Simple test endpoint to verify async endpoints can be added after sync-suitefiles."""
+    return JSONResponse({
+        "status": "success",
+        "message": "New async endpoint working!",
+        "timestamp": datetime.utcnow().isoformat()
+    })
+
+
 @router.get("/sync-schedule")
 async def get_sync_schedule() -> JSONResponse:
     """
