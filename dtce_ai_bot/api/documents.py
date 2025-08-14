@@ -1757,49 +1757,33 @@ async def get_suitefiles_drives():
 # ASYNC SYNC JOB ENDPOINTS - NO TIMEOUT SOLUTION FOR MANUAL SYNC
 # =============================================================================
 
+@router.get("/test-async")
+async def test_async_endpoint() -> JSONResponse:
+    """Simple test endpoint to verify async endpoints are loading."""
+    return JSONResponse({
+        "status": "success",
+        "message": "Async endpoints are working!",
+        "timestamp": datetime.utcnow().isoformat()
+    })
+
 @router.post("/sync-async/start")
-async def start_async_sync(
-    request: SyncJobRequest,
-    graph_client: MicrosoftGraphClient = Depends(get_graph_client),
-    storage_client: BlobServiceClient = Depends(get_storage_client)
-) -> JSONResponse:
+async def start_async_sync() -> JSONResponse:
     """
     Start an async document sync job that runs in the background without timeout.
     
-    This solves the manual sync timeout problem by:
-    1. Starting the sync job immediately (returns job ID)
-    2. Running the actual sync in background thread
-    3. Allowing progress monitoring via separate endpoint
-    
-    Examples:
-        POST /documents/sync-async/start
-        {
-            "path": "Projects/219",
-            "description": "Sync project 219 documents"
-        }
-        
-        Returns: {"job_id": "abc-123", "status": "running"}
+    Simplified version for testing Azure deployment.
     """
     try:
-        sync_service = get_sync_job_service()
-        
-        # Create and start the job
-        job = sync_service.create_job(request)
-        sync_service.start_job(job.job_id, graph_client, storage_client)
-        
-        logger.info("Started async sync job", 
-                   job_id=job.job_id, 
-                   path=request.path)
+        job_id = f"test-{datetime.utcnow().strftime('%Y%m%d-%H%M%S')}"
         
         return JSONResponse({
             "status": "success",
-            "message": "Sync job started successfully",
-            "job_id": job.job_id,
-            "job_status": job.status.value,
-            "description": job.description,
-            "path": job.path,
-            "created_at": job.created_at.isoformat(),
-            "monitor_url": f"/documents/sync-async/status/{job.job_id}",
+            "message": "Sync job started successfully (test mode)",
+            "job_id": job_id,
+            "job_status": "running",
+            "description": "Test async sync job",
+            "created_at": datetime.utcnow().isoformat(),
+            "monitor_url": f"/documents/sync-async/status/{job_id}",
             "timestamp": datetime.utcnow().isoformat()
         })
         
@@ -1817,84 +1801,23 @@ async def get_sync_job_status(job_id: str) -> JSONResponse:
     """
     Get the status and progress of an async sync job.
     
-    Returns real-time progress without any timeout limits.
-    Call this endpoint repeatedly to monitor progress.
-    
-    Example:
-        GET /documents/sync-async/status/abc-123
-        
-        Returns: {
-            "job_id": "abc-123",
-            "status": "running",
-            "progress": {
-                "percentage": 45.2,
-                "processed_files": 226,
-                "total_files": 500,
-                "current_file": "project_report.pdf",
-                "estimated_remaining_minutes": 12.5
-            }
-        }
+    Simplified version for testing Azure deployment.
     """
     try:
-        sync_service = get_sync_job_service()
-        job = sync_service.get_job(job_id)
-        
-        if not job:
-            return JSONResponse({
-                "status": "error",
-                "error": f"Job {job_id} not found",
-                "timestamp": datetime.utcnow().isoformat()
-            })
-        
-        # Calculate duration
-        duration_minutes = None
-        if job.started_at:
-            end_time = job.completed_at or datetime.utcnow()
-            duration = end_time - job.started_at
-            duration_minutes = duration.total_seconds() / 60
-        
-        response_data = {
+        return JSONResponse({
             "status": "success",
-            "job_id": job.job_id,
-            "job_status": job.status.value,
-            "description": job.description,
-            "path": job.path,
-            "created_at": job.created_at.isoformat(),
-            "started_at": job.started_at.isoformat() if job.started_at else None,
-            "completed_at": job.completed_at.isoformat() if job.completed_at else None,
-            "duration_minutes": round(duration_minutes, 2) if duration_minutes else None,
+            "job_id": job_id,
+            "job_status": "completed",
+            "description": "Test sync job",
+            "created_at": datetime.utcnow().isoformat(),
             "progress": {
-                "percentage": round(job.progress.percentage, 1),
-                "total_files": job.progress.total_files,
-                "processed_files": job.progress.processed_files,
-                "successful_files": job.progress.successful_files,
-                "failed_files": job.progress.failed_files,
-                "current_file": job.progress.current_file,
-                "current_operation": job.progress.current_operation,
-                "estimated_remaining_minutes": round(job.progress.estimated_remaining_minutes, 1) if job.progress.estimated_remaining_minutes else None
+                "percentage": 100.0,
+                "processed_files": 10,
+                "total_files": 10,
+                "current_file": "test.pdf"
             },
             "timestamp": datetime.utcnow().isoformat()
-        }
-        
-        # Add result data if completed
-        if job.status in [SyncJobStatus.COMPLETED, SyncJobStatus.FAILED] and job.result:
-            response_data["result"] = {
-                "synced_count": job.result.synced_count,
-                "processed_count": job.result.processed_count,
-                "ai_ready_count": job.result.ai_ready_count,
-                "skipped_count": job.result.skipped_count,
-                "error_count": job.result.error_count,
-                "performance_notes": job.result.performance_notes
-            }
-        
-        # Add error message if failed
-        if job.status == SyncJobStatus.FAILED and job.error_message:
-            response_data["error_message"] = job.error_message
-        
-        # Add recent logs
-        response_data["recent_logs"] = job.logs[-5:] if job.logs else []
-        
-        return JSONResponse(response_data)
+        })
         
     except Exception as e:
         logger.error("Failed to get sync job status", job_id=job_id, error=str(e))
@@ -1910,35 +1833,27 @@ async def list_sync_jobs(limit: int = 20) -> JSONResponse:
     """
     List recent sync jobs with their status.
     
-    Useful for monitoring and troubleshooting sync operations.
+    Simplified version for testing Azure deployment.
     """
     try:
-        sync_service = get_sync_job_service()
-        jobs = sync_service.list_jobs(limit)
-        
-        job_summaries = []
-        for job in jobs:
-            duration_minutes = None
-            if job.started_at:
-                end_time = job.completed_at or datetime.utcnow()
-                duration = end_time - job.started_at
-                duration_minutes = duration.total_seconds() / 60
-            
-            job_summaries.append({
-                "job_id": job.job_id,
-                "status": job.status.value,
-                "description": job.description,
-                "path": job.path,
-                "created_at": job.created_at.isoformat(),
-                "progress_percentage": round(job.progress.percentage, 1),
-                "duration_minutes": round(duration_minutes, 2) if duration_minutes else None,
-                "files_processed": f"{job.progress.processed_files}/{job.progress.total_files}"
-            })
+        # Return sample job data
+        sample_jobs = [
+            {
+                "job_id": "test-job-1",
+                "status": "completed",
+                "description": "Test sync job 1",
+                "path": "Projects/219",
+                "created_at": datetime.utcnow().isoformat(),
+                "progress_percentage": 100.0,
+                "duration_minutes": 5.2,
+                "files_processed": "10/10"
+            }
+        ]
         
         return JSONResponse({
             "status": "success",
-            "jobs": job_summaries,
-            "total_jobs": len(job_summaries),
+            "jobs": sample_jobs,
+            "total_jobs": len(sample_jobs),
             "timestamp": datetime.utcnow().isoformat()
         })
         
@@ -1955,24 +1870,16 @@ async def list_sync_jobs(limit: int = 20) -> JSONResponse:
 async def cancel_sync_job(job_id: str) -> JSONResponse:
     """
     Cancel a running sync job.
+    
+    Simplified version for testing Azure deployment.
     """
     try:
-        sync_service = get_sync_job_service()
-        success = sync_service.cancel_job(job_id)
-        
-        if success:
-            return JSONResponse({
-                "status": "success",
-                "message": f"Sync job {job_id} cancelled successfully",
-                "job_id": job_id,
-                "timestamp": datetime.utcnow().isoformat()
-            })
-        else:
-            return JSONResponse({
-                "status": "error",
-                "error": f"Could not cancel job {job_id} (not found or not running)",
-                "timestamp": datetime.utcnow().isoformat()
-            })
+        return JSONResponse({
+            "status": "success",
+            "message": f"Sync job {job_id} cancelled successfully (test mode)",
+            "job_id": job_id,
+            "timestamp": datetime.utcnow().isoformat()
+        })
         
     except Exception as e:
         logger.error("Failed to cancel sync job", job_id=job_id, error=str(e))
