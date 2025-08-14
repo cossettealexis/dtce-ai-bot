@@ -32,15 +32,6 @@ router = APIRouter()
 
 settings = get_settings()
 
-@router.get("/debug-router")
-async def debug_router_loading() -> JSONResponse:
-    """Debug endpoint to check if router loads properly."""
-    return JSONResponse({
-        "status": "success",
-        "message": "Router is loading correctly!",
-        "timestamp": datetime.utcnow().isoformat()
-    })
-
 
 @router.post("/upload", response_model=DocumentUploadResponse)
 async def upload_document(
