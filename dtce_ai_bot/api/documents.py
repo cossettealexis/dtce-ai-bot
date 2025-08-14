@@ -1213,6 +1213,23 @@ async def sync_suitefiles_documents(
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
 
 
+@router.post("/sync-async-working-copy")
+async def sync_async_working_copy(
+    path: Optional[str] = Query(None, description="Test path parameter"),
+    graph_client: MicrosoftGraphClient = Depends(get_graph_client),
+    storage_client: BlobServiceClient = Depends(get_storage_client)
+) -> JSONResponse:
+    """
+    Test async endpoint that copies sync-suitefiles pattern exactly.
+    """
+    return JSONResponse({
+        "status": "success",
+        "message": "Async endpoint working with same pattern as sync-suitefiles!",
+        "path": path,
+        "timestamp": datetime.utcnow().isoformat()
+    })
+
+
 @router.post("/test-new-async-post")
 async def test_new_async_post_endpoint() -> JSONResponse:
     """Simple test endpoint to verify async endpoints can be added after sync-suitefiles using POST."""
