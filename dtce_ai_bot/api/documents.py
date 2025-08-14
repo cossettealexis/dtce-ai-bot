@@ -1712,30 +1712,6 @@ async def ask_batch_questions(
         })
 
 
-@router.get("/suitefiles/drives")
-async def get_suitefiles_drives():
-    """
-    Test Suitefiles access for the MVP testing page.
-    """
-    try:
-        # For now, return a simple response since we don't have MicrosoftGraphClient imported
-        return JSONResponse({
-            "status": "success", 
-            "message": "Suitefiles access endpoint available",
-            "drives_found": 0,
-            "drives": [],
-            "timestamp": datetime.utcnow().isoformat()
-        })
-        
-    except Exception as e:
-        logger.error("Suitefiles test failed", error=str(e))
-        return JSONResponse({
-            "status": "error",
-            "error": str(e),
-            "timestamp": datetime.utcnow().isoformat()
-        })
-
-
 # =============================================================================
 # ASYNC SYNC JOB ENDPOINTS - NO TIMEOUT SOLUTION FOR MANUAL SYNC
 # =============================================================================
