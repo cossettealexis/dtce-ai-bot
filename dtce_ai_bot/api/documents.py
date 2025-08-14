@@ -1213,6 +1213,16 @@ async def sync_suitefiles_documents(
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}")
 
 
+@router.get("/test-async-early")
+async def test_async_early() -> JSONResponse:
+    """Test async endpoint placed early to verify it appears in Swagger docs."""
+    return JSONResponse({
+        "status": "success",
+        "message": "Early async endpoint working!",
+        "timestamp": datetime.utcnow().isoformat()
+    })
+
+
 @router.post("/sync-async-working-copy")
 async def sync_async_working_copy(
     path: Optional[str] = Query(None, description="Test path parameter"),
