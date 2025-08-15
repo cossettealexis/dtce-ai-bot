@@ -1,5 +1,6 @@
 """
 Bot API endpoints for Teams messaging.
+Version 1.0.2 - Fixed duplicate paths
 """
 
 from fastapi import APIRouter, Request, HTTPException
