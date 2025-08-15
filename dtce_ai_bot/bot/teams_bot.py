@@ -420,7 +420,7 @@ Just type your question and I'll search through your engineering documents to he
     
     async def _send_welcome_message(self, turn_context: TurnContext):
         """Send welcome message with adaptive card."""
-        response = MessageFactory.attachment(self.welcome_card)
+        response = MessageFactory.attachment(self._create_welcome_card())
         await turn_context.send_activity(response)
     
     async def _send_health_status(self, turn_context: TurnContext):
