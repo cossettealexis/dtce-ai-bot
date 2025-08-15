@@ -72,6 +72,12 @@ async def messages_endpoint(request: Request):
         raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
 
 
+@router.get("/test-deployment")
+async def test_deployment():
+    """Test endpoint to verify deployment."""
+    return {"message": "Deployment successful", "version": "1.0.2", "timestamp": "2025-08-15T05:20:00Z"}
+
+
 @router.get("/manifest")
 async def get_teams_manifest():
     """Get the Teams app manifest for installation."""
