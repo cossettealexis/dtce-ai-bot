@@ -26,6 +26,9 @@ class DTCETeamsBot(ActivityHandler):
         self.search_client = search_client
         self.qa_service = qa_service
         
+        # Fix for missing welcome_card attribute
+        self.welcome_card = None
+        
     async def on_message_activity(self, turn_context: TurnContext):
         """Handle incoming messages from users."""
         
