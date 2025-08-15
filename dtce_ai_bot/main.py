@@ -36,7 +36,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(documents_router, prefix="/documents", tags=["Documents"])
-app.include_router(bot_router, prefix="/api/bot", tags=["Bot"])
+app.include_router(bot_router, prefix="/api/teams", tags=["Bot"])
 
 @app.get("/")
 async def root():
@@ -47,7 +47,7 @@ async def root():
         "docs": "/docs",
         "health": "/health",
         "endpoints": {
-            "teams_bot": "/api/bot",
+            "teams_bot": "/api/teams",
             "documents": "/documents",
             "project_scoping": "/projects"
         }
