@@ -80,14 +80,14 @@ async def get_teams_manifest():
     manifest = {
         "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.14/MicrosoftTeams.schema.json",
         "manifestVersion": "1.14",
-        "version": "1.0.0",
+        "version": "1.0.2",
         "id": app_id,
         "packageName": "com.dtce.ai.assistant",
         "developer": {
             "name": "DTCE",
-            "websiteUrl": "https://dtce.com",
-            "privacyUrl": "https://dtce.com/privacy",
-            "termsOfUseUrl": "https://dtce.com/terms"
+            "websiteUrl": "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net",
+            "privacyUrl": "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net",
+            "termsOfUseUrl": "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net"
         },
         "icons": {
             "color": "icon-color.png",
@@ -141,7 +141,8 @@ async def get_teams_manifest():
         "validDomains": [
             "donthomson.sharepoint.com",
             "*.azure.com",
-            "*.openai.azure.com"
+            "*.openai.azure.com",
+            "dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net"
         ],
         "webApplicationInfo": {
             "id": app_id,
