@@ -3,6 +3,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Teams app packages (build artifacts - not needed in git)
+teams-package/*.zip
+
 # C extensions
 *.so
 
