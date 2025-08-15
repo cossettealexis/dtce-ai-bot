@@ -71,7 +71,7 @@ async def messages_endpoint(request: Request):
         raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
 
 
-@router.get("/teams/manifest")
+@router.get("/manifest")
 async def get_teams_manifest():
     """Get the Teams app manifest for installation."""
     
@@ -152,7 +152,7 @@ async def get_teams_manifest():
     return manifest
 
 
-@router.get("/teams/manifest/download")
+@router.get("/manifest/download")
 async def download_teams_manifest():
     """Download the Teams app manifest as a zip file."""
     import tempfile
@@ -194,7 +194,7 @@ async def download_teams_manifest():
         raise HTTPException(status_code=500, detail=f"Error creating app package: {str(e)}")
 
 
-@router.get("/teams/setup")
+@router.get("/setup")
 async def get_teams_setup_instructions():
     """Get instructions for setting up the Teams bot."""
     
@@ -204,7 +204,7 @@ async def get_teams_setup_instructions():
             {
                 "step": 1,
                 "title": "Download the App Package",
-                "description": "Download the Teams app package from /api/bot/teams/manifest/download"
+                "description": "Download the Teams app package from /api/teams/manifest/download"
             },
             {
                 "step": 2,
