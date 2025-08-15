@@ -42,19 +42,14 @@ app.include_router(bot_router, prefix="/api/bot", tags=["Bot"])
 async def root():
     """Root endpoint with API information."""
     return JSONResponse({
-        "message": "DTCE AI Bot API",
+        "message": "DTCE AI Assistant API",
         "version": "1.0.0",
-        "status": "running",
         "docs": "/docs",
+        "health": "/health",
         "endpoints": {
-            "documents": "/documents/",
-            "sync_suitefiles": "/documents/sync-suitefiles",
-            "sync_async_start": "/documents/sync-async/start",
-            "sync_async_status": "/documents/sync-async/status/{job_id}",
-            "sync_async_jobs": "/documents/sync-async/jobs",
-            "sync_async_cancel": "/documents/sync-async/cancel/{job_id}",
-            "list_documents": "/documents/list",
-            "test_connection": "/documents/test-connection"
+            "teams_bot": "/api/bot",
+            "documents": "/documents",
+            "project_scoping": "/projects"
         }
     })
 
