@@ -47,7 +47,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="DTCE AI Assistant",
         description="Internal AI assistant for DTCE engineering teams",
-        version="1.0.0",
+        version="1.0.3",
         docs_url="/docs",  # Always enable docs for internal tool
         redoc_url="/redoc"  # Always enable redoc for internal tool
     )
