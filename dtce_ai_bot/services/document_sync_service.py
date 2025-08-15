@@ -222,17 +222,29 @@ class DocumentSyncService:
             f"# Folder: {doc.get('full_path', '')}\n"
         )
         
+        # Sanitize metadata to ensure ASCII compatibility
+        def sanitize_metadata_value(value):
+            """Convert metadata value to ASCII-safe string."""
+            if not value:
+                return ""
+            # Convert to string and encode/decode to remove non-ASCII characters
+            try:
+                return str(value).encode('ascii', errors='replace').decode('ascii')
+            except Exception:
+                # Fallback: replace all non-ASCII with underscore
+                return ''.join(c if ord(c) < 128 else '_' for c in str(value))
+        
         metadata = {
             "source": sync_mode,
             "original_filename": ".keep",
-            "drive_name": doc["drive_name"], 
-            "project_id": str(doc.get("project_id", "")),
+            "drive_name": sanitize_metadata_value(doc["drive_name"]), 
+            "project_id": sanitize_metadata_value(doc.get("project_id", "")),
             "document_type": "folder_marker",
-            "folder_category": doc.get("folder_category", ""),
-            "last_modified": doc.get("modified", ""),
+            "folder_category": sanitize_metadata_value(doc.get("folder_category", "")),
+            "last_modified": sanitize_metadata_value(doc.get("modified", "")),
             "is_critical": str(doc.get("is_critical_for_search", False)),
-            "full_path": doc.get("full_path", ""),
-            "parent_folder": doc["name"],
+            "full_path": sanitize_metadata_value(doc.get("full_path", "")),
+            "parent_folder": sanitize_metadata_value(doc["name"]),
             "content_type": "text/plain",
             "size": str(len(keep_file_content)),
             "is_folder": "false",
@@ -257,17 +269,29 @@ class DocumentSyncService:
         )
         
         # Upload to blob storage with metadata
+        # Sanitize metadata to ensure ASCII compatibility
+        def sanitize_metadata_value(value):
+            """Convert metadata value to ASCII-safe string."""
+            if not value:
+                return ""
+            # Convert to string and encode/decode to remove non-ASCII characters
+            try:
+                return str(value).encode('ascii', errors='replace').decode('ascii')
+            except Exception:
+                # Fallback: replace all non-ASCII with underscore
+                return ''.join(c if ord(c) < 128 else '_' for c in str(value))
+        
         metadata = {
             "source": sync_mode,
-            "original_filename": doc["name"],
-            "drive_name": doc["drive_name"], 
-            "project_id": str(doc.get("project_id", "")),
-            "document_type": doc.get("document_type", ""),
-            "folder_category": doc.get("folder_category", ""),
-            "last_modified": doc.get("modified", ""),
+            "original_filename": sanitize_metadata_value(doc["name"]),
+            "drive_name": sanitize_metadata_value(doc["drive_name"]), 
+            "project_id": sanitize_metadata_value(doc.get("project_id", "")),
+            "document_type": sanitize_metadata_value(doc.get("document_type", "")),
+            "folder_category": sanitize_metadata_value(doc.get("folder_category", "")),
+            "last_modified": sanitize_metadata_value(doc.get("modified", "")),
             "is_critical": str(doc.get("is_critical_for_search", False)),
-            "full_path": doc.get("full_path", ""),
-            "content_type": doc.get("mime_type", ""),
+            "full_path": sanitize_metadata_value(doc.get("full_path", "")),
+            "content_type": sanitize_metadata_value(doc.get("mime_type", "")),
             "size": str(doc.get("size", 0)),
             "is_folder": "false"
         }

@@ -75,7 +75,7 @@ async def messages_endpoint(request: Request):
 @router.get("/test-deployment")
 async def test_deployment():
     """Test endpoint to verify deployment."""
-    return {"message": "Deployment successful", "version": "1.0.2", "timestamp": "2025-08-15T05:20:00Z"}
+    return {"message": "Deployment successful", "version": "1.0.3", "timestamp": "2025-08-15T05:40:00Z", "restart": "forced"}
 
 
 @router.get("/manifest")

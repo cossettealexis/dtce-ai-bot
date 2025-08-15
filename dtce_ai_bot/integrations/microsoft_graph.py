@@ -785,16 +785,28 @@ class MicrosoftGraphClient:
                 
                 keep_file_content += f"# Metadata: {json.dumps(folder_info, indent=2)}\n"
                 
+                # Sanitize metadata to ensure ASCII compatibility
+                def sanitize_metadata_value(value):
+                    """Convert metadata value to ASCII-safe string."""
+                    if not value:
+                        return ""
+                    # Convert to string and encode/decode to remove non-ASCII characters
+                    try:
+                        return str(value).encode('ascii', errors='replace').decode('ascii')
+                    except Exception:
+                        # Fallback: replace all non-ASCII with underscore
+                        return ''.join(c if ord(c) < 128 else '_' for c in str(value))
+                
                 metadata = {
                     "source": "immediate_sync",
                     "original_filename": ".keep",
-                    "drive_name": document["drive_name"], 
-                    "project_id": str(document.get("project_id", "")),
+                    "drive_name": sanitize_metadata_value(document["drive_name"]), 
+                    "project_id": sanitize_metadata_value(document.get("project_id", "")),
                     "document_type": "folder_marker",
-                    "folder_category": document.get("folder_category", ""),
-                    "last_modified": document.get("modified", ""),
+                    "folder_category": sanitize_metadata_value(document.get("folder_category", "")),
+                    "last_modified": sanitize_metadata_value(document.get("modified", "")),
                     "is_critical": str(document.get("is_critical_for_search", False)),
-                    "full_path": document.get("full_path", ""),
+                    "full_path": sanitize_metadata_value(document.get("full_path", "")),
                     "content_type": "text/plain",
                     "is_folder_marker": "true"
                 }
@@ -814,17 +826,29 @@ class MicrosoftGraphClient:
                     document["file_id"]
                 )
                 
+                # Sanitize metadata to ensure ASCII compatibility
+                def sanitize_metadata_value(value):
+                    """Convert metadata value to ASCII-safe string."""
+                    if not value:
+                        return ""
+                    # Convert to string and encode/decode to remove non-ASCII characters
+                    try:
+                        return str(value).encode('ascii', errors='replace').decode('ascii')
+                    except Exception:
+                        # Fallback: replace all non-ASCII with underscore
+                        return ''.join(c if ord(c) < 128 else '_' for c in str(value))
+                
                 metadata = {
                     "source": "immediate_sync",
-                    "original_filename": document["name"],
-                    "drive_name": document["drive_name"], 
-                    "project_id": str(document.get("project_id", "")),
-                    "document_type": document.get("document_type", ""),
-                    "folder_category": document.get("folder_category", ""),
-                    "last_modified": document.get("modified", ""),
+                    "original_filename": sanitize_metadata_value(document["name"]),
+                    "drive_name": sanitize_metadata_value(document["drive_name"]), 
+                    "project_id": sanitize_metadata_value(document.get("project_id", "")),
+                    "document_type": sanitize_metadata_value(document.get("document_type", "")),
+                    "folder_category": sanitize_metadata_value(document.get("folder_category", "")),
+                    "last_modified": sanitize_metadata_value(document.get("modified", "")),
                     "is_critical": str(document.get("is_critical_for_search", False)),
-                    "full_path": document.get("full_path", ""),
-                    "content_type": document.get("mime_type", ""),
+                    "full_path": sanitize_metadata_value(document.get("full_path", "")),
+                    "content_type": sanitize_metadata_value(document.get("mime_type", "")),
                     "size": str(document.get("size", 0)),
                     "is_folder": "false"
                 }
