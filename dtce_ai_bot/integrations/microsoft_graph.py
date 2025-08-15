@@ -214,28 +214,52 @@ class MicrosoftGraphClient:
             raise
     
     async def download_file(self, site_id: str, drive_id: str, file_id: str) -> bytes:
-        """Download file content from SharePoint."""
-        try:
-            endpoint = f"sites/{site_id}/drives/{drive_id}/items/{file_id}/content"
-            logger.info("Downloading file", file_id=file_id)
-            
-            access_token = await self._get_access_token()
-            headers = {"Authorization": f"Bearer {access_token}"}
-            url = f"{graph_urls.graph_base_url()}/{endpoint}"
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url, headers=headers) as response:
-                    if response.status == 200:
-                        content = await response.read()
-                        logger.info("File downloaded successfully", file_id=file_id, size=len(content))
-                        return content
-                    else:
-                        error_text = await response.text()
-                        logger.error("Failed to download file", file_id=file_id, status=response.status, error=error_text)
-                        raise Exception(f"File download failed: {response.status} - {error_text}")
-        except Exception as e:
-            logger.error("Failed to download file", file_id=file_id, error=str(e))
-            raise
+        """Download file content from SharePoint with retry logic for service errors."""
+        import asyncio
+        
+        max_retries = 3
+        base_delay = 2  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                endpoint = f"sites/{site_id}/drives/{drive_id}/items/{file_id}/content"
+                logger.info("Downloading file", file_id=file_id, attempt=attempt + 1)
+                
+                access_token = await self._get_access_token()
+                headers = {"Authorization": f"Bearer {access_token}"}
+                url = f"{graph_urls.graph_base_url()}/{endpoint}"
+                
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url, headers=headers) as response:
+                        if response.status == 200:
+                            content = await response.read()
+                            logger.info("File downloaded successfully", file_id=file_id, size=len(content))
+                            return content
+                        elif response.status in [503, 502, 504, 429]:  # Service unavailable, retry
+                            error_text = await response.text()
+                            if attempt < max_retries - 1:
+                                delay = base_delay * (2 ** attempt)  # Exponential backoff
+                                logger.warning(f"SharePoint service error {response.status}, retrying in {delay}s", 
+                                             file_id=file_id, attempt=attempt + 1, status=response.status)
+                                await asyncio.sleep(delay)
+                                continue
+                            else:
+                                logger.error("Failed to download file after all retries", 
+                                           file_id=file_id, status=response.status, error=error_text)
+                                raise Exception(f"File download failed after {max_retries} attempts: {response.status} - SharePoint service temporarily unavailable")
+                        else:
+                            error_text = await response.text()
+                            logger.error("Failed to download file", file_id=file_id, status=response.status, error=error_text)
+                            raise Exception(f"File download failed: {response.status} - {error_text}")
+            except Exception as e:
+                if attempt < max_retries - 1 and ("503" in str(e) or "502" in str(e) or "504" in str(e)):
+                    delay = base_delay * (2 ** attempt)
+                    logger.warning(f"Download error, retrying in {delay}s", file_id=file_id, attempt=attempt + 1, error=str(e))
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    logger.error("Failed to download file", file_id=file_id, error=str(e))
+                    raise
     
     async def sync_projects_folder_only(self) -> List[Dict[str, Any]]:
         """
