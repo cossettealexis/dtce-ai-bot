@@ -6,9 +6,9 @@
   "packageName": "com.dtce.ai.assistant",
   "developer": {
     "name": "DTCE Engineering",
-    "websiteUrl": "https://donthomson.com",
-    "privacyUrl": "https://donthomson.com/privacy",
-    "termsOfUseUrl": "https://donthomson.com/terms"
+    "websiteUrl": "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net",
+    "privacyUrl": "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net",
+    "termsOfUseUrl": "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net"
   },
   "icons": {
     "color": "icon-color.png",

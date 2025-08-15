@@ -34,6 +34,11 @@ class DTCETeamsBot(ActivityHandler):
         
         logger.info("Received Teams message", user=user_name, message=user_message)
         
+        # Handle basic greetings
+        if user_message.lower() in ['hi', 'hello', 'hey', 'hi there', 'hello there']:
+            await self._send_welcome_message(turn_context)
+            return
+        
         # Check for special commands
         if user_message.lower() in ['/help', 'help', '/start', 'start']:
             await self._send_welcome_message(turn_context)
