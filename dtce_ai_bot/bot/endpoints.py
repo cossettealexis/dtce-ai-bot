@@ -64,6 +64,14 @@ except Exception as e:
     BOT = None
 
 
+@router.get("/messages")
+async def messages_get_endpoint(request: Request):
+    """Handle GET requests to messages endpoint - for debugging."""
+    logger.info("Received GET request to /messages endpoint")
+    logger.info(f"Headers: {dict(request.headers)}")
+    logger.info(f"Query params: {dict(request.query_params)}")
+    return {"message": "Messages endpoint is available", "method": "GET", "supported_methods": ["POST"]}
+
 @router.post("/messages")
 async def messages_endpoint(request: Request):
     """Teams bot messaging endpoint."""
