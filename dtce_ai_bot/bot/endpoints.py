@@ -64,6 +64,11 @@ except Exception as e:
     BOT = None
 
 
+@router.options("/messages")
+async def messages_options_endpoint(request: Request):
+    """Handle OPTIONS requests for CORS preflight."""
+    return {"message": "CORS preflight handled"}
+
 @router.get("/messages")
 async def messages_get_endpoint(request: Request):
     """Handle GET requests to messages endpoint - for debugging."""
