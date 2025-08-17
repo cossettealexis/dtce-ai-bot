@@ -130,7 +130,7 @@ def create_app() -> FastAPI:
                 
                 # Validate the JWT token from Bot Framework
                 claims_identity = await JwtTokenValidation.authenticate_request(
-                    activity, auth_header, credential_provider, provider=None
+                    activity, auth_header, credential_provider
                 )
                 
                 if not claims_identity.is_authenticated:
