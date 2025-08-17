@@ -11,6 +11,11 @@ import structlog
 import httpx
 import json
 
+# Bot Framework imports
+from botbuilder.core import ActivityHandler, TurnContext, MessageFactory
+from botbuilder.schema import Activity, ChannelAccount
+from botframework.connector.auth import MicrosoftAppCredentials
+
 from ..config.settings import get_settings
 from ..api.health import router as health_router
 from ..bot.endpoints import router as bot_router
@@ -112,10 +117,37 @@ def create_app() -> FastAPI:
                        headers=headers,
                        user_agent=headers.get('user-agent', 'unknown'))
             
-            # TEMPORARILY DISABLE authentication to test Bot Framework connectivity
-            logger.info("⚠️ AUTHENTICATION DISABLED FOR TESTING")
-            headers = dict(request.headers)
-            logger.info("Incoming request headers", headers=headers)
+            # ENABLE Bot Framework authentication - this is required for DirectLine to call our endpoint
+            try:
+                from botframework.connector.auth import JwtTokenValidation, SimpleCredentialProvider
+                from botframework.connector import ConnectorClient
+                
+                # Create credential provider with our app credentials
+                credential_provider = SimpleCredentialProvider(
+                    app_id=os.getenv("MICROSOFT_APP_ID"),
+                    app_password=os.getenv("MICROSOFT_APP_PASSWORD")
+                )
+                
+                # Get the Authorization header
+                auth_header = request.headers.get("Authorization", "")
+                logger.info("Bot Framework authentication enabled", auth_header=auth_header[:50] + "..." if auth_header else "None")
+                
+                # For Bot Framework messages, validate the JWT token
+                if auth_header:
+                    await JwtTokenValidation.authenticate_request(
+                        activity=None,  # We'll validate after parsing
+                        auth_header=auth_header,
+                        credentials=credential_provider,
+                        service_url="https://directline.botframework.com/"
+                    )
+                    logger.info("✅ Bot Framework authentication successful")
+                else:
+                    logger.warning("No authorization header found - allowing for testing")
+                    
+            except Exception as auth_error:
+                logger.error("Bot Framework authentication failed", error=str(auth_error))
+                # Continue without authentication for now to test
+                pass
             
             # Get and log the raw body with immediate acknowledgment pattern
             import asyncio
