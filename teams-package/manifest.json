@@ -1,14 +1,13 @@
 {
-  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.16/MicrosoftTeams.schema.json",
-  "manifestVersion": "1.16",
-  "version": "1.0.2",
+  "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.1.0",
   "id": "c185c174-26f6-4876-b847-0a423d07d1f3",
-  "packageName": "com.dtce.ai.assistant",
   "developer": {
     "name": "DTCE Engineering",
     "websiteUrl": "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net",
-    "privacyUrl": "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net",
-    "termsOfUseUrl": "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net"
+    "privacyUrl": "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net/privacy",
+    "termsOfUseUrl": "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net/terms"
   },
   "icons": {
     "color": "icon-color.png",
@@ -26,12 +25,12 @@
   "bots": [
     {
       "botId": "c185c174-26f6-4876-b847-0a423d07d1f3",
-      "scopes": ["personal", "team", "groupchat"],
+      "scopes": ["personal", "team", "groupChat"],
       "supportsFiles": false,
       "isNotificationOnly": false,
       "commandLists": [
         {
-          "scopes": ["personal", "team", "groupchat"],
+          "scopes": ["personal", "team", "groupChat"],
           "commands": [
             {
               "title": "help",
@@ -63,10 +62,10 @@
     "messageTeamMembers"
   ],
   "validDomains": [
+    "dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net",
     "donthomson.sharepoint.com",
     "*.azure.com",
-    "*.openai.azure.com",
-    "dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net"
+    "*.openai.azure.com"
   ],
   "webApplicationInfo": {
     "id": "c185c174-26f6-4876-b847-0a423d07d1f3",

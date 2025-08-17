@@ -47,7 +47,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="DTCE AI Assistant",
         description="Internal AI assistant for DTCE engineering teams",
-        version="1.0.3",
+        version="1.1.0",
         docs_url="/docs",  # Always enable docs for internal tool
         redoc_url="/redoc"  # Always enable redoc for internal tool
     )
@@ -85,7 +85,7 @@ def create_app() -> FastAPI:
         """Root endpoint with API information."""
         return {
             "message": "DTCE AI Assistant API",
-            "version": "1.0.0",
+            "version": "1.1.0",
             "docs": "/docs",
             "health": "/health",
             "endpoints": {
@@ -100,6 +100,43 @@ def create_app() -> FastAPI:
                 "test_connection": "/documents/test-connection",
                 "project_scoping": "/projects"
             }
+        }
+    
+    # Add Teams app compliance endpoints
+    @app.get("/privacy")
+    async def privacy_policy():
+        """Privacy policy for Teams app compliance."""
+        return {
+            "title": "DTCE AI Assistant - Privacy Policy",
+            "effective_date": "2025-08-17",
+            "company": "Don Thomson Consulting Engineers Ltd",
+            "description": "This AI assistant processes internal engineering documents and project files for DTCE staff members.",
+            "data_handling": {
+                "collection": "We collect queries and document interactions to provide AI-powered search and assistance",
+                "storage": "Data is stored securely in Azure cloud services within New Zealand",
+                "usage": "Information is used solely for providing engineering document search and AI assistance to DTCE staff",
+                "sharing": "Data is not shared with third parties outside of Microsoft Azure services required for operation"
+            },
+            "contact": "For privacy questions, contact DTCE IT department",
+            "updates": "This policy may be updated to reflect changes in our practices"
+        }
+    
+    @app.get("/terms")
+    async def terms_of_use():
+        """Terms of use for Teams app compliance."""
+        return {
+            "title": "DTCE AI Assistant - Terms of Use",
+            "effective_date": "2025-08-17",
+            "company": "Don Thomson Consulting Engineers Ltd",
+            "terms": {
+                "usage": "This AI assistant is for internal DTCE staff use only for engineering document search and assistance",
+                "restrictions": "Users must not share confidential project information outside authorized DTCE personnel",
+                "accuracy": "AI responses should be verified for critical engineering decisions",
+                "availability": "Service availability is provided on a best-effort basis",
+                "compliance": "Users must comply with DTCE information security policies"
+            },
+            "contact": "For questions about these terms, contact DTCE management",
+            "modifications": "DTCE reserves the right to modify these terms with notice to users"
         }
     
     # Mount static files for testing page
