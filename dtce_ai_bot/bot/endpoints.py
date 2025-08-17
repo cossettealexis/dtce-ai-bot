@@ -82,6 +82,49 @@ async def messages_endpoint(request: Request):
         raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
 
 
+@router.post("/test-bot")
+async def test_bot_endpoint(request: Request):
+    """Test bot endpoint that bypasses authentication."""
+    
+    if not BOT:
+        raise HTTPException(status_code=503, detail="Teams bot not available")
+    
+    try:
+        body = await request.json()
+        message_text = body.get("text", "Hello")
+        
+        # Create a mock turn context for testing
+        from botbuilder.core import MessageFactory
+        from unittest.mock import AsyncMock, MagicMock
+        
+        # Mock turn context
+        mock_context = MagicMock()
+        mock_context.activity = MagicMock()
+        mock_context.activity.text = message_text
+        mock_context.activity.type = "message"
+        mock_context.activity.from_property = MagicMock()
+        mock_context.activity.from_property.id = "test-user"
+        mock_context.activity.from_property.name = "Test User"
+        mock_context.send_activity = AsyncMock()
+        
+        # Call bot directly
+        await BOT.on_message_activity(mock_context)
+        
+        # Get the response
+        if mock_context.send_activity.called:
+            call_args = mock_context.send_activity.call_args[0][0]
+            response_text = call_args.text if hasattr(call_args, 'text') else str(call_args)
+            return {"status": "ok", "response": response_text}
+        else:
+            return {"status": "ok", "response": "No response generated"}
+        
+    except Exception as e:
+        logger.error("Error in test bot endpoint", error=str(e))
+        return {"status": "error", "error": str(e)}
+        logger.error("Error processing Teams message", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
+
+
 @router.get("/manifest")
 async def get_teams_manifest():
     """Get the Teams app manifest for installation."""
