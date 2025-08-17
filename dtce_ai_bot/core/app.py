@@ -102,7 +102,7 @@ def create_app() -> FastAPI:
             if not question:
                 return {"type": "message", "text": "Please ask me something!"}
             
-            # Direct call to your document search
+            # Direct call to your document search - NO AUTHENTICATION BULLSHIT
             from ..services.document_qa import DocumentQAService
             from ..integrations.azure_search import get_search_client
             
@@ -110,10 +110,21 @@ def create_app() -> FastAPI:
             qa_service = DocumentQAService(search_client)
             result = await qa_service.answer_question(question)
             
-            return {"type": "message", "text": result['answer']}
+            # Return response that DirectLine expects
+            return {
+                "type": "message", 
+                "text": result['answer'],
+                "speak": result['answer'],
+                "inputHint": "acceptingInput"
+            }
             
         except Exception as e:
-            return {"type": "message", "text": f"Error: {str(e)}"}
+            return {
+                "type": "message", 
+                "text": f"Error: {str(e)}",
+                "speak": f"Error: {str(e)}",
+                "inputHint": "acceptingInput"
+            }
     
     # Add root route
     @app.get("/")
