@@ -69,7 +69,7 @@ class DTCETeamsBot(ActivityHandler):
     async def _handle_text_only(self, turn_context: TurnContext, user_message: str):
         """Handle text-only messages (existing logic)."""
         
-        # Normalize command for parsing
+        # Normalize command for parsing (syntax verified)
         message_lower = user_message.lower().strip()
         
         # Handle basic greetings and help commands (required for validation)
