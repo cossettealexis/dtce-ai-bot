@@ -26,6 +26,12 @@ class DTCETeamsBot(ActivityHandler):
         self.search_client = search_client
         self.qa_service = qa_service
         
+    async def on_members_added_activity(self, members_added: List[ChannelAccount], turn_context: TurnContext):
+        """Send welcome message when members are added to conversation."""
+        for member in members_added:
+            if member.id != turn_context.activity.recipient.id:
+                await self._send_welcome_message(turn_context)
+    
     async def on_message_activity(self, turn_context: TurnContext):
         """Handle incoming messages from users."""
         
@@ -34,18 +40,24 @@ class DTCETeamsBot(ActivityHandler):
         
         logger.info("Received Teams message", user=user_name, message=user_message)
         
-        # Handle basic greetings
-        if user_message.lower() in ['hi', 'hello', 'hey', 'hi there', 'hello there']:
+        # Normalize command for parsing
+        message_lower = user_message.lower().strip()
+        
+        # Handle basic greetings and help commands (required for validation)
+        if message_lower in ['hi', 'hello', 'hey', 'hi there', 'hello there']:
             await self._send_welcome_message(turn_context)
             return
         
-        # Check for special commands
-        if user_message.lower() in ['/help', 'help', '/start', 'start']:
+        if message_lower in ['help', '/help', 'start', '/start']:
             await self._send_welcome_message(turn_context)
             return
         
-        if user_message.lower() in ['/health', 'health', 'status']:
+        if message_lower in ['health', '/health', 'status']:
             await self._send_health_status(turn_context)
+            return
+            
+        if message_lower in ['projects', '/projects']:
+            await self._send_projects_list(turn_context)
             return
             
         if user_message.lower().startswith('/projects') or user_message.lower() == 'projects':
@@ -85,16 +97,18 @@ class DTCETeamsBot(ActivityHandler):
 I can help you find information from engineering documents and project files.
 
 **Available Commands:**
-• `/help` - Show this help message
-• `/search [query]` - Search documents (e.g., `/search bridge calculations`)
-• `/ask [question]` - Ask questions about documents (e.g., `/ask What are the seismic requirements?`)
-• `/projects` - List available projects
-• `/health` - Check system status
+• `help` or `Hello` - Show this help message
+• `search [query]` - Search documents (e.g., `search bridge calculations`)
+• `ask [question]` - Ask questions about documents (e.g., `ask What are the seismic requirements?`)
+• `projects` - List available projects
+• `health` - Check system status
 
 **Quick Examples:**
 • "What projects do we have?"
 • "Show me structural calculations for project 222"
 • "What were the conclusions in the final report?"
+• "Hi" - Get this welcome message
+• "Hello" - Get this welcome message
 
 Just type your question and I'll search through your engineering documents to help! 🔍
         """
