@@ -94,6 +94,70 @@ class MicrosoftGraphClient:
             print(f"💥 ERROR: Graph API request error for {endpoint}: {str(e)}")
             logger.error(f"Graph API request error for {endpoint}: {str(e)}")
             raise
+
+    async def _make_paginated_request(self, endpoint: str, method: str = "GET") -> List[Dict[str, Any]]:
+        """Make authenticated request to Microsoft Graph API with pagination support."""
+        all_items = []
+        next_url = f"{graph_urls.graph_base_url()}/{endpoint}"
+        
+        access_token = await self._get_access_token()
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+        
+        timeout = aiohttp.ClientTimeout(total=60, connect=15, sock_read=15)
+        page_count = 0
+        
+        try:
+            async with aiohttp.ClientSession(timeout=timeout) as session:
+                while next_url:
+                    page_count += 1
+                    print(f"🌐 HTTP: Making Graph API paginated request (page {page_count}) to: {next_url}")
+                    logger.info(f"Making Graph API paginated request (page {page_count}) to: {next_url}")
+                    
+                    async with session.request(method, next_url, headers=headers) as response:
+                        print(f"📡 HTTP: Graph API response status: {response.status} for page {page_count}")
+                        logger.info(f"Graph API response status: {response.status} for page {page_count}")
+                        
+                        if response.status == 200:
+                            result = await response.json()
+                            page_items = result.get("value", [])
+                            all_items.extend(page_items)
+                            
+                            # Check for next page
+                            next_url = result.get("@odata.nextLink")
+                            
+                            print(f"✅ HTTP: Page {page_count} successful - got {len(page_items)} items (total: {len(all_items)})")
+                            logger.info(f"Page {page_count} successful - got {len(page_items)} items (total: {len(all_items)})")
+                            
+                            if next_url:
+                                print(f"📄 HTTP: Found next page link, continuing pagination...")
+                            else:
+                                print(f"🏁 HTTP: No more pages, pagination complete")
+                        else:
+                            error_text = await response.text()
+                            print(f"❌ HTTP: Graph API paginated request failed for page {page_count}")
+                            logger.error(
+                                "Microsoft Graph API paginated request failed",
+                                status=response.status,
+                                page=page_count,
+                                error=error_text
+                            )
+                            raise Exception(f"Graph API paginated request failed: {response.status} - {error_text}")
+                
+                print(f"🎯 PAGINATION: Completed with {page_count} pages and {len(all_items)} total items")
+                logger.info(f"Pagination completed with {page_count} pages and {len(all_items)} total items")
+                return all_items
+                
+        except asyncio.TimeoutError as e:
+            print(f"⏰ TIMEOUT: Graph API paginated request timed out on page {page_count}: {str(e)}")
+            logger.error(f"Graph API paginated request timed out on page {page_count}: {str(e)}")
+            raise Exception(f"Graph API paginated request timed out on page {page_count}")
+        except Exception as e:
+            print(f"💥 ERROR: Graph API paginated request error on page {page_count}: {str(e)}")
+            logger.error(f"Graph API paginated request error on page {page_count}: {str(e)}")
+            raise
     
     async def get_sites(self) -> List[Dict[str, Any]]:
         """Get available SharePoint sites."""
@@ -725,9 +789,9 @@ class MicrosoftGraphClient:
         """Find a subfolder within a parent folder and return its ID."""
         try:
             logger.info(f"Searching for subfolder '{subfolder_name}' in parent folder...")
-            response = await self._make_request(f"sites/{site_id}/drives/{drive_id}/items/{parent_folder_id}/children")
+            items = await self._make_paginated_request(f"sites/{site_id}/drives/{drive_id}/items/{parent_folder_id}/children")
             
-            for item in response.get("value", []):
+            for item in items:
                 if item.get("name", "").lower() == subfolder_name.lower() and "folder" in item:
                     logger.info(f"Found subfolder '{subfolder_name}' with ID: {item['id']}")
                     return item["id"]
@@ -743,9 +807,9 @@ class MicrosoftGraphClient:
         """Find a specific folder in the drive root and return its ID."""
         try:
             logger.info(f"Searching for folder '{folder_name}' in drive root...")
-            root_response = await self._make_request(f"sites/{site_id}/drives/{drive_id}/root/children")
+            root_items = await self._make_paginated_request(f"sites/{site_id}/drives/{drive_id}/root/children")
             
-            for item in root_response.get("value", []):
+            for item in root_items:
                 if item.get("name", "").lower() == folder_name.lower() and "folder" in item:
                     logger.info(f"Found target folder '{folder_name}' with ID: {item['id']}")
                     return item["id"]
@@ -899,11 +963,11 @@ class MicrosoftGraphClient:
         try:
             logger.info(f"Starting COMPLETE processing of project '{project_folder_name}' with immediate upload: {immediate_upload}")
             
-            # Get the specific project folder
-            projects_response = await self._make_request(f"sites/{site_id}/drives/{drive_id}/items/{projects_folder_id}/children")
+            # Get the specific project folder with pagination
+            projects_items = await self._make_paginated_request(f"sites/{site_id}/drives/{drive_id}/items/{projects_folder_id}/children")
             project_folder_id = None
             
-            for item in projects_response.get("value", []):
+            for item in projects_items:
                 if item.get("name", "") == project_folder_name and "folder" in item:
                     project_folder_id = item["id"]
                     logger.info(f"Found project folder '{project_folder_name}' with ID: {project_folder_id}")
@@ -942,10 +1006,9 @@ class MicrosoftGraphClient:
             indent = "  " * depth
             logger.info(f"{indent}Processing folder: {folder_path} (depth {depth}) - IMMEDIATE UPLOAD MODE")
             
-            # Get ALL items in this folder
+            # Get ALL items in this folder (with pagination)
             endpoint = f"sites/{site_id}/drives/{drive_id}/items/{folder_id}/children"
-            response = await self._make_request(endpoint)
-            items = response.get("value", [])
+            items = await self._make_paginated_request(endpoint)
             
             files_in_folder = []
             subfolders_in_folder = []
@@ -1043,9 +1106,9 @@ class MicrosoftGraphClient:
                 logger.warning("Projects folder not found in drive")
                 return
             
-            # Get all project folders
-            projects_response = await self._make_request(f"sites/{site_id}/drives/{drive_id}/items/{projects_folder_id}/children")
-            project_folders = [item for item in projects_response.get("value", []) if "folder" in item]
+            # Get all project folders with pagination
+            projects_items = await self._make_paginated_request(f"sites/{site_id}/drives/{drive_id}/items/{projects_folder_id}/children")
+            project_folders = [item for item in projects_items if "folder" in item]
             
             logger.info(f"Found {len(project_folders)} project folders to process")
             
