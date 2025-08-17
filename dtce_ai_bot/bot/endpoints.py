@@ -21,13 +21,22 @@ router = APIRouter()
 # Initialize bot components
 settings = get_settings()
 
-# Create adapter for Teams
+# Create adapter for Teams with proper authentication
 BOT_SETTINGS = BotFrameworkAdapterSettings(
     app_id=settings.microsoft_app_id or "",
     app_password=settings.microsoft_app_password or ""
 )
 
 ADAPTER = BotFrameworkAdapter(BOT_SETTINGS)
+
+# Set up error handler for authentication issues
+async def on_error(context: TurnContext, error: Exception):
+    logger.error(f"Bot authentication error: {error}")
+    # Don't send error message to user for auth errors
+    if "authorization" not in str(error).lower():
+        await context.send_activity("Sorry, an error occurred while processing your message.")
+
+ADAPTER.on_turn_error = on_error
 
 # Create storage and state
 MEMORY_STORAGE = MemoryStorage()
