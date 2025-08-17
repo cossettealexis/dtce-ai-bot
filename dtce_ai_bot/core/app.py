@@ -112,59 +112,10 @@ def create_app() -> FastAPI:
                        headers=headers,
                        user_agent=headers.get('user-agent', 'unknown'))
             
-            # Implement proper Bot Framework authentication
-            try:
-                from botframework.connector.auth import JwtTokenValidation, SimpleCredentialProvider
-                from botframework.connector.auth import AuthenticationConfiguration, AuthenticationConstants
-                
-                # Get credentials from environment - debug what's actually available
-                app_id = os.getenv('MicrosoftAppId', '')
-                app_password = os.getenv('MicrosoftAppPassword', '')
-                
-                # Debug logging - show what environment variables we found
-                logger.info("Environment variables check", 
-                           app_id=app_id[:10] + "..." if app_id else "MISSING",
-                           has_password=bool(app_password),
-                           all_env_keys=[k for k in os.environ.keys() if 'Microsoft' in k or 'App' in k])
-                
-                logger.info("Bot Framework credentials", app_id=app_id, has_password=bool(app_password))
-                
-                # Create credential provider
-                credential_provider = SimpleCredentialProvider(app_id, app_password)
-                
-                # Get authorization header
-                auth_header = headers.get('authorization', '')
-                
-                if auth_header and auth_header.startswith('Bearer ') and not auth_header.startswith('Bearer test'):
-                    # Real Bot Framework call - validate token
-                    logger.info("Validating Bot Framework token")
-                    
-                    try:
-                        # Extract token from Bearer header
-                        token = auth_header.split(' ')[1]
-                        
-                        # For Single Tenant apps, we need to validate against the tenant
-                        auth_config = AuthenticationConfiguration()
-                        
-                        # Validate the JWT token
-                        claims = await JwtTokenValidation.validate_auth_header(
-                            auth_header,
-                            credential_provider,
-                            "webchat",  # channel id
-                            auth_config
-                        )
-                        
-                        logger.info("✅ Bot Framework token validation successful", claims=str(claims))
-                        
-                    except Exception as token_error:
-                        logger.error("❌ Bot Framework token validation failed", error=str(token_error))
-                        # Continue anyway for now to test connectivity
-                        
-                else:
-                    logger.info("No valid Bot Framework auth header - proceeding anyway for testing")
-                    
-            except Exception as auth_error:
-                logger.warning("Bot Framework authentication setup failed", error=str(auth_error))
+            # TEMPORARILY DISABLE authentication to test Bot Framework connectivity
+            logger.info("⚠️ AUTHENTICATION DISABLED FOR TESTING")
+            headers = dict(request.headers)
+            logger.info("Incoming request headers", headers=headers)
             
             # Get and log the raw body with immediate acknowledgment pattern
             import asyncio
