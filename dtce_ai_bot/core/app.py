@@ -125,6 +125,12 @@ def create_app() -> FastAPI:
             body = await request.json()
             logger.info("=== MESSAGE BODY ===", body=body)
             
+            # Extract important Bot Framework fields
+            service_url = body.get("serviceUrl", "")
+            conversation_id = body.get("conversation", {}).get("id", "")
+            activity_id = body.get("id", "")
+            channel_id = body.get("channelId", "")
+            
             question = body.get("text", "").strip()
             logger.info("=== EXTRACTED QUESTION ===", question=question)
             
@@ -150,12 +156,28 @@ def create_app() -> FastAPI:
                 logger.info(f"✅ Fast response generated in {elapsed:.2f}s")
                 
                 # Return complete answer if we got it quickly
-                return {
+                response = {
                     "type": "message", 
                     "text": result['answer'],
                     "speak": result['answer'],
                     "inputHint": "acceptingInput"
                 }
+                
+                # FOR BOT FRAMEWORK: Also try to send response back to serviceUrl
+                if service_url and conversation_id:
+                    try:
+                        import httpx
+                        async with httpx.AsyncClient() as client:
+                            await client.post(
+                                f"{service_url}/v3/conversations/{conversation_id}/activities",
+                                json=response,
+                                headers={"Content-Type": "application/json"}
+                            )
+                        logger.info("✅ Response sent back to Bot Framework serviceUrl")
+                    except Exception as send_error:
+                        logger.warning("Failed to send response to serviceUrl", error=str(send_error))
+                
+                return response
                 
             except asyncio.TimeoutError:
                 # ⚡ IMMEDIATE ACKNOWLEDGMENT - Bot Framework requires response within 15s
@@ -163,12 +185,28 @@ def create_app() -> FastAPI:
                 logger.info(f"⚡ Sending immediate acknowledgment after {elapsed:.2f}s")
                 
                 # Return immediate acknowledgment to prevent timeout
-                return {
+                response = {
                     "type": "message", 
                     "text": "I'm analyzing your question and searching through the documents. This might take a moment - I'll provide a comprehensive answer based on the available project information.",
                     "speak": "I'm analyzing your question and searching through the documents. This might take a moment.",
                     "inputHint": "acceptingInput"
                 }
+                
+                # FOR BOT FRAMEWORK: Also try to send response back to serviceUrl
+                if service_url and conversation_id:
+                    try:
+                        import httpx
+                        async with httpx.AsyncClient() as client:
+                            await client.post(
+                                f"{service_url}/v3/conversations/{conversation_id}/activities",
+                                json=response,
+                                headers={"Content-Type": "application/json"}
+                            )
+                        logger.info("✅ Acknowledgment sent back to Bot Framework serviceUrl")
+                    except Exception as send_error:
+                        logger.warning("Failed to send acknowledgment to serviceUrl", error=str(send_error))
+                
+                return response
             
         except Exception as e:
             return {
