@@ -82,11 +82,11 @@ def create_app() -> FastAPI:
     app.include_router(documents_router, prefix="/documents", tags=["documents"])
     app.include_router(project_scoping_router, prefix="/projects", tags=["project-scoping"])
     
-    # Simple Bot Framework to Document Search Bridge
+    # Bot Framework with proper Single Tenant authentication
     
     @app.api_route("/api/messages", methods=["GET", "POST", "OPTIONS"])
     async def bot_framework_messages(request: Request):
-        """Direct bridge: Bot Framework → Document Search."""
+        """Bot Framework endpoint with Single Tenant authentication."""
         logger = structlog.get_logger()
         
         # Log all incoming requests for debugging
@@ -102,24 +102,55 @@ def create_app() -> FastAPI:
         if request.method == "GET":
             return {"status": "ready"}
             
-        # POST - actual message
+        # POST - handle Bot Framework messages with authentication
         try:
-            body = await request.json()
-            logger.info("Received Bot Framework message", body=body)
-            question = body.get("text", "").strip()
+            # For Single Tenant, we need to verify the Bot Framework request
+            from botbuilder.core import TurnContext
+            from botbuilder.schema import Activity
+            from botframework.connector.auth import JwtTokenValidation, SimpleCredentialProvider
             
-            if not question:
+            # Get Bot Framework credentials
+            app_id = settings.microsoft_app_id
+            app_password = settings.microsoft_app_password
+            
+            logger.info("Bot Framework auth", app_id=app_id, has_password=bool(app_password))
+            
+            if not app_id:
+                logger.warning("No Microsoft App ID configured - using bypass mode")
+                # Bypass authentication if no credentials configured
+                body = await request.json()
+                question = body.get("text", "").strip()
+            else:
+                # Proper Bot Framework authentication for Single Tenant
+                credential_provider = SimpleCredentialProvider(app_id, app_password)
+                auth_header = request.headers.get("Authorization", "")
+                
+                body = await request.json()
+                activity = Activity().deserialize(body)
+                
+                # Validate the JWT token from Bot Framework
+                claims_identity = await JwtTokenValidation.authenticate_request(
+                    activity, auth_header, credential_provider, provider=None
+                )
+                
+                if not claims_identity.is_authenticated:
+                    logger.error("Bot Framework authentication failed")
+                    raise HTTPException(status_code=401, detail="Unauthorized")
+                
+                question = activity.text or ""
+            
+            if not question.strip():
                 return {"type": "message", "text": "Please ask me something!"}
             
-            # Direct call to your document search - NO AUTHENTICATION BULLSHIT
+            # Call document search
             from ..services.document_qa import DocumentQAService
             from ..integrations.azure_search import get_search_client
             
             search_client = get_search_client()
             qa_service = DocumentQAService(search_client)
-            result = await qa_service.answer_question(question)
+            result = await qa_service.answer_question(question.strip())
             
-            # Return response that DirectLine expects
+            # Return Bot Framework response
             return {
                 "type": "message", 
                 "text": result['answer'],
