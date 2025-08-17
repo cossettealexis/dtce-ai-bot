@@ -1233,6 +1233,7 @@ async def sync_suitefiles_documents(
 @router.post("/sync-suitefiles-async")
 async def sync_suitefiles_async(
     path: Optional[str] = Query(None, description="Specific SharePoint path (e.g. 'Projects/219', 'Projects/219/Drawings', 'Engineering/Marketing') or empty for all"),
+    force: bool = Query(False, description="Force re-sync all files even if they appear up-to-date"),
     graph_client: MicrosoftGraphClient = Depends(get_graph_client),
     storage_client: BlobServiceClient = Depends(get_storage_client)
 ) -> JSONResponse:
@@ -1242,17 +1243,19 @@ async def sync_suitefiles_async(
 
     Args:
         path: Specific SharePoint path (e.g. "Projects/219", "Projects/219/Drawings", "Engineering/Marketing") or empty for all
+        force: Force re-sync all files even if they appear up-to-date
 
     Returns immediately with actual sync results - no fake job monitoring needed.
     """
-    logger.info("Starting REAL ASYNC document sync", path=path)
+    logger.info("Starting REAL ASYNC document sync", path=path, force=force)
 
     try:
         # Use the SAME centralized sync service as the working sync endpoint
         sync_service = get_document_sync_service(storage_client)
         sync_result = await sync_service.sync_documents(
             graph_client=graph_client,
-            path=path
+            path=path,
+            force_resync=force
         )
         
         logger.info("ASYNC sync completed successfully", 
