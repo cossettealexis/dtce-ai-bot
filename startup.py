@@ -38,7 +38,26 @@ os.environ.setdefault("ENVIRONMENT", "production")
 os.environ.setdefault("API_HOST", "0.0.0.0")
 os.environ.setdefault("API_PORT", "8000")
 
-print("🚀 Starting DTCE AI Bot on Azure App Service (v2025-01-20-FORCE-DEPLOY)...")
+print("🚀 Starting DTCE AI Bot on Azure App Service (v2025-01-20-DEBUG-SYNTAX)...")
+
+# Debug: Check teams_bot.py syntax before importing
+try:
+    import ast
+    with open('dtce_ai_bot/bot/teams_bot.py', 'r') as f:
+        source = f.read()
+    
+    # Compile check
+    compile(source, 'dtce_ai_bot/bot/teams_bot.py', 'exec')
+    print("✅ teams_bot.py syntax is valid")
+    
+    # AST parse check  
+    ast.parse(source)
+    print("✅ teams_bot.py AST parsing successful")
+    
+except Exception as e:
+    print(f"❌ teams_bot.py syntax issue: {e}")
+    import traceback
+    traceback.print_exc()
 
 # Import and create the app
 from dtce_ai_bot.core.app import create_app
