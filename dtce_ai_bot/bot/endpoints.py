@@ -28,16 +28,12 @@ settings = get_settings()
 
 # Create adapter for Teams with proper authentication
 BOT_SETTINGS = BotFrameworkAdapterSettings(
-    app_id=settings.microsoft_app_id or "",
-    app_password=settings.microsoft_app_password or ""
+    app_id=settings.microsoft_app_id,
+    app_password=settings.microsoft_app_password
 )
 
-# For testing - create adapter that allows unauthenticated calls
+# Create adapter with proper Bot Framework authentication
 ADAPTER = BotFrameworkAdapter(BOT_SETTINGS)
-
-# Disable authentication for testing
-ADAPTER._credentials_factory = None
-ADAPTER._auth_configuration = None
 
 # Set up error handler for authentication issues
 async def on_error(context: TurnContext, error: Exception):
