@@ -133,8 +133,27 @@ def create_app() -> FastAPI:
                     # Real Bot Framework call - validate token
                     logger.info("Validating Bot Framework token")
                     
-                    # For now, skip validation but acknowledge we received a proper call
-                    logger.info("Bot Framework authentication received - proceeding")
+                    try:
+                        # Extract token from Bearer header
+                        token = auth_header.split(' ')[1]
+                        
+                        # For Single Tenant apps, we need to validate against the tenant
+                        auth_config = AuthenticationConfiguration()
+                        
+                        # Validate the JWT token
+                        claims = await JwtTokenValidation.validate_auth_header(
+                            auth_header,
+                            credential_provider,
+                            "webchat",  # channel id
+                            auth_config
+                        )
+                        
+                        logger.info("✅ Bot Framework token validation successful", claims=str(claims))
+                        
+                    except Exception as token_error:
+                        logger.error("❌ Bot Framework token validation failed", error=str(token_error))
+                        # Continue anyway for now to test connectivity
+                        
                 else:
                     logger.info("No valid Bot Framework auth header - proceeding anyway for testing")
                     
