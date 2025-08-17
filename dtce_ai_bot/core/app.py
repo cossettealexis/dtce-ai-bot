@@ -117,9 +117,15 @@ def create_app() -> FastAPI:
                 from botframework.connector.auth import JwtTokenValidation, SimpleCredentialProvider
                 from botframework.connector.auth import AuthenticationConfiguration, AuthenticationConstants
                 
-                # Get credentials from environment
-                app_id = os.getenv('MicrosoftAppId', '').strip('"')
-                app_password = os.getenv('MicrosoftAppPassword', '').strip('"')
+                # Get credentials from environment - debug what's actually available
+                app_id = os.getenv('MicrosoftAppId', '')
+                app_password = os.getenv('MicrosoftAppPassword', '')
+                
+                # Debug logging - show what environment variables we found
+                logger.info("Environment variables check", 
+                           app_id=app_id[:10] + "..." if app_id else "MISSING",
+                           has_password=bool(app_password),
+                           all_env_keys=[k for k in os.environ.keys() if 'Microsoft' in k or 'App' in k])
                 
                 logger.info("Bot Framework credentials", app_id=app_id, has_password=bool(app_password))
                 
