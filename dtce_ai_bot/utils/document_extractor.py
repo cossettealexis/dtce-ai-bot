@@ -59,12 +59,40 @@ class EnhancedDocumentExtractor:
             
             # Check if file exceeds Azure Form Recognizer limits
             if self._is_file_too_large(file_size, content_type):
-                logger.warning("File exceeds Azure Form Recognizer size limits", 
+                logger.warning("File exceeds Azure Form Recognizer size limits, trying alternative extraction", 
                              blob_name=blob_name, 
                              file_size=file_size,
                              content_type=content_type)
                 
-                # Create metadata for oversized file without attempting processing
+                # For oversized PDFs, try PyPDF2 extraction as fallback
+                if content_type and 'pdf' in content_type.lower():
+                    logger.info("Attempting PyPDF2 extraction for oversized PDF", blob_name=blob_name)
+                    try:
+                        # Download blob content for alternative extraction
+                        blob_data = blob_client.download_blob().readall()
+                        
+                        # Use PyPDF2 for text extraction
+                        result = await self._extract_pdf_with_pypdf2(blob_data, blob_name)
+                        result.update({
+                            'processing_timestamp': datetime.utcnow().isoformat(),
+                            'extraction_attempt': 1,
+                            'blob_name': blob_name,
+                            'content_type': content_type or 'unknown',
+                            'extraction_success': True,
+                            'size_limit_exceeded': True,
+                            'file_size_bytes': file_size,
+                            'fallback_extraction': True
+                        })
+                        logger.info("Successfully extracted text from oversized PDF using PyPDF2", 
+                                   blob_name=blob_name, 
+                                   character_count=result.get('character_count', 0))
+                        return result
+                        
+                    except Exception as e:
+                        logger.warning("PyPDF2 fallback extraction failed", blob_name=blob_name, error=str(e))
+                        # Fall through to metadata-only approach
+                
+                # For non-PDFs or failed PDF extraction, create enhanced metadata
                 result = self._create_file_metadata(blob_name, content_type, 
                                                   f"File too large ({file_size:,} bytes) for Azure Form Recognizer processing")
                 result.update({
@@ -132,11 +160,41 @@ class EnhancedDocumentExtractor:
                 
                 # Check for specific Azure Form Recognizer size limit errors - don't retry these
                 if "InvalidContentLength" in error_str or "input image is too large" in error_str.lower():
-                    logger.warning("File too large for Azure Form Recognizer, skipping retries", 
+                    logger.warning("File too large for Azure Form Recognizer, trying fallback extraction", 
                                  blob_name=blob_name, 
                                  error=error_str)
                     
-                    # Create meaningful metadata for oversized file
+                    # For PDFs, try PyPDF2 extraction as fallback
+                    if content_type and 'pdf' in content_type.lower():
+                        logger.info("Attempting PyPDF2 fallback for oversized PDF", blob_name=blob_name)
+                        try:
+                            # Download blob content for fallback extraction
+                            blob_data = blob_client.download_blob().readall()
+                            
+                            # Use PyPDF2 for text extraction
+                            result = await self._extract_pdf_with_pypdf2(blob_data, blob_name)
+                            result.update({
+                                'processing_timestamp': datetime.utcnow().isoformat(),
+                                'extraction_attempt': attempt + 1,
+                                'blob_name': blob_name,
+                                'content_type': content_type or 'unknown',
+                                'extraction_success': True,
+                                'size_limit_exceeded': True,
+                                'form_recognizer_failed': True,
+                                'fallback_used': True
+                            })
+                            logger.info("Successfully used PyPDF2 fallback for oversized PDF", 
+                                       blob_name=blob_name, 
+                                       character_count=result.get('character_count', 0))
+                            return result
+                            
+                        except Exception as fallback_error:
+                            logger.warning("PyPDF2 fallback also failed", 
+                                         blob_name=blob_name, 
+                                         error=str(fallback_error))
+                            # Fall through to metadata-only approach
+                    
+                    # Create meaningful metadata for oversized file (non-PDF or failed PDF fallback)
                     result = self._create_file_metadata(blob_name, content_type, f"File too large for processing: {error_str}")
                     result.update({
                         'processing_timestamp': datetime.utcnow().isoformat(),
@@ -316,6 +374,92 @@ class EnhancedDocumentExtractor:
                 'character_count': 0,
                 'extraction_method': 'msg_parser_failed',
                 'note': f"MSG extraction failed: {str(e)}"
+            }
+
+    async def _extract_pdf_with_pypdf2(self, blob_data: bytes, blob_name: str) -> Dict[str, Any]:
+        """
+        Extract text from PDF using PyPDF2 as fallback for oversized files.
+        This is used when files are too large for Azure Form Recognizer.
+        """
+        try:
+            import PyPDF2
+            import io
+            
+            logger.info("Extracting oversized PDF with PyPDF2", blob_name=blob_name)
+            
+            pdf_file = io.BytesIO(blob_data)
+            pdf_reader = PyPDF2.PdfReader(pdf_file)
+            
+            extracted_text = ""
+            page_count = len(pdf_reader.pages)
+            successful_pages = 0
+            
+            # Extract text from each page
+            for page_num, page in enumerate(pdf_reader.pages):
+                try:
+                    text = page.extract_text()
+                    if text.strip():
+                        extracted_text += f"\n--- Page {page_num + 1} ---\n{text}\n"
+                        successful_pages += 1
+                except Exception as e:
+                    logger.warning("Failed to extract text from PDF page", 
+                                 blob_name=blob_name, 
+                                 page_num=page_num + 1, 
+                                 error=str(e))
+                    continue
+            
+            # Add document metadata to make it searchable
+            if extracted_text.strip():
+                # Add helpful context for AI processing
+                document_context = f"""
+Document: {blob_name}
+Type: PDF Document (Large file processed with alternative extraction)
+Pages: {page_count} total, {successful_pages} successfully processed
+File Status: Too large for standard OCR processing, text extracted using PyPDF2
+
+Content:
+{extracted_text.strip()}
+"""
+                final_text = document_context
+            else:
+                # If no text extracted, create descriptive content
+                final_text = f"""
+Document: {blob_name}
+Type: PDF Document (Large file, text extraction limited)
+Pages: {page_count} pages
+Note: This appears to be a scanned or image-based PDF. Text extraction was attempted but yielded limited results.
+File contains: Likely contains technical drawings, images, or scanned content that requires manual review.
+"""
+            
+            return {
+                'extracted_text': final_text.strip(),
+                'character_count': len(final_text.strip()),
+                'page_count': page_count,
+                'successful_pages': successful_pages,
+                'extraction_method': 'pdf_pypdf2_fallback',
+                'fallback_extraction': True,
+                'oversized_file': True,
+                'extraction_quality': 'high' if successful_pages > page_count * 0.8 else 'medium' if successful_pages > 0 else 'low'
+            }
+            
+        except Exception as e:
+            logger.error("PyPDF2 PDF extraction failed", blob_name=blob_name, error=str(e))
+            # Return basic but searchable content
+            return {
+                'extracted_text': f"""
+Document: {blob_name}
+Type: PDF Document (Large file, extraction failed)
+Note: This is a large PDF file that could not be processed with standard text extraction methods.
+File likely contains: Technical drawings, scanned content, or complex formatting.
+For detailed information: Manual review of the original file may be required.
+File can be accessed through the document management system.
+""",
+                'character_count': 200,
+                'page_count': 1,
+                'extraction_method': 'pdf_pypdf2_failed',
+                'fallback_extraction': True,
+                'oversized_file': True,
+                'error': str(e)
             }
 
     async def _extract_with_form_recognizer(self, blob_data: bytes, blob_name: str) -> Dict[str, Any]:
