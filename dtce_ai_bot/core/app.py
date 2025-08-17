@@ -87,6 +87,18 @@ def create_app() -> FastAPI:
     app.include_router(documents_router, prefix="/documents", tags=["documents"])
     app.include_router(project_scoping_router, prefix="/projects", tags=["project-scoping"])
     
+    # Track Bot Framework calls - simple counter without exposing keys
+    bot_calls = {"count": 0, "last_call": None}
+    
+    @app.get("/debug/bot-calls")
+    async def get_bot_calls():
+        """Check if Bot Framework is calling our endpoint."""
+        return {
+            "total_calls": bot_calls["count"],
+            "last_call_time": bot_calls["last_call"],
+            "status": "Bot Framework is calling our endpoint" if bot_calls["count"] > 0 else "No Bot Framework calls detected"
+        }
+    
     # Bot Framework with proper Single Tenant authentication
     
     @app.api_route("/api/messages", methods=["GET", "POST", "OPTIONS"])
@@ -109,9 +121,15 @@ def create_app() -> FastAPI:
             
         # POST - handle Bot Framework messages with authentication
         try:
+            # Track Bot Framework calls
+            from datetime import datetime
+            bot_calls["count"] += 1
+            bot_calls["last_call"] = datetime.now().isoformat()
+            
             # Log the incoming request for debugging
             headers = dict(request.headers)
-            logger.info("Incoming DirectLine request", 
+            logger.info("🚀 Bot Framework call detected!", 
+                       call_number=bot_calls["count"],
                        method=request.method, 
                        url=str(request.url),
                        headers=headers,
