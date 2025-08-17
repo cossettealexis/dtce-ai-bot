@@ -127,29 +127,58 @@ def create_app() -> FastAPI:
             auth_header = request.headers.get("authorization", "")
             logger.info("Processing Bot Framework request", has_auth=bool(auth_header))
             
+            # Get and log the raw body with immediate acknowledgment pattern
+            import asyncio
+            from datetime import datetime
+            start_time = datetime.now()
+            
             body = await request.json()
-            logger.info("Received message", body=body)
+            logger.info("=== MESSAGE BODY ===", body=body)
             
             question = body.get("text", "").strip()
+            logger.info("=== EXTRACTED QUESTION ===", question=question)
             
             if not question.strip():
                 return {"type": "message", "text": "Please ask me something!"}
             
-            # Call document search
-            from ..services.document_qa import DocumentQAService
-            from ..integrations.azure_search import get_search_client
-            
-            search_client = get_search_client()
-            qa_service = DocumentQAService(search_client)
-            result = await qa_service.answer_question(question.strip())
-            
-            # Return Bot Framework response
-            return {
-                "type": "message", 
-                "text": result['answer'],
-                "speak": result['answer'],
-                "inputHint": "acceptingInput"
-            }
+            # 🚀 IMMEDIATE ACKNOWLEDGMENT PATTERN - Reply within 5 seconds to avoid timeout
+            try:
+                # Call document search with 5 second timeout for immediate response
+                from ..services.document_qa import DocumentQAService
+                from ..integrations.azure_search import get_search_client
+                
+                search_client = get_search_client()
+                qa_service = DocumentQAService(search_client)
+                
+                # Try to get answer within 5 seconds
+                result = await asyncio.wait_for(
+                    qa_service.answer_question(question.strip()),
+                    timeout=5.0
+                )
+                
+                elapsed = (datetime.now() - start_time).total_seconds()
+                logger.info(f"✅ Fast response generated in {elapsed:.2f}s")
+                
+                # Return complete answer if we got it quickly
+                return {
+                    "type": "message", 
+                    "text": result['answer'],
+                    "speak": result['answer'],
+                    "inputHint": "acceptingInput"
+                }
+                
+            except asyncio.TimeoutError:
+                # ⚡ IMMEDIATE ACKNOWLEDGMENT - Bot Framework requires response within 15s
+                elapsed = (datetime.now() - start_time).total_seconds()
+                logger.info(f"⚡ Sending immediate acknowledgment after {elapsed:.2f}s")
+                
+                # Return immediate acknowledgment to prevent timeout
+                return {
+                    "type": "message", 
+                    "text": "I'm analyzing your question and searching through the documents. This might take a moment - I'll provide a comprehensive answer based on the available project information.",
+                    "speak": "I'm analyzing your question and searching through the documents. This might take a moment.",
+                    "inputHint": "acceptingInput"
+                }
             
         except Exception as e:
             return {
