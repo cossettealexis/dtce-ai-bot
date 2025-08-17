@@ -68,18 +68,17 @@ All project documentation is organized in the `/docs` folder:
 - `GET /docs` - Interactive API documentation (Swagger/OpenAPI)
 - `GET /health` - System health monitoring
 
-### Document Sync
-- `POST /sync-suitefiles-async` - Asynchronous document synchronization
-- `POST /sync-suitefiles-async?force=true` - Force re-sync all documents
+### Document Management
+- `POST /documents/sync-suitefiles-async` - Asynchronous document synchronization
+- `POST /documents/sync-suitefiles-async?force=true` - Force re-sync all documents
+- `POST /documents/ask` - **Core AI endpoint** - handles ALL user queries (document Q&A, project scoping, general chat)
 
-### Chat & AI
-- `POST /chat` - Process chat messages and document queries
-- `POST /projects/scope` - Project scoping analysis
-
-### Teams Bot
-- `POST /api/teams/messages` - Teams bot message handler
+### Teams Bot Interface
+- `POST /api/teams/messages` - Teams bot message handler (routes all user input to `/documents/ask`)
 - `GET /privacy` - Privacy policy (Teams compliance)
 - `GET /terms` - Terms of use (Teams compliance)
+
+> **Note**: **ALL user interactions** in Teams (document questions, project analysis, general chat) go through the Teams bot, which internally calls `/documents/ask` for AI responses.
 
 ## 🏗️ Architecture
 
@@ -128,7 +127,7 @@ The application includes a powerful force re-sync capability:
 
 ```bash
 # Force re-sync all documents (bypasses modification date checks)
-curl -X POST "https://your-app-url/sync-suitefiles-async?force=true"
+curl -X POST "https://your-app-url/documents/sync-suitefiles-async?force=true"
 ```
 
 This feature is particularly useful for:
@@ -136,6 +135,14 @@ This feature is particularly useful for:
 - Troubleshooting "No documents found to sync" issues
 - Complete knowledge base refresh
 - After configuration changes
+
+## 💬 User Experience
+
+Users interact with the AI assistant entirely through the **Microsoft Teams bot chat interface**:
+
+- **Document Questions**: Users ask questions in Teams chat, bot searches documents and provides answers
+- **Project Scoping**: Users describe new projects, bot analyzes and finds similar past projects
+- **Natural Language**: No need to learn API endpoints - just chat naturally with the bot
 
 ## 🚨 Troubleshooting
 
