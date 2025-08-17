@@ -3,6 +3,13 @@
 # DTCE AI Assistant - Development Setup Script
 # =============================================================================
 # This script sets up the local development environment
+# 
+# Repository: https://dtceai-backend-cyashrb8hnc2ayhp.scm.newzealandnorth-01.azurewebsites.net:443/dtceai-backend.git
+#
+# Usage:
+#   git clone https://dtceai-backend-cyashrb8hnc2ayhp.scm.newzealandnorth-01.azurewebsites.net:443/dtceai-backend.git
+#   cd dtceai-backend
+#   ./scripts/setup_dev.sh
 
 set -e  # Exit on any error
 

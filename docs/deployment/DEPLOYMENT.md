@@ -12,6 +12,7 @@ This guide covers deployment of the DTCE AI Assistant to Azure App Service using
 - **Azure Blob Storage** (Document storage)
 - **Azure AD App Registration** (Authentication)
 - **Microsoft Graph API** (SharePoint access)
+- **Azure Repository** (`https://dtceai-backend-cyashrb8hnc2ayhp.scm.newzealandnorth-01.azurewebsites.net:443/dtceai-backend.git`)
 
 ### Development Tools
 - Python 3.11+
