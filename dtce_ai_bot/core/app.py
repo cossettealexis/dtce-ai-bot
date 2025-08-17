@@ -82,24 +82,38 @@ def create_app() -> FastAPI:
     app.include_router(documents_router, prefix="/documents", tags=["documents"])
     app.include_router(project_scoping_router, prefix="/projects", tags=["project-scoping"])
     
-    # Add Bot Framework compatibility route for Azure Bot Service
+    # Simple Bot Framework to Document Search Bridge
     
     @app.api_route("/api/messages", methods=["GET", "POST", "OPTIONS"])
     async def bot_framework_messages(request: Request):
-        """Handle Bot Framework messages directly at /api/messages."""
-        from ..bot.endpoints import messages_endpoint, messages_get_endpoint, messages_options_endpoint
+        """Direct bridge: Bot Framework → Document Search."""
         
-        method = request.method
-        
-        if method == "OPTIONS":
-            # Handle CORS preflight
-            return await messages_options_endpoint(request)
-        elif method == "GET":
-            # Handle GET requests for debugging
-            return await messages_get_endpoint(request)
-        elif method == "POST":
-            # Handle POST requests - the actual bot messages
-            return await messages_endpoint(request)
+        if request.method == "OPTIONS":
+            return Response(headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "*"})
+            
+        if request.method == "GET":
+            return {"status": "ready"}
+            
+        # POST - actual message
+        try:
+            body = await request.json()
+            question = body.get("text", "").strip()
+            
+            if not question:
+                return {"type": "message", "text": "Please ask me something!"}
+            
+            # Direct call to your document search
+            from ..services.document_qa import DocumentQAService
+            from ..integrations.azure_search import get_search_client
+            
+            search_client = get_search_client()
+            qa_service = DocumentQAService(search_client)
+            result = await qa_service.answer_question(question)
+            
+            return {"type": "message", "text": result['answer']}
+            
+        except Exception as e:
+            return {"type": "message", "text": f"Error: {str(e)}"}
     
     # Add root route
     @app.get("/")
