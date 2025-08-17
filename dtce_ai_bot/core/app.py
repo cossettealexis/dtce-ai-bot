@@ -86,47 +86,20 @@ def create_app() -> FastAPI:
     
     @app.api_route("/api/messages", methods=["GET", "POST", "OPTIONS"])
     async def bot_framework_messages(request: Request):
-        """Redirect Bot Framework messages to the correct endpoint."""
+        """Handle Bot Framework messages directly at /api/messages."""
+        from ..bot.endpoints import messages_endpoint, messages_get_endpoint, messages_options_endpoint
+        
         method = request.method
         
         if method == "OPTIONS":
             # Handle CORS preflight
-            response = Response()
-            response.headers["Access-Control-Allow-Origin"] = "*"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
-            response.headers["Access-Control-Allow-Headers"] = "*"
-            return response
+            return await messages_options_endpoint(request)
         elif method == "GET":
-            # Redirect GET requests to the teams endpoint
-            return RedirectResponse(url="/api/teams/messages", status_code=302)
+            # Handle GET requests for debugging
+            return await messages_get_endpoint(request)
         elif method == "POST":
-            # For POST requests, we need to forward the request to the teams endpoint
-            
-            # Get the request body and headers
-            body = await request.body()
-            headers = dict(request.headers)
-            
-            # Remove host header to avoid conflicts
-            headers.pop("host", None)
-            
-            # Forward the request to the teams endpoint
-            base_url = str(request.base_url).rstrip('/')
-            target_url = f"{base_url}/api/teams/messages"
-            
-            async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    target_url,
-                    content=body,
-                    headers=headers,
-                    timeout=30.0
-                )
-                
-                # Return the response from the teams endpoint
-                return Response(
-                    content=response.content,
-                    status_code=response.status_code,
-                    headers=dict(response.headers)
-                )
+            # Handle POST requests - the actual bot messages
+            return await messages_endpoint(request)
     
     # Add root route
     @app.get("/")
