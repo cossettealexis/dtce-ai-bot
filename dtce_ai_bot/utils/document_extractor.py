@@ -34,6 +34,9 @@ class EnhancedDocumentExtractor:
         )
         self.max_retries = 3
         self.retry_delay = 2.0
+        # Azure Form Recognizer file size limits (in bytes)
+        self.max_file_size = 50 * 1024 * 1024  # 50MB for most document types
+        self.max_pdf_size = 500 * 1024 * 1024  # 500MB for PDFs specifically
     
     async def extract_text_from_blob(self, blob_client, content_type: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -48,6 +51,37 @@ class EnhancedDocumentExtractor:
             Dictionary with extracted text, metadata, and processing info
         """
         blob_name = blob_client.blob_name
+        
+        # Check file size before processing
+        try:
+            blob_properties = blob_client.get_blob_properties()
+            file_size = blob_properties.size
+            
+            # Check if file exceeds Azure Form Recognizer limits
+            if self._is_file_too_large(file_size, content_type):
+                logger.warning("File exceeds Azure Form Recognizer size limits", 
+                             blob_name=blob_name, 
+                             file_size=file_size,
+                             content_type=content_type)
+                
+                # Create metadata for oversized file without attempting processing
+                result = self._create_file_metadata(blob_name, content_type, 
+                                                  f"File too large ({file_size:,} bytes) for Azure Form Recognizer processing")
+                result.update({
+                    'processing_timestamp': datetime.utcnow().isoformat(),
+                    'extraction_attempt': 1,
+                    'blob_name': blob_name,
+                    'content_type': content_type or 'unknown',
+                    'extraction_success': True,
+                    'size_limit_exceeded': True,
+                    'file_size_bytes': file_size,
+                    'extraction_method': 'metadata_only_oversized_precheck'
+                })
+                return result
+                
+        except Exception as size_check_error:
+            logger.warning("Could not check file size, proceeding with extraction", 
+                         blob_name=blob_name, error=str(size_check_error))
         
         for attempt in range(self.max_retries):
             try:
@@ -94,20 +128,41 @@ class EnhancedDocumentExtractor:
                 return result
                 
             except Exception as e:
+                error_str = str(e)
+                
+                # Check for specific Azure Form Recognizer size limit errors - don't retry these
+                if "InvalidContentLength" in error_str or "input image is too large" in error_str.lower():
+                    logger.warning("File too large for Azure Form Recognizer, skipping retries", 
+                                 blob_name=blob_name, 
+                                 error=error_str)
+                    
+                    # Create meaningful metadata for oversized file
+                    result = self._create_file_metadata(blob_name, content_type, f"File too large for processing: {error_str}")
+                    result.update({
+                        'processing_timestamp': datetime.utcnow().isoformat(),
+                        'extraction_attempt': attempt + 1,
+                        'blob_name': blob_name,
+                        'content_type': content_type or 'unknown',
+                        'extraction_success': True,  # We successfully handled the oversized file
+                        'size_limit_exceeded': True,
+                        'extraction_method': 'metadata_only_oversized'
+                    })
+                    return result
+                
                 logger.warning("Text extraction attempt failed", 
                              blob_name=blob_name, 
                              attempt=attempt + 1, 
-                             error=str(e))
+                             error=error_str)
                 
                 if attempt == self.max_retries - 1:
                     # Final attempt failed - provide meaningful metadata instead of failing
                     logger.info("Text extraction failed, providing file metadata", 
                                blob_name=blob_name, 
-                               error=str(e),
+                               error=error_str,
                                total_attempts=self.max_retries)
                     
                     # Create meaningful metadata for any file type
-                    result = self._create_file_metadata(blob_name, content_type, str(e))
+                    result = self._create_file_metadata(blob_name, content_type, error_str)
                     result.update({
                         'processing_timestamp': datetime.utcnow().isoformat(),
                         'extraction_attempt': self.max_retries,
@@ -351,6 +406,24 @@ class EnhancedDocumentExtractor:
         
         return False
 
+    def _is_file_too_large(self, file_size: int, content_type: Optional[str] = None) -> bool:
+        """
+        Check if file exceeds Azure Form Recognizer size limits.
+        
+        Args:
+            file_size: File size in bytes
+            content_type: MIME type of the file
+            
+        Returns:
+            True if file is too large for Form Recognizer processing
+        """
+        # PDF files have higher size limit (500MB)
+        if content_type and 'pdf' in content_type.lower():
+            return file_size > self.max_pdf_size
+        
+        # All other supported formats have 50MB limit
+        return file_size > self.max_file_size
+
     def _create_file_metadata(self, blob_name: str, content_type: Optional[str], extraction_error: Optional[str] = None) -> Dict[str, Any]:
         """Create comprehensive metadata for any file type when text extraction isn't possible."""
         file_extension = os.path.splitext(blob_name)[1].lower()
@@ -445,8 +518,18 @@ class EnhancedDocumentExtractor:
             'engineering_relevant': file_info['category'] in ['CAD/Design', '3D/Graphics', 'Document']
         }
         
+        # Add size-related information if it's a size limit issue
+        if extraction_error and ("too large" in extraction_error.lower() or "size" in extraction_error.lower()):
+            description_parts.extend([
+                "Large file requiring specialized processing",
+                "File size exceeds standard text extraction limits",
+                "Content available but requires alternative access methods",
+                "Professional-grade document with substantial content"
+            ])
+            
         if extraction_error:
-            result['extraction_note'] = f"File processed with enhanced metadata extraction (format: {file_info['description']})"
+            result['extraction_note'] = f"File processed with enhanced metadata extraction (format: {file_info['description']}). Note: {extraction_error}"
+            result['processing_limitation'] = extraction_error
         else:
             result['extraction_note'] = f"Successfully processed {file_info['description']} with enhanced metadata"
             
