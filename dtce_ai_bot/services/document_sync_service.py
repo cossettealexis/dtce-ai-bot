@@ -43,6 +43,7 @@ class DocumentSyncService:
         self, 
         graph_client: MicrosoftGraphClient,
         path: Optional[str] = None,
+        force_resync: bool = False,
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
     ) -> DocumentSyncResult:
         """
@@ -131,7 +132,7 @@ class DocumentSyncService:
                 )
                 
                 # Check if already processed (optimization)
-                if await self._should_skip_document(doc, blob_client):
+                if await self._should_skip_document(doc, blob_client, force_resync):
                     result.skipped_count += 1
                     result.ai_ready_count += 1
                     continue
@@ -198,8 +199,12 @@ class DocumentSyncService:
         
         return blob_name
     
-    async def _should_skip_document(self, doc: Dict, blob_client) -> bool:
+    async def _should_skip_document(self, doc: Dict, blob_client, force_resync: bool = False) -> bool:
         """Check if document should be skipped (already up-to-date)."""
+        # If force_resync is True, never skip documents
+        if force_resync:
+            return False
+            
         try:
             if not blob_client.exists():
                 return False

@@ -1167,6 +1167,7 @@ async def test_sync_endpoint(
 @router.post("/sync-suitefiles")
 async def sync_suitefiles_documents(
     path: Optional[str] = Query(None, description="Specific SharePoint path (e.g. 'Projects/219', 'Projects/219/Drawings', 'Engineering/Marketing') or empty for all"),
+    force: bool = Query(False, description="Force re-sync all files even if they appear up-to-date"),
     graph_client: MicrosoftGraphClient = Depends(get_graph_client),
     storage_client: BlobServiceClient = Depends(get_storage_client)
 ) -> JSONResponse:
@@ -1175,6 +1176,7 @@ async def sync_suitefiles_documents(
 
     Args:
         path: Specific SharePoint path (e.g. "Projects/219", "Projects/219/Drawings", "Engineering/Marketing") or empty for all
+        force: Force re-sync all files even if they appear up-to-date
 
     How it works:
         - "Projects/219": Process only project 219 completely
@@ -1183,6 +1185,7 @@ async def sync_suitefiles_documents(
         - "Projects": Process all project folders completely
         - "Engineering": Process entire Engineering folder completely
         - Empty path: Process ALL folders completely
+        - force=true: Re-sync everything regardless of modification dates
 
     Examples:
         POST /sync-suitefiles?path=Projects/219              # Process only project 219 completely
@@ -1190,16 +1193,18 @@ async def sync_suitefiles_documents(
         POST /sync-suitefiles?path=Engineering/Marketing     # Process only Engineering/Marketing
         POST /sync-suitefiles?path=Projects                  # Process all project folders
         POST /sync-suitefiles?path=Engineering               # Process Engineering folder completely
+        POST /sync-suitefiles?force=true                     # Force re-sync ALL folders completely
         POST /sync-suitefiles                                # Process ALL folders completely
     """
-    logger.info("Starting synchronous document sync", path=path)
+    logger.info("Starting synchronous document sync", path=path, force=force)
 
     try:
         # Use centralized sync service (same logic as async endpoints)
         sync_service = get_document_sync_service(storage_client)
         sync_result = await sync_service.sync_documents(
             graph_client=graph_client,
-            path=path
+            path=path,
+            force_resync=force
         )
         
         logger.info("Synchronous sync completed", 
