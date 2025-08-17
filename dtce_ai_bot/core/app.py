@@ -104,6 +104,14 @@ def create_app() -> FastAPI:
             
         # POST - handle Bot Framework messages with authentication
         try:
+            # Log the incoming request for debugging
+            headers = dict(request.headers)
+            logger.info("Incoming DirectLine request", 
+                       method=request.method, 
+                       url=str(request.url),
+                       headers=headers,
+                       user_agent=headers.get('user-agent', 'unknown'))
+            
             # For Single Tenant, we need to verify the Bot Framework request
             from botbuilder.core import TurnContext
             from botbuilder.schema import Activity
@@ -115,11 +123,13 @@ def create_app() -> FastAPI:
             
             logger.info("Bot Framework auth", app_id=app_id, has_password=bool(app_password))
             
-            # For Single Tenant, we need to bypass authentication for now
-            # DirectLine will handle the authentication at the channel level
-            logger.info("Bypassing Bot Framework authentication for Single Tenant setup")
+            # Try to authenticate the Bot Framework request
+            auth_header = request.headers.get("authorization", "")
+            logger.info("Processing Bot Framework request", has_auth=bool(auth_header))
             
             body = await request.json()
+            logger.info("Received message", body=body)
+            
             question = body.get("text", "").strip()
             
             if not question.strip():
