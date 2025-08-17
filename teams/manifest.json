@@ -26,7 +26,7 @@
     {
       "botId": "c185c174-26f6-4876-b847-0a423d07d1f3",
       "scopes": ["personal", "team", "groupChat"],
-      "supportsFiles": false,
+      "supportsFiles": true,
       "isNotificationOnly": false,
       "commandLists": [
         {
