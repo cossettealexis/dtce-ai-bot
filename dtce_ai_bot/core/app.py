@@ -87,6 +87,14 @@ def create_app() -> FastAPI:
     @app.api_route("/api/messages", methods=["GET", "POST", "OPTIONS"])
     async def bot_framework_messages(request: Request):
         """Direct bridge: Bot Framework → Document Search."""
+        logger = structlog.get_logger()
+        
+        # Log all incoming requests for debugging
+        logger.info("Incoming request", 
+                   method=request.method,
+                   url=str(request.url),
+                   headers=dict(request.headers),
+                   client=request.client.host if request.client else None)
         
         if request.method == "OPTIONS":
             return Response(headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "*"})
@@ -97,6 +105,7 @@ def create_app() -> FastAPI:
         # POST - actual message
         try:
             body = await request.json()
+            logger.info("Received Bot Framework message", body=body)
             question = body.get("text", "").strip()
             
             if not question:
