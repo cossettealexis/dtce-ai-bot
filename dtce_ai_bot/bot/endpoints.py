@@ -244,21 +244,3 @@ async def get_teams_setup_instructions():
     }
     
     return instructions
-
-
-@router.get("/debug-env")
-async def debug_environment():
-    """Debug endpoint to check environment variables (temporary)."""
-    
-    env_info = {
-        "microsoft_app_id_from_settings": settings.microsoft_app_id,
-        "microsoft_app_password_exists": bool(settings.microsoft_app_password),
-        "env_microsoft_app_id": os.getenv('MICROSOFT_APP_ID', 'NOT_SET'),
-        "env_microsoft_app_password_exists": bool(os.getenv('MICROSOFT_APP_PASSWORD')),
-        "bot_settings_app_id": BOT_SETTINGS.app_id,
-        "bot_settings_app_password_exists": bool(BOT_SETTINGS.app_password),
-        "all_microsoft_vars": {k: v for k, v in os.environ.items() if 'MICROSOFT' in k.upper()},
-        "all_bot_vars": {k: v for k, v in os.environ.items() if 'BOT' in k.upper()}
-    }
-    
-    return env_info
