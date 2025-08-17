@@ -36,10 +36,14 @@ ADAPTER = BotFrameworkAdapter(BOT_SETTINGS)
 
 # Set up error handler for authentication issues
 async def on_error(context: TurnContext, error: Exception):
-    logger.error(f"Bot authentication error: {error}")
-    # Don't send error message to user for auth errors
-    if "authorization" not in str(error).lower():
-        await context.send_activity("Sorry, an error occurred while processing your message.")
+    logger.error(f"Bot error occurred: {error}")
+    logger.error(f"Error type: {type(error).__name__}")
+    logger.error(f"Error details: {str(error)}")
+    # Send a simple error message to user
+    try:
+        await context.send_activity("Sorry, I encountered an error while processing your message. Please try again.")
+    except Exception as send_error:
+        logger.error(f"Failed to send error message: {send_error}")
 
 ADAPTER.on_turn_error = on_error
 
@@ -63,28 +67,64 @@ except Exception as e:
 async def messages_endpoint(request: Request):
     """Teams bot messaging endpoint."""
     
-    if not BOT:
-        raise HTTPException(status_code=503, detail="Teams bot not available")
-    
     try:
-        if "application/json" in request.headers.get("Content-Type", ""):
-            body = await request.json()
-        else:
+        logger.info("Received Teams message request")
+        
+        if not BOT:
+            logger.error("Bot not initialized")
+            raise HTTPException(status_code=503, detail="Teams bot not available")
+        
+        # Check content type
+        content_type = request.headers.get("Content-Type", "")
+        if "application/json" not in content_type:
+            logger.error(f"Invalid content type: {content_type}")
             raise HTTPException(status_code=400, detail="Invalid content type")
         
-        activity = Activity().deserialize(body)
+        # Get request body
+        try:
+            body = await request.json()
+            logger.info("Request body received", body_type=type(body).__name__)
+        except Exception as e:
+            logger.error(f"Failed to parse JSON body: {e}")
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        
+        # Create activity
+        try:
+            activity = Activity().deserialize(body)
+            logger.info("Activity created", activity_type=activity.type)
+        except Exception as e:
+            logger.error(f"Failed to deserialize activity: {e}")
+            raise HTTPException(status_code=400, detail="Invalid activity format")
+        
+        # Get auth header
         auth_header = request.headers.get("Authorization", "")
+        logger.info("Processing activity", has_auth=bool(auth_header))
         
+        # Define bot callback
         async def call_bot(turn_context: TurnContext):
-            await BOT.on_message_activity(turn_context)
+            try:
+                await BOT.on_message_activity(turn_context)
+                logger.info("Bot processing completed successfully")
+            except Exception as e:
+                logger.error(f"Bot processing failed: {e}")
+                raise
         
-        await ADAPTER.process_activity(activity, auth_header, call_bot)
+        # Process activity with adapter
+        try:
+            await ADAPTER.process_activity(activity, auth_header, call_bot)
+            logger.info("Activity processed successfully")
+            return {"status": "ok"}
+        except Exception as e:
+            logger.error(f"Adapter processing failed: {e}")
+            # Return 200 but log the error - Teams expects 200 for most errors
+            return {"status": "error", "message": str(e)}
         
-        return {"status": "ok"}
-        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error("Error processing Teams message", error=str(e))
-        raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
+        logger.error(f"Unexpected error in messages endpoint: {e}")
+        # Return 200 to prevent 502 errors in Teams
+        return {"status": "error", "message": "Internal server error"}
 
 
 @router.post("/test-bot")
