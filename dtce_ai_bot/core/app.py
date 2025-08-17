@@ -112,20 +112,9 @@ def create_app() -> FastAPI:
                        headers=headers,
                        user_agent=headers.get('user-agent', 'unknown'))
             
-            # For Single Tenant, we need to verify the Bot Framework request
-            from botbuilder.core import TurnContext
-            from botbuilder.schema import Activity
-            from botframework.connector.auth import JwtTokenValidation, SimpleCredentialProvider
-            
-            # Get Bot Framework credentials
-            app_id = settings.microsoft_app_id
-            app_password = settings.microsoft_app_password
-            
-            logger.info("Bot Framework auth", app_id=app_id, has_password=bool(app_password))
-            
-            # Try to authenticate the Bot Framework request
-            auth_header = request.headers.get("authorization", "")
-            logger.info("Processing Bot Framework request", has_auth=bool(auth_header))
+            # BYPASS Bot Framework authentication for DirectLine compatibility
+            # (DirectLine has issues with Single Tenant auth)
+            logger.info("Bypassing Bot Framework authentication for DirectLine compatibility")
             
             # Get and log the raw body with immediate acknowledgment pattern
             import asyncio
