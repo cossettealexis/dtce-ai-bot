@@ -32,7 +32,12 @@ BOT_SETTINGS = BotFrameworkAdapterSettings(
     app_password=settings.microsoft_app_password or ""
 )
 
+# For testing - create adapter that allows unauthenticated calls
 ADAPTER = BotFrameworkAdapter(BOT_SETTINGS)
+
+# Disable authentication for testing
+ADAPTER._credentials_factory = None
+ADAPTER._auth_configuration = None
 
 # Set up error handler for authentication issues
 async def on_error(context: TurnContext, error: Exception):
@@ -125,6 +130,52 @@ async def messages_endpoint(request: Request):
         logger.error(f"Unexpected error in messages endpoint: {e}")
         # Return 200 to prevent 502 errors in Teams
         return {"status": "error", "message": "Internal server error"}
+
+
+@router.post("/simple-test")
+async def simple_test_endpoint(request: Request):
+    """Simple test endpoint that bypasses Bot Framework completely."""
+    
+    try:
+        body = await request.json()
+        message_text = body.get("text", "Hello")
+        
+        logger.info(f"Simple test received: {message_text}")
+        
+        # Test if QA service works
+        if BOT and BOT.qa_service:
+            try:
+                result = await BOT.qa_service.answer_question(message_text)
+                return {
+                    "status": "success",
+                    "input": message_text,
+                    "response": result.get('answer', 'No answer generated'),
+                    "confidence": result.get('confidence', 'unknown'),
+                    "bot_initialized": True,
+                    "qa_service_available": True
+                }
+            except Exception as e:
+                return {
+                    "status": "qa_error",
+                    "input": message_text,
+                    "error": str(e),
+                    "bot_initialized": True,
+                    "qa_service_available": False
+                }
+        else:
+            return {
+                "status": "bot_not_available",
+                "input": message_text,
+                "bot_initialized": BOT is not None,
+                "qa_service_available": False
+            }
+            
+    except Exception as e:
+        logger.error(f"Simple test error: {e}")
+        return {
+            "status": "endpoint_error",
+            "error": str(e)
+        }
 
 
 @router.post("/test-bot")
