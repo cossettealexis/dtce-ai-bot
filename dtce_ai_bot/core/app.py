@@ -112,7 +112,7 @@ def create_app() -> FastAPI:
                    url=str(request.url),
                    headers=dict(request.headers),
                    client=request.client.host if request.client else None)
-        
+        """
         if request.method == "OPTIONS":
             return Response(headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "*"})
             
@@ -138,7 +138,6 @@ def create_app() -> FastAPI:
             return {"status": "endpoint_hit", "call_count": bot_calls["count"]}
             
             # COMMENTED OUT ALL THE COMPLEX LOGIC FOR DEBUGGING
-            """
             # Get request body for detailed logging
             try:
                 body = await request.body()
@@ -163,11 +162,10 @@ def create_app() -> FastAPI:
                        message_type=body_json.get('type', 'unknown'),
                        message_text=body_json.get('text', 'no text'),
                        client_ip=request.client.host if request.client else None)
-            """
-            
         except Exception as e:
             logger.error("Error processing bot message", error=str(e))
             return {"error": "Internal server error"}
+            """
     
     # Add debug endpoint to check Bot Framework call count
     @app.get("/debug/bot-calls")
