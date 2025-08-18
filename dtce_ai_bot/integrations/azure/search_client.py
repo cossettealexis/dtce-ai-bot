@@ -187,7 +187,7 @@ class AzureSearchClient:
                 "search_text": query.query,
                 "top": query.max_results,
                 "include_total_count": True,
-                "highlight_fields": "content_preview,extracted_text,file_name,project_title" if query.include_content else None
+                "highlight_fields": "extracted_text,file_name,project_title" if query.include_content else None
             }
             
             # Add filters if provided

@@ -115,10 +115,29 @@ def create_app() -> FastAPI:
     adapter = BotFrameworkAdapter(adapter_settings)
     
     class DTCEBot(ActivityHandler):
+        def is_greeting_or_help(self, text: str) -> bool:
+            """Check if the message is a greeting or help request."""
+            greetings = ["hi", "hello", "hey", "help", "what can you do", "how are you", "good morning", "good afternoon"]
+            return text.lower().strip() in greetings or len(text.strip()) < 4
+        
         async def on_message_activity(self, turn_context: TurnContext):
             logger = structlog.get_logger()
             user_message = turn_context.activity.text
             logger.info("🔥 BOT RECEIVED MESSAGE", text=user_message)
+            
+            # Check if it's a greeting or help request
+            if self.is_greeting_or_help(user_message):
+                greeting_response = (
+                    "Hi there! 👋\n\n"
+                    "I'm your DTCE document assistant. I can help you find engineering documents, reports, and project files.\n\n"
+                    "Just ask me in plain English about what you're looking for:\n"
+                    "• \"Find structural calculations\"\n"
+                    "• \"Show me bridge drawings\"\n"
+                    "• \"What reports do we have for the Auckland project?\"\n\n"
+                    "What can I help you find today?"
+                )
+                await turn_context.send_activity(MessageFactory.text(greeting_response))
+                return
             
             try:
                 # Import the AI services
