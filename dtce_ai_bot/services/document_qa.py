@@ -46,9 +46,9 @@ class DocumentQAService:
         try:
             logger.info("Processing question", question=question, project_filter=project_filter)
             
-            # Check if this is a precast panel project query
-            if self._is_precast_project_query(question):
-                return await self._handle_precast_project_query(question, project_filter)
+            # Check if this is a keyword-based project search query
+            if self._is_project_keyword_query(question):
+                return await self._handle_keyword_project_query(question, project_filter)
             
             # Convert dates in the question to match filename formats
             converted_question = self._convert_date_formats(question)
@@ -471,36 +471,58 @@ Content: {content}
             logger.error("Document summary failed", error=str(e))
             return {'error': str(e)}
 
-    def _is_precast_project_query(self, question: str) -> bool:
-        """Check if the question is asking for precast panel projects using flexible matching."""
+    def _is_project_keyword_query(self, question: str) -> bool:
+        """Check if the question is asking for past projects using specific engineering keywords."""
         if not question:
             return False
         
         question_lower = question.lower()
         
-        # Precast-related terms (more flexible)
-        precast_patterns = [
+        # Engineering/structural keywords
+        engineering_keywords = [
+            # Precast & Concrete
             "precast", "pre-cast", "precast panel", "precast connection", 
             "unispans", "unispan", "precast element", "precast unit",
-            "precast concrete", "prefab", "prefabricated"
+            "precast concrete", "prefab", "prefabricated", "concrete",
+            "reinforced concrete", "cast in place", "cast-in-place",
+            
+            # Timber & Wood
+            "timber", "wood", "wooden", "timber frame", "timber framed",
+            "timber retaining", "timber structure", "glulam", "lvl",
+            "plywood", "timber beam", "timber column", "timber wall",
+            
+            # Steel & Metal
+            "steel", "steel frame", "steel structure", "metal", "aluminum",
+            "steel beam", "steel column", "structural steel", "cold-formed",
+            
+            # Structural Elements
+            "retaining wall", "foundation", "footing", "pile", "beam",
+            "column", "slab", "wall", "roof", "truss", "portal frame",
+            "cantilever", "span", "connection", "joint", "bracket",
+            
+            # Building Types
+            "residential", "commercial", "industrial", "warehouse",
+            "office", "retail", "apartment", "house", "building",
+            "structure", "facility", "development"
         ]
         
-        # Project/work-related terms (more flexible)
+        # Project/work-related terms
         project_patterns = [
             "project", "job", "work", "contract", "site", "construction",
             "past", "previous", "historical", "archive", "record",
-            "scope", "experience", "portfolio", "case", "example"
+            "scope", "experience", "portfolio", "case", "example",
+            "reference", "similar", "done before", "worked on"
         ]
         
         # Intent/action terms (what user wants to do)
         intent_patterns = [
             "tell me", "show me", "find", "search", "list", "all",
             "what", "which", "where", "give me", "provide", "display",
-            "help", "assist", "looking for", "need", "want"
+            "help", "assist", "looking for", "need", "want", "advise"
         ]
         
-        # Check for precast content
-        has_precast = any(pattern in question_lower for pattern in precast_patterns)
+        # Check for engineering keywords
+        has_engineering_keywords = any(keyword in question_lower for keyword in engineering_keywords)
         
         # Check for project/work context
         has_project_context = any(pattern in question_lower for pattern in project_patterns)
@@ -511,8 +533,250 @@ Content: {content}
         # Also check for plural forms and question words
         has_multiple_indicator = any(word in question_lower for word in ["all", "any", "every", "what", "which"])
         
-        # Return true if we have precast terms AND (project context OR clear intent to find multiple items)
-        return has_precast and (has_project_context or (has_intent and has_multiple_indicator))
+        # Return true if we have engineering keywords AND (project context OR clear intent to find multiple items)
+        return has_engineering_keywords and (has_project_context or (has_intent and has_multiple_indicator))
+
+    def _is_precast_project_query(self, question: str) -> bool:
+        """Check if the question is specifically asking for precast panel projects (legacy method)."""
+        if not question:
+            return False
+        
+        question_lower = question.lower()
+        
+        # Precast-specific terms
+        precast_patterns = [
+            "precast", "pre-cast", "precast panel", "precast connection", 
+            "unispans", "unispan", "precast element", "precast unit",
+            "precast concrete", "prefab", "prefabricated"
+        ]
+        
+        # Check if it has precast terms and is a project search
+        has_precast = any(pattern in question_lower for pattern in precast_patterns)
+        
+        if has_precast:
+            return self._is_project_keyword_query(question)
+        
+        return False
+        
+    async def _handle_keyword_project_query(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle keyword-based project queries with specialized search and SuiteFiles URLs."""
+        try:
+            logger.info("Processing keyword project query", question=question)
+            
+            # Extract keywords from the question
+            keywords = self._extract_keywords_from_question(question)
+            
+            # Search for keyword-related documents
+            keyword_docs = await self._search_keyword_documents(keywords)
+            
+            if not keyword_docs:
+                return {
+                    'answer': f'I could not find any projects related to {", ".join(keywords)} in our document index.',
+                    'sources': [],
+                    'confidence': 'medium',
+                    'documents_searched': 0
+                }
+            
+            # Extract unique projects from the documents
+            projects_found = self._extract_keyword_projects(keyword_docs, keywords)
+            
+            if not projects_found:
+                return {
+                    'answer': f'I found documents related to {", ".join(keywords)} but could not identify specific project numbers.',
+                    'sources': [],
+                    'confidence': 'low',
+                    'documents_searched': len(keyword_docs)
+                }
+            
+            # Format the answer and sources
+            answer = self._format_keyword_project_answer(projects_found, keywords)
+            sources = self._format_keyword_sources(projects_found, keyword_docs)
+            
+            return {
+                'answer': answer,
+                'sources': sources,
+                'confidence': 'high',
+                'documents_searched': len(keyword_docs)
+            }
+            
+        except Exception as e:
+            logger.error("Keyword project query failed", error=str(e))
+            return {
+                'answer': 'I encountered an error while searching for keyword-related projects.',
+                'sources': [],
+                'confidence': 'error',
+                'documents_searched': 0
+            }
+
+    def _extract_keywords_from_question(self, question: str) -> List[str]:
+        """Extract relevant engineering keywords from the question."""
+        if not question:
+            return []
+        
+        question_lower = question.lower()
+        found_keywords = []
+        
+        # Define keyword categories with their variations
+        keyword_categories = {
+            "precast": ["precast", "pre-cast", "precast panel", "precast connection", "unispans", "unispan", "prefab", "prefabricated"],
+            "timber": ["timber", "wood", "wooden", "timber frame", "timber framed", "timber retaining", "glulam", "lvl"],
+            "concrete": ["concrete", "reinforced concrete", "cast in place", "cast-in-place", "concrete building"],
+            "steel": ["steel", "steel frame", "steel structure", "structural steel", "cold-formed"],
+            "retaining wall": ["retaining wall", "retaining", "wall"],
+            "building": ["building", "structure", "storey", "story", "residential", "commercial", "warehouse"]
+        }
+        
+        # Find which categories match
+        for category, terms in keyword_categories.items():
+            if any(term in question_lower for term in terms):
+                found_keywords.append(category)
+        
+        # Also extract explicit keywords mentioned in the question
+        explicit_keywords = []
+        for word in question.split():
+            word_clean = word.strip('.,!?:;()[]"').lower()
+            if word_clean in ["precast", "timber", "concrete", "steel", "retaining", "wall", "building", "unispans"]:
+                explicit_keywords.append(word_clean)
+        
+        # Combine and deduplicate
+        all_keywords = list(set(found_keywords + explicit_keywords))
+        return all_keywords if all_keywords else ["structural", "engineering"]  # fallback
+
+    async def _search_keyword_documents(self, keywords: List[str]) -> List[Dict]:
+        """Search for documents related to the specified keywords using semantic search."""
+        try:
+            # Create a comprehensive search query from keywords
+            search_text = " ".join(keywords) + " engineering structural design construction"
+            
+            results = self.search_client.search(
+                search_text=search_text,
+                top=100,  # Get many results to find all projects
+                select=["id", "filename", "content", "blob_url", "project_name", "folder"],
+                query_type="semantic",  # Semantic search will find similar concepts
+                semantic_configuration_name="default"  # Use the semantic configuration we defined
+            )
+            
+            documents = []
+            for result in results:
+                doc_dict = dict(result)
+                
+                # More flexible content matching with semantic search
+                content = (doc_dict.get('content') or '').lower()
+                filename = (doc_dict.get('filename') or '').lower()
+                
+                # Check for keyword-related terms in content or filename
+                keyword_terms = keywords + [
+                    'engineering', 'structural', 'design', 'construction', 'building',
+                    'concrete', 'steel', 'timber', 'precast', 'retaining', 'wall'
+                ]
+                
+                # Include if semantic search found it OR if it contains obvious keyword terms
+                if (result.get('@search.score', 0) > 0.1 or  # Lower threshold for semantic match
+                    any(term in content or term in filename for term in keyword_terms)):
+                    documents.append(doc_dict)
+            
+            logger.info("Found keyword documents via semantic search", keywords=keywords, count=len(documents))
+            return documents
+            
+        except Exception as e:
+            logger.error("Keyword semantic search failed", error=str(e), keywords=keywords)
+            return []
+
+    def _extract_keyword_projects(self, keyword_docs: List[Dict], keywords: List[str]) -> Dict[str, Dict]:
+        """Extract unique project numbers from keyword-related documents."""
+        projects = {}
+        
+        for doc in keyword_docs:
+            blob_url = doc.get('blob_url', '')
+            project_id = self._extract_project_from_url(blob_url)
+            
+            if project_id and len(project_id) >= 6:  # Valid project numbers
+                if project_id not in projects:
+                    projects[project_id] = {
+                        'project_id': project_id,
+                        'suitefiles_url': f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Projects/{project_id}",
+                        'document_count': 0,
+                        'sample_documents': [],
+                        'keywords_found': []
+                    }
+                
+                projects[project_id]['document_count'] += 1
+                if len(projects[project_id]['sample_documents']) < 3:
+                    projects[project_id]['sample_documents'].append(doc.get('filename', 'Unknown'))
+                
+                # Track which keywords were found in this project
+                content = (doc.get('content') or '').lower()
+                filename = (doc.get('filename') or '').lower()
+                for keyword in keywords:
+                    if keyword in content or keyword in filename:
+                        if keyword not in projects[project_id]['keywords_found']:
+                            projects[project_id]['keywords_found'].append(keyword)
+        
+        return projects
+
+    def _format_keyword_project_answer(self, projects_found: Dict[str, Dict], keywords: List[str]) -> str:
+        """Format the answer for keyword-based project queries."""
+        if not projects_found:
+            return f"I couldn't find any projects related to {', '.join(keywords)} in our documents."
+        
+        project_count = len(projects_found)
+        keywords_text = ', '.join(keywords).title()
+        
+        if project_count == 1:
+            # Single project - more conversational
+            project_id, project_info = list(projects_found.items())[0]
+            doc_count = project_info['document_count']
+            suitefiles_url = project_info['suitefiles_url']
+            keywords_found = project_info['keywords_found']
+            
+            answer = f"I found **Project {project_id}** which has {doc_count} documents related to {keywords_text}.\n\n"
+            if keywords_found:
+                answer += f"**Keywords Found:** {', '.join(keywords_found).title()}\n\n"
+            answer += f"📁 **View Project Files:** [Open in SuiteFiles]({suitefiles_url})\n\n"
+            answer += "This will take you directly to the project folder where you can access all the related documents."
+        else:
+            # Multiple projects
+            answer = f"I found **{project_count} projects** related to {keywords_text}:\n\n"
+            
+            project_list = []
+            for project_id, project_info in sorted(projects_found.items()):
+                doc_count = project_info['document_count']
+                suitefiles_url = project_info['suitefiles_url']
+                keywords_found = project_info['keywords_found']
+                
+                keywords_display = f" ({', '.join(keywords_found)})" if keywords_found else ""
+                project_list.append(f"• **Project {project_id}** - {doc_count} documents{keywords_display}\n  📁 [View Files]({suitefiles_url})")
+            
+            answer += "\n\n".join(project_list)
+            answer += "\n\nClick any link above to access the project folders in SuiteFiles."
+        
+        return answer
+
+    def _format_keyword_sources(self, projects_found: Dict[str, Dict], keyword_docs: List[Dict]) -> List[Dict]:
+        """Format sources for keyword project queries with SuiteFiles URLs."""
+        sources = []
+        
+        for project_id, project_info in sorted(projects_found.items()):
+            sample_files = project_info['sample_documents'][:3]
+            keywords_found = project_info['keywords_found']
+            
+            if sample_files:
+                sample_text = f"Including files: {', '.join(sample_files)}"
+            else:
+                sample_text = "Multiple related documents found"
+            
+            if keywords_found:
+                sample_text += f" | Keywords: {', '.join(keywords_found)}"
+                
+            sources.append({
+                'filename': f"Project {project_id}",
+                'project_id': project_id,
+                'relevance_score': 1.0,
+                'blob_url': project_info['suitefiles_url'],
+                'excerpt': sample_text
+            })
+        
+        return sources
 
     async def _handle_precast_project_query(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
         """Handle precast panel project queries with specialized search and SuiteFiles URLs."""
