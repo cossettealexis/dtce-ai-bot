@@ -568,8 +568,8 @@ Content: {content}
                 doc_dict = dict(result)
                 
                 # More flexible content matching with semantic search
-                content = doc_dict.get('content', '').lower()
-                filename = doc_dict.get('filename', '').lower()
+                content = (doc_dict.get('content') or '').lower()
+                filename = (doc_dict.get('filename') or '').lower()
                 
                 # With semantic search, we can be more lenient in filtering
                 # Check for precast-related terms in content or filename
@@ -579,7 +579,8 @@ Content: {content}
                 ]
                 
                 # Include if semantic search found it OR if it contains obvious precast terms
-                if (result.get('@search.score', 0) > 0.5 or  # Good semantic match
+                # Lower the threshold for semantic search since Azure might score differently
+                if (result.get('@search.score', 0) > 0.1 or  # Lower threshold for semantic match
                     any(term in content or term in filename for term in precast_terms)):
                     documents.append(doc_dict)
             
@@ -602,7 +603,7 @@ Content: {content}
                 if project_id not in projects:
                     projects[project_id] = {
                         'project_id': project_id,
-                        'suitefiles_url': f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Projects/{project_id[:3]}",
+                        'suitefiles_url': f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Projects/{project_id}",
                         'document_count': 0,
                         'sample_documents': []
                     }
