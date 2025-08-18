@@ -50,6 +50,10 @@ class DocumentQAService:
             if self._is_project_keyword_query(question):
                 return await self._handle_keyword_project_query(question, project_filter)
             
+            # Check if this is an NZ Standards/code query
+            if self._is_nz_standards_query(question):
+                return await self._handle_nz_standards_query(question, project_filter)
+            
             # Convert dates in the question to match filename formats
             converted_question = self._convert_date_formats(question)
             
@@ -936,3 +940,335 @@ Content: {content}
             })
         
         return sources[:10]  # Limit to top 10 projects
+
+    def _is_nz_standards_query(self, question: str) -> bool:
+        """Check if the question is asking about NZ Standards, codes, or clauses."""
+        if not question:
+            return False
+        
+        question_lower = question.lower()
+        
+        # NZ Standards and code terms
+        standards_terms = [
+            "nzs", "nz standard", "new zealand standard", "code", "clause",
+            "nzs 3101", "nzs 3404", "nzs 1170", "nzs 3603", "structural code",
+            "standard", "requirement", "specification"
+        ]
+        
+        # Technical engineering terms often found in standards queries
+        technical_terms = [
+            "cover", "clear cover", "minimum cover", "concrete cover",
+            "strength reduction", "reduction factor", "phi factor",
+            "detailing", "detailing requirement", "reinforcement",
+            "beam", "column", "slab", "foundation", "seismic",
+            "composite", "diaphragm", "design", "structural design"
+        ]
+        
+        # Question patterns that indicate standards queries
+        standards_patterns = [
+            "as per", "according to", "per code", "per standard",
+            "what clause", "which clause", "tell me", "requirements",
+            "minimum", "maximum", "shall", "must", "should"
+        ]
+        
+        # Check for standards/code terms
+        has_standards_terms = any(term in question_lower for term in standards_terms)
+        
+        # Check for technical terms
+        has_technical_terms = any(term in question_lower for term in technical_terms)
+        
+        # Check for standards query patterns
+        has_standards_patterns = any(pattern in question_lower for pattern in standards_patterns)
+        
+        # Return true if we have standards terms OR (technical terms AND standards patterns)
+        return has_standards_terms or (has_technical_terms and has_standards_patterns)
+
+    async def _handle_nz_standards_query(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle NZ Standards and code queries with specialized search for technical requirements."""
+        try:
+            logger.info("Processing NZ Standards query", question=question)
+            
+            # Search for standards-related documents
+            standards_docs = await self._search_nz_standards_documents(question)
+            
+            if not standards_docs:
+                return {
+                    'answer': 'I could not find relevant NZ Standards or code documents to answer your technical query. Please ensure the standards documents are available in the system.',
+                    'sources': [],
+                    'confidence': 'low',
+                    'documents_searched': 0
+                }
+            
+            # Prepare enhanced context for standards queries
+            context = self._prepare_standards_context(standards_docs, question)
+            
+            # Generate answer with focus on technical accuracy
+            answer_response = await self._generate_standards_answer(question, context)
+            
+            # Format response with technical sources
+            return {
+                'answer': answer_response['answer'],
+                'sources': [
+                    {
+                        'filename': doc.get('filename', 'NZ Standards Document'),
+                        'project_id': 'NZ Standards',
+                        'relevance_score': doc['@search.score'],
+                        'blob_url': doc.get('blob_url', ''),
+                        'excerpt': self._extract_relevant_clause(doc, question)
+                    }
+                    for doc in standards_docs[:5]  # Top 5 most relevant standards documents
+                ],
+                'confidence': answer_response['confidence'],
+                'documents_searched': len(standards_docs),
+                'processing_time': answer_response.get('processing_time', 0)
+            }
+            
+        except Exception as e:
+            logger.error("NZ Standards query failed", error=str(e))
+            return {
+                'answer': 'I encountered an error while searching NZ Standards documents.',
+                'sources': [],
+                'confidence': 'error',
+                'documents_searched': 0
+            }
+
+    async def _search_nz_standards_documents(self, question: str) -> List[Dict]:
+        """Search for NZ Standards and code documents using semantic search."""
+        try:
+            # Create a focused search query for standards documents
+            search_text = f"{question} NZS standard code clause requirement specification"
+            
+            results = self.search_client.search(
+                search_text=search_text,
+                top=50,  # Get more results for comprehensive standards coverage
+                select=["id", "filename", "content", "blob_url", "project_name", "folder"],
+                query_type="semantic",  # Use semantic search for better technical matching
+                semantic_configuration_name="default"
+            )
+            
+            documents = []
+            for result in results:
+                doc_dict = dict(result)
+                
+                # Check if document contains standards-related content
+                content = (doc_dict.get('content') or '').lower()
+                filename = (doc_dict.get('filename') or '').lower()
+                
+                # Look for NZ Standards indicators
+                standards_indicators = [
+                    'nzs', 'standard', 'code', 'clause', 'shall', 'must',
+                    'requirement', 'specification', 'concrete cover', 'strength reduction',
+                    'detailing', 'reinforcement', 'structural design'
+                ]
+                
+                # Include if it's likely a standards document
+                if (result.get('@search.score', 0) > 0.1 or  # Good semantic match
+                    any(indicator in content or indicator in filename for indicator in standards_indicators)):
+                    documents.append(doc_dict)
+            
+            logger.info("Found NZ Standards documents", count=len(documents))
+            return documents
+            
+        except Exception as e:
+            logger.error("NZ Standards search failed", error=str(e))
+            return []
+
+    def _prepare_standards_context(self, standards_docs: List[Dict], question: str) -> str:
+        """Prepare context specifically for NZ Standards queries with relevant clauses."""
+        context_parts = []
+        current_length = 0
+        
+        for doc in standards_docs:
+            content = doc.get('content', '')
+            filename = doc.get('filename', 'Standards Document')
+            
+            # Extract relevant sections that might contain clauses or requirements
+            relevant_content = self._extract_relevant_standards_content(content, question)
+            
+            if relevant_content:
+                doc_context = f"""
+=== {filename} ===
+{relevant_content}
+---
+"""
+                
+                # Check if adding this document would exceed limit
+                if current_length + len(doc_context) > self.max_context_length:
+                    break
+                    
+                context_parts.append(doc_context)
+                current_length += len(doc_context)
+        
+        return "\n".join(context_parts)
+
+    def _extract_relevant_standards_content(self, content: str, question: str) -> str:
+        """Extract the most relevant parts of standards documents for the question."""
+        if not content:
+            return ""
+        
+        question_lower = question.lower()
+        content_lower = content.lower()
+        
+        # Keywords to look for in the question
+        key_terms = []
+        if 'cover' in question_lower:
+            key_terms.extend(['cover', 'covering', 'concrete cover', 'clear cover'])
+        if 'strength reduction' in question_lower or 'reduction factor' in question_lower:
+            key_terms.extend(['strength reduction', 'reduction factor', 'phi', 'φ'])
+        if 'detailing' in question_lower:
+            key_terms.extend(['detailing', 'detail', 'reinforcement detailing'])
+        if 'beam' in question_lower:
+            key_terms.extend(['beam', 'flexural', 'bending'])
+        if 'seismic' in question_lower:
+            key_terms.extend(['seismic', 'earthquake', 'ductility'])
+        if 'composite' in question_lower:
+            key_terms.extend(['composite', 'slab', 'diaphragm'])
+        
+        # If no specific terms, look for general clause patterns
+        if not key_terms:
+            key_terms = ['clause', 'shall', 'must', 'requirement', 'minimum', 'maximum']
+        
+        # Find sentences containing key terms
+        sentences = content.split('.')
+        relevant_sentences = []
+        
+        for sentence in sentences:
+            sentence_lower = sentence.lower()
+            if any(term in sentence_lower for term in key_terms):
+                # Include some context around the relevant sentence
+                relevant_sentences.append(sentence.strip())
+        
+        # Limit to most relevant content
+        if relevant_sentences:
+            return '. '.join(relevant_sentences[:10]) + '.'  # Max 10 sentences
+        else:
+            # Fallback to first part of content
+            return content[:1500] + "..." if len(content) > 1500 else content
+
+    def _extract_relevant_clause(self, doc: Dict, question: str) -> str:
+        """Extract a relevant clause or excerpt from the document for display."""
+        content = doc.get('content', '')
+        if not content:
+            return "NZ Standards document content"
+        
+        # Look for clause numbers or specific requirements
+        relevant_content = self._extract_relevant_standards_content(content, question)
+        
+        if relevant_content:
+            # Limit excerpt length for display
+            excerpt = relevant_content[:200] + "..." if len(relevant_content) > 200 else relevant_content
+            return excerpt
+        else:
+            return "NZ Standards technical requirements"
+
+    async def _generate_standards_answer(self, question: str, context: str) -> Dict[str, Any]:
+        """Generate answer specifically for NZ Standards queries with technical focus."""
+        try:
+            import time
+            start_time = time.time()
+            
+            # Enhanced system prompt for NZ Standards queries
+            system_prompt = """You are a technical AI assistant specializing in New Zealand Structural Engineering Standards and Codes. You have expert knowledge of NZS codes including NZS 3101 (Concrete), NZS 3404 (Steel), NZS 1170 (Loading), and other structural standards.
+
+            TECHNICAL EXPERTISE AREAS:
+            - NZS 3101: Concrete Structures Standard (cover requirements, strength reduction factors, detailing)
+            - NZS 3404: Steel Structures Standard (connections, member design, seismic provisions)  
+            - NZS 1170: Structural Design Actions (loading, seismic, wind)
+            - NZS 3603: Timber Structures Standard
+            - Building Code compliance and structural requirements
+
+            RESPONSE REQUIREMENTS:
+            1. ACCURACY: Provide precise, technically accurate information from NZ Standards
+            2. CITE CLAUSES: Always reference specific clause numbers when available (e.g., "Clause 5.3.2 of NZS 3101")
+            3. TECHNICAL DETAIL: Include specific values, formulas, and requirements
+            4. CODE COMPLIANCE: Focus on compliance requirements and mandatory provisions
+            5. PRACTICAL APPLICATION: Explain how the requirements apply in practice
+
+            ANSWER FORMAT:
+            - Lead with the specific requirement or answer
+            - Cite the relevant NZS code and clause number
+            - Provide technical details (values, formulas, conditions)
+            - Explain any important exceptions or special cases
+            - Be precise and avoid generalizations
+
+            EXAMPLE RESPONSES:
+            - "According to Clause 9.3.1 of NZS 3101:2006, the minimum cover to reinforcement shall be..."
+            - "NZS 3101 specifies strength reduction factors (φ) in Table 7.1: φ = 0.85 for flexure, φ = 0.75 for shear..."
+            - "For composite slabs acting as diaphragms, refer to NZS 3404 Part 1, specifically Clause 12.8.2..."
+            """
+            
+            # Technical user prompt for standards queries
+            user_prompt = f"""
+            TECHNICAL STANDARDS QUERY: {question}
+
+            AVAILABLE NZ STANDARDS DOCUMENTATION:
+            {context if context.strip() else "Limited standards documentation available."}
+
+            INSTRUCTIONS:
+            - Extract specific requirements, clause numbers, and technical values from the provided standards documentation
+            - If specific clause numbers are found, cite them precisely
+            - Include exact values, formulas, and technical requirements
+            - If the information is not in the provided documentation, clearly state this limitation
+            - Focus on compliance requirements and mandatory provisions
+            - Be technically precise and avoid approximations
+
+            Provide a comprehensive, technically accurate answer based on the NZ Standards documentation provided.
+            """
+            
+            # Call OpenAI with technical parameters
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.1,  # Very low temperature for technical accuracy
+                max_tokens=1000   # Longer responses for detailed technical information
+            )
+            
+            answer = response.choices[0].message.content
+            processing_time = time.time() - start_time
+            
+            # Assess confidence for technical content
+            confidence = self._assess_standards_confidence(answer, context)
+            
+            logger.info("Generated NZ Standards answer", 
+                       question=question, 
+                       answer_length=len(answer),
+                       confidence=confidence,
+                       processing_time=processing_time)
+            
+            return {
+                'answer': answer,
+                'confidence': confidence,
+                'processing_time': processing_time
+            }
+            
+        except Exception as e:
+            logger.error("Standards answer generation failed", error=str(e), question=question)
+            return {
+                'answer': 'I encountered an error while processing the NZ Standards query.',
+                'confidence': 'error',
+                'processing_time': 0
+            }
+
+    def _assess_standards_confidence(self, answer: str, context: str) -> str:
+        """Assess confidence level specifically for NZ Standards answers."""
+        # Check for technical indicators of good standards content
+        technical_indicators = [
+            'clause', 'nzs', 'standard', 'shall', 'minimum', 'maximum',
+            'requirement', 'specification', 'table', 'figure'
+        ]
+        
+        answer_lower = answer.lower()
+        has_technical_content = sum(1 for indicator in technical_indicators if indicator in answer_lower)
+        
+        # High confidence if answer contains multiple technical indicators and good context
+        if has_technical_content >= 3 and len(context) > 1000:
+            return 'high'
+        elif has_technical_content >= 2 and len(context) > 500:
+            return 'medium'
+        elif len(context) > 0:
+            return 'medium'
+        else:
+            return 'low'
