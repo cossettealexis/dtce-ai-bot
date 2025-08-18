@@ -117,11 +117,60 @@ def create_app() -> FastAPI:
     class DTCEBot(ActivityHandler):
         async def on_message_activity(self, turn_context: TurnContext):
             logger = structlog.get_logger()
-            logger.info("🔥 BOT RECEIVED MESSAGE", text=turn_context.activity.text)
+            user_message = turn_context.activity.text
+            logger.info("🔥 BOT RECEIVED MESSAGE", text=user_message)
             
-            # Simple echo response for testing - this will actually send back to user
-            response_text = f"✅ DTCE Bot received: {turn_context.activity.text}"
-            await turn_context.send_activity(MessageFactory.text(response_text))
+            try:
+                # Import the AI services
+                from ..integrations.azure_search import get_search_client
+                from ..integrations.azure.openai_client import AzureOpenAIClient
+                from ..models.search import SearchQuery
+                
+                # Initialize AI clients
+                search_client = get_search_client()
+                openai_client = AzureOpenAIClient()
+                
+                # Create search query from user message
+                search_query = SearchQuery(
+                    query=user_message,
+                    max_results=5,
+                    include_content=True
+                )
+                
+                # Search for relevant documents
+                search_response = await search_client.search_documents(search_query)
+                
+                if search_response.results:
+                    # Use AI to answer based on found documents
+                    context_documents = []
+                    for result in search_response.results[:3]:  # Top 3 results
+                        doc = result.document
+                        context_documents.append({
+                            "file_name": doc.file_name,
+                            "content": doc.content_preview or doc.extracted_text or "",
+                            "project_id": doc.project_id,
+                            "document_type": doc.document_type.value,
+                            "score": result.score
+                        })
+                    
+                    # Generate AI response
+                    ai_response = await openai_client.answer_engineering_question(
+                        user_message, 
+                        context_documents
+                    )
+                    
+                    response_text = f"🔍 **DTCE AI Assistant**\n\n{ai_response}\n\n📄 **Sources**: {len(context_documents)} relevant documents found"
+                    
+                else:
+                    # No documents found, provide general response
+                    response_text = f"🔍 **DTCE AI Assistant**\n\nI couldn't find specific documents related to your query '{user_message}'. Could you try rephrasing your question or provide more specific terms? I can help you search for:\n\n• Project reports and specifications\n• Calculations and drawings\n• Technical standards and codes\n• Past project examples"
+                
+                await turn_context.send_activity(MessageFactory.text(response_text))
+                
+            except Exception as e:
+                logger.error("Error processing AI request", error=str(e))
+                error_response = "🚨 I'm experiencing technical difficulties. Please try again in a moment, or contact IT support if the issue persists."
+                await turn_context.send_activity(MessageFactory.text(error_response))
     
     bot = DTCEBot()
 
