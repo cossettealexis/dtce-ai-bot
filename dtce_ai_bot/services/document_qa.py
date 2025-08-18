@@ -71,14 +71,13 @@ class DocumentQAService:
                 'answer': answer_response['answer'],
                 'sources': [
                     {
-                        'filename': doc['file_name'],
-                        'project_id': self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_id', ''),
+                        'filename': doc['filename'],
+                        'project_id': self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_name', '') or 'Unknown',
                         'relevance_score': doc['@search.score'],
                         'blob_url': doc.get('blob_url', ''),
-                        'excerpt': doc.get('@search.highlights', {}).get('extracted_text', 
-                                  doc.get('@search.highlights', {}).get('content_preview', ['']))[0][:200] + '...'
+                        'excerpt': self._get_excerpt(doc)
                     }
-                    for doc in relevant_docs[:3]  # Top 3 sources
+                    for doc in relevant_docs[:5]  # Top 5 sources for better context
                 ],
                 'confidence': answer_response['confidence'],
                 'documents_searched': len(relevant_docs),
@@ -97,54 +96,28 @@ class DocumentQAService:
     async def _search_relevant_documents(self, question: str, project_filter: Optional[str] = None) -> List[Dict]:
         """Search for documents relevant to the question."""
         try:
-            # Auto-detect project from question if not provided
-            if not project_filter:
-                project_filter = self._extract_project_from_question(question)
-                
-            # If no project found but it's a date-specific question, try searching without filter first
-            # then suggest being more specific
-            is_date_question = self._is_date_only_question(question)
-            
-            # For project-specific queries, broaden the search terms
+            # Start with the original question - keep it simple and smart
             search_text = question
-            if project_filter and ("project" in question.lower() or project_filter in question):
-                # For project questions, search for common terms that might be in the files
-                search_text = f"email OR communication OR document OR file OR DMT OR brief OR proceeding"
             
             # Convert date formats in the question to match filename patterns
             search_text = self._convert_date_formats(search_text)
             
-            # Search without project filter initially since project_id field might be empty
+            # Perform the search - let Azure Search do the heavy lifting
             results = self.search_client.search(
                 search_text=search_text,
-                top=50,  # Get more results for filtering
-                highlight_fields="file_name,project_title,content_preview",  # Use only confirmed fields
-                select=["id", "file_name", "extracted_text", "content_preview", "project_id", 
-                       "folder_path", "blob_url", "modified_date", "project_title"],
+                top=20,  # Get good number of relevant results
+                highlight_fields="filename,project_name,content",
+                select=["id", "filename", "content", "blob_url", "last_modified", "project_name", "folder"],
                 query_type="semantic" if hasattr(self.search_client, 'query_type') else "simple"
             )
             
-            # Convert to list and filter by project if needed
+            # Convert to list - include ALL results, let GPT decide relevance
             documents = []
             for result in results:
                 doc_dict = dict(result)
-                
-                # If we have a project filter, check if the document belongs to that project
-                if project_filter:
-                    doc_project = self._extract_project_from_url(doc_dict.get('blob_url', ''))
-                    if doc_project != project_filter:
-                        continue  # Skip documents not in the target project
-                elif is_date_question:
-                    # For date-only questions, include all matching documents but prioritize recent projects
-                    pass  # Don't filter by project for date-only questions
-                
                 documents.append(doc_dict)
-                
-                # Limit to top 10 after filtering
-                if len(documents) >= 10:
-                    break
             
-            logger.info("Found relevant documents", count=len(documents), question=question, project_filter=project_filter)
+            logger.info("Found relevant documents", count=len(documents), question=question)
             return documents
             
         except Exception as e:
@@ -165,14 +138,14 @@ class DocumentQAService:
         
         for doc in documents:
             # Extract relevant information using correct field names
-            filename = doc.get('file_name', 'Unknown')
-            project = self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_id', 'Unknown')
-            # Try both extracted_text and content_preview for content
-            content = doc.get('extracted_text') or doc.get('content_preview', '')
+            filename = doc.get('filename', 'Unknown')
+            project = self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_name', '') or 'Unknown'
+            # Use the correct field name for content
+            content = doc.get('content', '')
             
-            # Truncate content if too long
-            if len(content) > 1000:
-                content = content[:1000] + "..."
+            # Truncate content if too long but keep more content for better context
+            if len(content) > 1500:
+                content = content[:1500] + "..."
             
             doc_context = f"""
 Document: {filename}
@@ -311,39 +284,41 @@ Content: {content}
             start_time = time.time()
             
             # Prepare enhanced system prompt for comprehensive question answering
-            system_prompt = """You are an advanced AI assistant for DTCE (engineering consultancy) that can answer ALL types of questions using available documentation and professional knowledge.
+            system_prompt = """You are an advanced AI assistant for DTCE (engineering consultancy) that provides detailed, contextual answers using available documentation and professional knowledge.
 
             YOUR CAPABILITIES:
-            1. DOCUMENT-BASED ANSWERS: Answer questions using the provided document context
-            2. BUSINESS PROCESS GUIDANCE: Provide advice on business processes, procedures, and workflows
-            3. ENGINEERING EXPERTISE: Answer technical engineering questions
-            4. ADMINISTRATIVE SUPPORT: Help with office procedures, software usage, and administrative tasks
-            5. GENERAL PROFESSIONAL ADVICE: Provide reasonable professional guidance when documents don't contain the answer
+            1. DOCUMENT-BASED ANSWERS: Analyze and summarize information from provided documents
+            2. PROJECT INSIGHTS: When asked about projects, provide comprehensive overviews including:
+               - Project structure and sub-projects
+               - Document types and contents
+               - Key dates and personnel
+               - Project status and activities
+            3. BUSINESS PROCESS GUIDANCE: Provide step-by-step guidance for workflows
+            4. ENGINEERING EXPERTISE: Answer technical questions with references
+            5. CONTEXTUAL INTELLIGENCE: Always provide relevant context even for simple queries
 
-            QUESTION TYPES YOU HANDLE:
-            - Engineering: specifications, calculations, reports, drawings, project details
-            - Business Processes: WorkflowMax, billing, time entry, invoicing, project management
-            - Administrative: procedures, guidelines, company policies, software usage
-            - Project Management: scheduling, communication, client relations
-            - Financial: fee structures, billing procedures, cost estimation
-            - General Professional: best practices, recommendations, troubleshooting
+            RESPONSE PRINCIPLES:
+            1. BE COMPREHENSIVE: Don't just say documents exist - explain what they contain
+            2. BE SPECIFIC: Mention file names, dates, project numbers, and details
+            3. BE CONTEXTUAL: For any project query, provide an overview of what's available
+            4. BE HELPFUL: Always suggest next steps or where to find more information
+            5. BE INTELLIGENT: Even for simple queries, provide valuable context
 
-            RESPONSE STRATEGY:
-            1. PRIMARY: Use document context when available - cite specific documents and details
-            2. SECONDARY: If documents don't contain the answer, provide professional guidance based on:
-               - Industry best practices
-               - Common business procedures
-               - Logical recommendations
-               - Professional experience patterns
-            3. Always be helpful and provide actionable advice
-            4. Clearly indicate whether your answer is from documents or professional guidance
-            5. For business process questions (like WorkflowMax), provide step-by-step guidance
-            6. For technical questions without documentation, suggest where to find the information
+            FOR PROJECT QUERIES (like "project 219"):
+            - Provide an overview of all sub-projects and their purposes
+            - List key documents and their contents
+            - Mention important dates, locations, or personnel if available
+            - Suggest specific areas the user might want to explore further
 
-            EXAMPLE APPROACHES:
-            - "Based on the documents..." (when using document context)
-            - "While I don't see this specific procedure in your documents, here's the recommended approach..." (professional guidance)
-            - "For WorkflowMax time entry, the standard process is..." (business process guidance)
+            FOR DOCUMENT QUERIES:
+            - Explain what the document contains
+            - Provide relevant excerpts or summaries
+            - Mention related documents or projects
+
+            FOR GENERAL QUERIES:
+            - Use any relevant context from documents
+            - Provide professional guidance based on DTCE's work
+            - Suggest specific resources or next steps
             """
             
             # Prepare enhanced user prompt
@@ -353,15 +328,16 @@ Content: {content}
             Available Document Context:
             {context if context.strip() else "No specific documents found for this query."}
 
-            INSTRUCTIONS:
-            - If documents contain relevant information, use them as your primary source and cite specific details
-            - If documents don't contain the answer, provide professional guidance and best practices
-            - For business process questions (WorkflowMax, billing, etc.), provide step-by-step guidance
-            - For technical questions, suggest where to find additional information if needed
-            - Always be helpful and provide actionable advice
-            - Be specific and detailed in your response
+            INSTRUCTIONS FOR YOUR RESPONSE:
+            - Provide a comprehensive, detailed answer
+            - If this is about a project, give a complete overview of what's available
+            - Include specific file names, dates, and project details when available
+            - Explain what each document likely contains based on its name and context
+            - For simple queries, still provide valuable context and insights
+            - Suggest specific next steps or areas to explore
+            - Be conversational but informative
 
-            Please provide a comprehensive answer addressing the question above.
+            Provide a detailed response that fully addresses the question with all available context.
             """
             
             # Call OpenAI/Azure OpenAI with enhanced parameters
@@ -371,8 +347,8 @@ Content: {content}
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.3,  # Slightly higher for more creative business guidance
-                max_tokens=800   # Increased for more comprehensive answers
+                temperature=0.2,  # Lower for more focused, factual responses
+                max_tokens=1200   # Increased for more comprehensive answers
             )
             
             answer = response.choices[0].message.content
@@ -458,3 +434,23 @@ Content: {content}
         except Exception as e:
             logger.error("Document summary failed", error=str(e))
             return {'error': str(e)}
+
+    def _get_excerpt(self, doc: Dict[str, Any]) -> str:
+        """Get excerpt from document with proper highlight handling."""
+        # Try to get highlighted content first
+        highlights = doc.get('@search.highlights')
+        if highlights and isinstance(highlights, dict):
+            if 'content' in highlights and highlights['content']:
+                # Highlights are usually a list of strings
+                highlight_text = highlights['content']
+                if isinstance(highlight_text, list) and highlight_text:
+                    return highlight_text[0][:200] + '...'
+                elif isinstance(highlight_text, str):
+                    return highlight_text[:200] + '...'
+        
+        # Fall back to regular content
+        content = doc.get('content', '')
+        if content:
+            return content[:200] + '...'
+        
+        return 'No content preview available'

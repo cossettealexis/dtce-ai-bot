@@ -143,33 +143,23 @@ def create_app() -> FastAPI:
             try:
                 logger.info("Processing user query", message=user_message)
                 
-                # Import the documents ask function directly instead of HTTP call
-                from ..api.documents import ask_question
+                # Use DocumentQAService directly for all questions
+                from ..services.document_qa import DocumentQAService
                 from ..integrations.azure_search import get_search_client
                 
-                # Get search client (not async)
+                # Get search client and create QA service
                 search_client = get_search_client()
+                qa_service = DocumentQAService(search_client)
                 
-                # Call the ask function directly
-                response = await ask_question(
-                    question=user_message,
-                    project_id=None,  # No project filter for now
-                    search_client=search_client
-                )
-                
-                # Extract data from JSONResponse
-                result_data = response.body.decode('utf-8')
-                result = json.loads(result_data)
+                # Let DocumentQAService handle the question
+                result = await qa_service.answer_question(user_message)
                 
                 answer = result.get("answer", "No answer available")
-                sources_count = len(result.get("sources", []))
+                sources_count = result.get("documents_searched", 0)
                 confidence = result.get("confidence", "low")
                 
-                # Handle confidence as string (low, medium, high, error)
-                if confidence in ["high", "medium"]:  # Only show answer if confident enough
-                    response_text = f"🔍 **DTCE AI Assistant**\n\n{answer}\n\n📄 **Sources**: {sources_count} relevant documents found"
-                else:
-                    response_text = f"🔍 **DTCE AI Assistant**\n\nI found some documents but I'm not confident enough in my answer. Could you try rephrasing your question or being more specific? I searched {sources_count} documents but need clearer context to provide a reliable response."
+                # Always provide the answer from DocumentQAService
+                response_text = f"🔍 **DTCE AI Assistant**\n\n{answer}\n\n📄 **Sources**: {sources_count} documents searched"
                 
                 await turn_context.send_activity(MessageFactory.text(response_text))
                 
