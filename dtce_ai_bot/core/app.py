@@ -166,10 +166,19 @@ def create_app() -> FastAPI:
                 confidence = result.get("confidence", "low")
                 
                 # Handle confidence as string (low, medium, high, error)
-                if confidence in ["high", "medium"]:  # Only show answer if confident enough
-                    response_text = f"🔍 **DTCE AI Assistant**\n\n{answer}\n\n📄 **Sources**: {sources_count} relevant documents found"
+                if confidence == "error":
+                    response_text = f"🔍 **DTCE AI Assistant**\n\nI encountered an error while processing your question. Please try again or rephrase your question."
                 else:
-                    response_text = f"🔍 **DTCE AI Assistant**\n\nI found some documents but I'm not confident enough in my answer. Could you try rephrasing your question or being more specific? I searched {sources_count} documents but need clearer context to provide a reliable response."
+                    # Always show the answer, regardless of confidence level
+                    confidence_indicator = ""
+                    if confidence == "low":
+                        confidence_indicator = "\n\n💡 *Note: This answer is based on limited information. Consider rephrasing your question for more specific results.*"
+                    elif confidence == "medium":
+                        confidence_indicator = "\n\n✅ *This answer is based on relevant documents from our database.*"
+                    elif confidence == "high":
+                        confidence_indicator = "\n\n🎯 *This answer is based on comprehensive information from our documents.*"
+                    
+                    response_text = f"🔍 **DTCE AI Assistant**\n\n{answer}{confidence_indicator}\n\n📄 **Sources**: {sources_count} relevant documents found"
                 
                 await turn_context.send_activity(MessageFactory.text(response_text))
                 

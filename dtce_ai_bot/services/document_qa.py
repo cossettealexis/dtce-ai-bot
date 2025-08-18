@@ -334,21 +334,17 @@ Content: {content}
             - General Professional: best practices, recommendations, troubleshooting
 
             RESPONSE STRATEGY:
-            1. PRIMARY: Use document context when available - cite specific documents and details
-            2. SECONDARY: If documents don't contain the answer, provide professional guidance based on:
-               - Industry best practices
-               - Common business procedures
-               - Logical recommendations
-               - Professional experience patterns
-            3. Always be helpful and provide actionable advice
-            4. Clearly indicate whether your answer is from documents or professional guidance
+            1. PRIMARY: Always use document context when available - cite specific documents and extract useful information
+            2. NEVER say documents don't contain relevant information if documents are provided
+            3. If documents contain partial information, extract what's useful and supplement with professional guidance
+            4. Always be helpful and provide actionable advice
             5. For business process questions (like WorkflowMax), provide step-by-step guidance
-            6. For technical questions without documentation, suggest where to find the information
+            6. For technical questions, extract what you can from documents and provide additional context
 
             EXAMPLE APPROACHES:
-            - "Based on the documents..." (when using document context)
-            - "While I don't see this specific procedure in your documents, here's the recommended approach..." (professional guidance)
-            - "For WorkflowMax time entry, the standard process is..." (business process guidance)
+            - "Based on the documents provided..." (when using document context)
+            - "From the project files, I can see..." (extracting specific information)
+            - "The documents show... and additionally, here's the recommended approach..." (combination approach)
             """
             
             # Prepare enhanced user prompt
@@ -408,13 +404,24 @@ Content: {content}
 
     def _assess_confidence(self, answer: str, context: str) -> str:
         """Assess confidence level of the answer."""
-        # Simple heuristics for confidence assessment
-        if "I don't" in answer or "cannot find" in answer or "not mentioned" in answer:
+        # Check for explicit disclaimers that indicate low confidence
+        low_confidence_phrases = [
+            "I cannot find", "not available", "not provided", "unclear from the documents",
+            "insufficient information", "cannot determine"
+        ]
+        
+        # Check if answer contains any low confidence indicators
+        answer_lower = answer.lower()
+        if any(phrase in answer_lower for phrase in low_confidence_phrases):
             return 'low'
-        elif len(context) > 2000 and len(answer) > 100:
+        
+        # Assess based on context and answer quality
+        if len(context) > 2000 and len(answer) > 200:
             return 'high'
-        elif len(context) > 1000:
+        elif len(context) > 500 and len(answer) > 100:
             return 'medium'
+        elif len(context) > 0 and len(answer) > 50:
+            return 'medium'  # Even with some context, give medium confidence
         else:
             return 'low'
 
@@ -617,21 +624,31 @@ Content: {content}
     def _format_precast_project_answer(self, projects_found: Dict[str, Dict]) -> str:
         """Format the answer for precast project queries."""
         if not projects_found:
-            return "I did not find any precast panel projects in our document index."
+            return "I couldn't find any projects with precast panel work in our documents."
         
         project_count = len(projects_found)
-        project_list = []
         
-        for project_id, project_info in sorted(projects_found.items()):
+        if project_count == 1:
+            # Single project - more conversational
+            project_id, project_info = list(projects_found.items())[0]
             doc_count = project_info['document_count']
             suitefiles_url = project_info['suitefiles_url']
-            project_list.append(f"• **Project {project_id}** - {doc_count} precast-related documents\n  📁 SuiteFiles: {suitefiles_url}")
-        
-        answer = f"I found **{project_count} projects** with precast panel-related documents:\n\n"
-        answer += "\n\n".join(project_list)
-        answer += f"\n\n**Total Projects Found:** {project_count}\n"
-        answer += "**Keywords Searched:** Precast Panel, Precast Connection, Unispans\n"
-        answer += "**Note:** Click the SuiteFiles links above to access project folders in SharePoint."
+            
+            answer = f"I found **Project {project_id}** which has {doc_count} documents related to precast work.\n\n"
+            answer += f"📁 **View Project Files:** [Open in SuiteFiles]({suitefiles_url})\n\n"
+            answer += "This will take you directly to the project folder where you can access all the precast-related documents."
+        else:
+            # Multiple projects
+            answer = f"I found **{project_count} projects** with precast panel work:\n\n"
+            
+            project_list = []
+            for project_id, project_info in sorted(projects_found.items()):
+                doc_count = project_info['document_count']
+                suitefiles_url = project_info['suitefiles_url']
+                project_list.append(f"• **Project {project_id}** ({doc_count} documents) - [View Files]({suitefiles_url})")
+            
+            answer += "\n".join(project_list)
+            answer += "\n\nClick any link above to access the project folders in SuiteFiles."
         
         return answer
 
@@ -640,12 +657,18 @@ Content: {content}
         sources = []
         
         for project_id, project_info in sorted(projects_found.items()):
+            sample_files = project_info['sample_documents'][:3]
+            if sample_files:
+                sample_text = f"Including files: {', '.join(sample_files)}"
+            else:
+                sample_text = "Multiple precast-related documents found"
+                
             sources.append({
-                'filename': f"Project {project_id} - Precast Documents",
+                'filename': f"Project {project_id}",
                 'project_id': project_id,
                 'relevance_score': 1.0,
-                'blob_url': project_info['suitefiles_url'],  # Use SuiteFiles URL instead of blob URL
-                'excerpt': f"Found {project_info['document_count']} precast-related documents. Sample files: {', '.join(project_info['sample_documents'][:3])}"
+                'blob_url': project_info['suitefiles_url'],
+                'excerpt': sample_text
             })
         
         return sources[:10]  # Limit to top 10 projects
