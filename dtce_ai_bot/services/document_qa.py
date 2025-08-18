@@ -71,11 +71,11 @@ class DocumentQAService:
                 'answer': answer_response['answer'],
                 'sources': [
                     {
-                        'filename': doc['file_name'],
-                        'project_id': self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_id', ''),
+                        'filename': doc['filename'],  # Use existing field name
+                        'project_id': self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_name', ''),  # Use existing field name
                         'relevance_score': doc['@search.score'],
                         'blob_url': doc.get('blob_url', ''),
-                        'excerpt': doc.get('@search.highlights', {}).get('extracted_text', 
+                        'excerpt': doc.get('@search.highlights', {}).get('content',  # Use existing field name 
                                   doc.get('@search.highlights', {}).get('content_preview', ['']))[0][:200] + '...'
                     }
                     for doc in relevant_docs[:3]  # Top 3 sources
@@ -118,9 +118,9 @@ class DocumentQAService:
             results = self.search_client.search(
                 search_text=search_text,
                 top=50,  # Get more results for filtering
-                highlight_fields="file_name,project_title,content_preview",  # Use only confirmed fields
-                select=["id", "file_name", "extracted_text", "content_preview", "project_id", 
-                       "folder_path", "blob_url", "modified_date", "project_title"],
+                highlight_fields="filename,project_name,content",  # Use existing field names
+                select=["id", "filename", "content", "blob_url", "project_name",  # Use existing field names
+                       "folder", "last_modified", "created_date", "size"],  # Use existing field names
                 query_type="semantic" if hasattr(self.search_client, 'query_type') else "simple"
             )
             
@@ -165,10 +165,10 @@ class DocumentQAService:
         
         for doc in documents:
             # Extract relevant information using correct field names
-            filename = doc.get('file_name', 'Unknown')
-            project = self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_id', 'Unknown')
-            # Try both extracted_text and content_preview for content
-            content = doc.get('extracted_text') or doc.get('content_preview', '')
+            filename = doc.get('filename', 'Unknown')  # Use existing field name
+            project = self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_name', 'Unknown')  # Use existing field name
+            # Use existing content field name
+            content = doc.get('content', '')
             
             # Truncate content if too long
             if len(content) > 1000:
