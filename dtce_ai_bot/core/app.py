@@ -130,7 +130,7 @@ def create_app() -> FastAPI:
             if self.is_greeting_or_help(user_message):
                 greeting_response = (
                     "Hi there! 👋\n\n"
-                    "I'm your DTCE document assistant. I can help you find engineering documents, reports, and project files.\n\n"
+                    "I'm your DTCE AI assistant. I can help you find engineering documents, reports, and project files.\n\n"
                     "Just ask me in plain English about what you're looking for:\n"
                     "• \"Find structural calculations\"\n"
                     "• \"Show me bridge drawings\"\n"
@@ -162,7 +162,6 @@ def create_app() -> FastAPI:
                 result = json.loads(result_data)
                 
                 answer = result.get("answer", "No answer available")
-                sources_count = len(result.get("sources", []))
                 confidence = result.get("confidence", "low")
                 
                 # Handle confidence as string (low, medium, high, error)
@@ -178,7 +177,7 @@ def create_app() -> FastAPI:
                     elif confidence == "high":
                         confidence_indicator = "\n\n🎯 *This answer is based on comprehensive information from our documents.*"
                     
-                    response_text = f"🔍 **DTCE AI Assistant**\n\n{answer}{confidence_indicator}\n\n📄 **Sources**: {sources_count} relevant documents found"
+                    response_text = f"🔍 **DTCE AI Assistant**\n\n{answer}{confidence_indicator}"
                 
                 await turn_context.send_activity(MessageFactory.text(response_text))
                 
