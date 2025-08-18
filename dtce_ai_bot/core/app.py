@@ -16,7 +16,6 @@ from ..api.health import router as health_router
 from ..bot.endpoints import router as bot_router
 from ..api.documents import router as documents_router
 from ..api.project_scoping import router as project_scoping_router
-from ..integrations.azure_search import create_search_index_if_not_exists
 
 
 def configure_logging():
@@ -71,7 +70,9 @@ def create_app() -> FastAPI:
         logger = structlog.get_logger()
         try:
             logger.info("Initializing Azure Search index...")
-            await create_search_index_if_not_exists()
+            from ..integrations.azure.search_client import AzureSearchClient
+            search_client = AzureSearchClient()
+            await search_client.create_or_update_index()
             logger.info("Azure Search index initialization complete")
         except Exception as e:
             logger.error("Failed to initialize Azure Search index", error=str(e))
