@@ -46,6 +46,10 @@ class DocumentQAService:
         try:
             logger.info("Processing question", question=question, project_filter=project_filter)
             
+            # Check if this is a precast panel project query
+            if self._is_precast_project_query(question):
+                return await self._handle_precast_project_query(question, project_filter)
+            
             # Convert dates in the question to match filename formats
             converted_question = self._convert_date_formats(question)
             
@@ -458,3 +462,150 @@ Content: {content}
         except Exception as e:
             logger.error("Document summary failed", error=str(e))
             return {'error': str(e)}
+
+    def _is_precast_project_query(self, question: str) -> bool:
+        """Check if the question is asking for precast panel projects."""
+        if not question:
+            return False
+        
+        question_lower = question.lower()
+        precast_keywords = ["precast panel", "precast", "precast connection", "unispans"]
+        project_keywords = ["project", "projects", "job", "jobs"]
+        
+        # Check if question contains precast keywords and project keywords
+        has_precast = any(keyword in question_lower for keyword in precast_keywords)
+        has_project_request = any(keyword in question_lower for keyword in project_keywords)
+        
+        return has_precast and has_project_request
+
+    async def _handle_precast_project_query(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle precast panel project queries with specialized search and SuiteFiles URLs."""
+        try:
+            logger.info("Processing precast project query", question=question)
+            
+            # Search for precast-related documents
+            precast_docs = await self._search_precast_documents()
+            
+            if not precast_docs:
+                return {
+                    'answer': 'I could not find any precast panel projects in our document index.',
+                    'sources': [],
+                    'confidence': 'low',
+                    'documents_searched': 0
+                }
+            
+            # Extract unique projects and generate SuiteFiles URLs
+            projects_found = self._extract_precast_projects(precast_docs)
+            
+            # Format response with project list and SuiteFiles URLs
+            answer = self._format_precast_project_answer(projects_found)
+            
+            # Format sources with SuiteFiles URLs
+            sources = self._format_precast_sources(projects_found, precast_docs)
+            
+            return {
+                'answer': answer,
+                'sources': sources,
+                'confidence': 'high',
+                'documents_searched': len(precast_docs),
+                'processing_time': 0
+            }
+            
+        except Exception as e:
+            logger.error("Precast project query failed", error=str(e), question=question)
+            return {
+                'answer': f'I encountered an error while searching for precast projects: {str(e)}',
+                'sources': [],
+                'confidence': 'error',
+                'documents_searched': 0
+            }
+
+    async def _search_precast_documents(self) -> List[Dict]:
+        """Search for documents related to precast panels."""
+        try:
+            # Search for precast-related keywords
+            search_terms = "Precast Panel OR Precast OR Unispans OR \"Precast Connection\""
+            
+            results = self.search_client.search(
+                search_text=search_terms,
+                top=100,  # Get many results to find all projects
+                select=["id", "filename", "content", "blob_url", "project_name", "folder"],
+                query_type="simple"
+            )
+            
+            documents = []
+            for result in results:
+                doc_dict = dict(result)
+                
+                # Only include documents that actually contain precast content
+                content = doc_dict.get('content', '').lower()
+                filename = doc_dict.get('filename', '').lower()
+                
+                if any(term in content or term in filename for term in ['precast', 'unispan']):
+                    documents.append(doc_dict)
+            
+            logger.info("Found precast documents", count=len(documents))
+            return documents
+            
+        except Exception as e:
+            logger.error("Precast document search failed", error=str(e))
+            return []
+
+    def _extract_precast_projects(self, precast_docs: List[Dict]) -> Dict[str, Dict]:
+        """Extract unique project numbers from precast documents."""
+        projects = {}
+        
+        for doc in precast_docs:
+            blob_url = doc.get('blob_url', '')
+            project_id = self._extract_project_from_url(blob_url)
+            
+            if project_id and len(project_id) >= 6:  # Valid project numbers
+                if project_id not in projects:
+                    projects[project_id] = {
+                        'project_id': project_id,
+                        'suitefiles_url': f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Projects/{project_id[:3]}",
+                        'document_count': 0,
+                        'sample_documents': []
+                    }
+                
+                projects[project_id]['document_count'] += 1
+                if len(projects[project_id]['sample_documents']) < 3:
+                    projects[project_id]['sample_documents'].append(doc.get('filename', 'Unknown'))
+        
+        return projects
+
+    def _format_precast_project_answer(self, projects_found: Dict[str, Dict]) -> str:
+        """Format the answer for precast project queries."""
+        if not projects_found:
+            return "I did not find any precast panel projects in our document index."
+        
+        project_count = len(projects_found)
+        project_list = []
+        
+        for project_id, project_info in sorted(projects_found.items()):
+            doc_count = project_info['document_count']
+            suitefiles_url = project_info['suitefiles_url']
+            project_list.append(f"• **Project {project_id}** - {doc_count} precast-related documents\n  📁 SuiteFiles: {suitefiles_url}")
+        
+        answer = f"I found **{project_count} projects** with precast panel-related documents:\n\n"
+        answer += "\n\n".join(project_list)
+        answer += f"\n\n**Total Projects Found:** {project_count}\n"
+        answer += "**Keywords Searched:** Precast Panel, Precast Connection, Unispans\n"
+        answer += "**Note:** Click the SuiteFiles links above to access project folders in SharePoint."
+        
+        return answer
+
+    def _format_precast_sources(self, projects_found: Dict[str, Dict], precast_docs: List[Dict]) -> List[Dict]:
+        """Format sources for precast project queries with SuiteFiles URLs."""
+        sources = []
+        
+        for project_id, project_info in sorted(projects_found.items()):
+            sources.append({
+                'filename': f"Project {project_id} - Precast Documents",
+                'project_id': project_id,
+                'relevance_score': 1.0,
+                'blob_url': project_info['suitefiles_url'],  # Use SuiteFiles URL instead of blob URL
+                'excerpt': f"Found {project_info['document_count']} precast-related documents. Sample files: {', '.join(project_info['sample_documents'][:3])}"
+            })
+        
+        return sources[:10]  # Limit to top 10 projects
