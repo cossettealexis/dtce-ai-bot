@@ -128,15 +128,17 @@ def create_app() -> FastAPI:
             
             # Check if it's a greeting or help request
             if self.is_greeting_or_help(user_message):
-                greeting_response = (
-                    "Hi there! 👋\n\n"
-                    "I'm your DTCE document assistant. I can help you find engineering documents, reports, and project files.\n\n"
-                    "Just ask me in plain English about what you're looking for:\n"
-                    "• \"Find structural calculations\"\n"
-                    "• \"Show me bridge drawings\"\n"
-                    "• \"What reports do we have for the Auckland project?\"\n\n"
-                    "What can I help you find today?"
-                )
+                greeting_response = """Hi there! 👋
+
+                    I'm your DTCE document assistant. I can help you find engineering documents, reports, and project files.
+
+                    Just ask me in plain English about what you're looking for:
+                    • "Find structural calculations"
+                    • "Show me bridge drawings"  
+                    • "What reports do we have for the project?"
+
+                    What can I help you find today?
+                """
                 await turn_context.send_activity(MessageFactory.text(greeting_response))
                 return
             
