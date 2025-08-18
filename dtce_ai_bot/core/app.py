@@ -130,10 +130,10 @@ def create_app() -> FastAPI:
             if self.is_greeting_or_help(user_message):
                 greeting_response = (
                     "Hi there! 👋\n\n"
-                    "I'm your DTCE document assistant. I can help you find engineering documents, reports, and project files.\n\n"
-                    "Just ask me in plain English about what you're looking for:\n"
-                    "• \"Find structural calculations\"\n"
-                    "• \"Show me bridge drawings\"\n"
+                    "I'm your DTCE AI assistant. I can help you find engineering documents, reports, and project files.\n\n"
+                    "Just ask me in plain English about what you're looking for:\n\n"
+                    "• \"Find structural calculations\"\n\n"
+                    "• \"Show me bridge drawings\"\n\n"
                     "• \"What reports do we have for the project?\"\n\n"
                     "What can I help you find today?"
                 )
