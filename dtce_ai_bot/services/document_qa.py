@@ -125,7 +125,7 @@ class DocumentQAService:
                 highlight_fields="filename,project_name,content",  # Use existing field names
                 select=["id", "filename", "content", "blob_url", "project_name",  # Use existing field names
                        "folder", "last_modified", "created_date", "size"],  # Use existing field names
-                query_type="semantic" if hasattr(self.search_client, 'query_type') else "simple"
+                query_type="semantic"  # Always use semantic search for better results
             )
             
             # Convert to list and filter by project if needed
@@ -464,19 +464,47 @@ Content: {content}
             return {'error': str(e)}
 
     def _is_precast_project_query(self, question: str) -> bool:
-        """Check if the question is asking for precast panel projects."""
+        """Check if the question is asking for precast panel projects using flexible matching."""
         if not question:
             return False
         
         question_lower = question.lower()
-        precast_keywords = ["precast panel", "precast", "precast connection", "unispans"]
-        project_keywords = ["project", "projects", "job", "jobs"]
         
-        # Check if question contains precast keywords and project keywords
-        has_precast = any(keyword in question_lower for keyword in precast_keywords)
-        has_project_request = any(keyword in question_lower for keyword in project_keywords)
+        # Precast-related terms (more flexible)
+        precast_patterns = [
+            "precast", "pre-cast", "precast panel", "precast connection", 
+            "unispans", "unispan", "precast element", "precast unit",
+            "precast concrete", "prefab", "prefabricated"
+        ]
         
-        return has_precast and has_project_request
+        # Project/work-related terms (more flexible)
+        project_patterns = [
+            "project", "job", "work", "contract", "site", "construction",
+            "past", "previous", "historical", "archive", "record",
+            "scope", "experience", "portfolio", "case", "example"
+        ]
+        
+        # Intent/action terms (what user wants to do)
+        intent_patterns = [
+            "tell me", "show me", "find", "search", "list", "all",
+            "what", "which", "where", "give me", "provide", "display",
+            "help", "assist", "looking for", "need", "want"
+        ]
+        
+        # Check for precast content
+        has_precast = any(pattern in question_lower for pattern in precast_patterns)
+        
+        # Check for project/work context
+        has_project_context = any(pattern in question_lower for pattern in project_patterns)
+        
+        # Check for request/intent
+        has_intent = any(pattern in question_lower for pattern in intent_patterns)
+        
+        # Also check for plural forms and question words
+        has_multiple_indicator = any(word in question_lower for word in ["all", "any", "every", "what", "which"])
+        
+        # Return true if we have precast terms AND (project context OR clear intent to find multiple items)
+        return has_precast and (has_project_context or (has_intent and has_multiple_indicator))
 
     async def _handle_precast_project_query(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
         """Handle precast panel project queries with specialized search and SuiteFiles URLs."""
@@ -521,34 +549,43 @@ Content: {content}
             }
 
     async def _search_precast_documents(self) -> List[Dict]:
-        """Search for documents related to precast panels."""
+        """Search for documents related to precast panels using semantic search."""
         try:
-            # Search for precast-related keywords
-            search_terms = "Precast Panel OR Precast OR Unispans OR \"Precast Connection\""
+            # Use natural language query for semantic search
+            search_text = "precast panels precast concrete connections unispans prefabricated elements construction"
             
             results = self.search_client.search(
-                search_text=search_terms,
+                search_text=search_text,
                 top=100,  # Get many results to find all projects
                 select=["id", "filename", "content", "blob_url", "project_name", "folder"],
-                query_type="simple"
+                query_type="semantic"  # Semantic search will find similar concepts
             )
             
             documents = []
             for result in results:
                 doc_dict = dict(result)
                 
-                # Only include documents that actually contain precast content
+                # More flexible content matching with semantic search
                 content = doc_dict.get('content', '').lower()
                 filename = doc_dict.get('filename', '').lower()
                 
-                if any(term in content or term in filename for term in ['precast', 'unispan']):
+                # With semantic search, we can be more lenient in filtering
+                # Check for precast-related terms in content or filename
+                precast_terms = [
+                    'precast', 'pre-cast', 'unispan', 'prefab', 'prefabricated',
+                    'tilt-up', 'lift-up', 'panel', 'connection'
+                ]
+                
+                # Include if semantic search found it OR if it contains obvious precast terms
+                if (result.get('@search.score', 0) > 0.5 or  # Good semantic match
+                    any(term in content or term in filename for term in precast_terms)):
                     documents.append(doc_dict)
             
-            logger.info("Found precast documents", count=len(documents))
+            logger.info("Found precast documents via semantic search", count=len(documents))
             return documents
             
         except Exception as e:
-            logger.error("Precast document search failed", error=str(e))
+            logger.error("Precast semantic search failed", error=str(e))
             return []
 
     def _extract_precast_projects(self, precast_docs: List[Dict]) -> Dict[str, Dict]:
