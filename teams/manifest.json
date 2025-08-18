@@ -25,12 +25,12 @@
   "bots": [
     {
       "botId": "c185c174-26f6-4876-b847-0a423d07d1f3",
-      "scopes": ["personal", "team", "groupChat"],
-      "supportsFiles": true,
+      "scopes": ["personal"],
+      "supportsFiles": false,
       "isNotificationOnly": false,
       "commandLists": [
         {
-          "scopes": ["personal", "team", "groupChat"],
+          "scopes": ["personal"],
           "commands": [
             {
               "title": "help",
