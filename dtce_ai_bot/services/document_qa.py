@@ -60,7 +60,9 @@ class DocumentQAService:
                        confidence=classification.get('confidence'))
             
             # Route to appropriate handler based on AI classification
-            if handler_type == "nz_standards":
+            if handler_type == "conversational":
+                return await self._handle_conversational_query(question, classification)
+            elif handler_type == "nz_standards":
                 return await self._handle_nz_standards_query(question, project_filter)
             elif handler_type == "template_search":
                 return await self._handle_template_search_query(question, project_filter)
@@ -1658,125 +1660,192 @@ Content: {content}
         
         question_lower = question.lower()
         
-        # Online/external resource indicators
-        online_indicators = [
-            "online", "web", "internet", "public", "forum", "thread", "discussion",
-            "external", "outside", "accessible", "available online", "website",
-            "blog", "article", "reference", "link", "url", "anonymous", 
-            "community", "social", "reddit", "stackexchange", "linkedin"
+        # Only trigger web search for very explicit requests for external resources
+        # This prevents false positives that should use internal documents
+        explicit_external_requests = [
+            "external resources", "online resources", "web resources",
+            "public discussions", "forum discussions", "online forums",
+            "external references", "outside resources", "internet sources",
+            "online discussions", "web discussions", "online threads",
+            "external websites", "public websites", "community discussions",
+            "provide links", "share links", "find links", "online links"
         ]
         
-        # Request types for external content
-        external_requests = [
-            "look for", "search for", "find online", "provide links", 
-            "external references", "public discussions", "online threads",
-            "web resources", "internet sources", "forum posts"
+        # Very specific patterns that clearly indicate external resource requests
+        specific_patterns = [
+            "look for.*online", "search.*online", "find.*online",
+            "reddit.*discussion", "forum.*post", "online.*thread",
+            "external.*discussion", "public.*forum", "web.*forum"
         ]
         
-        # Check for online indicators
-        has_online_indicators = any(indicator in question_lower for indicator in online_indicators)
+        # Check for explicit external requests
+        has_explicit_request = any(request in question_lower for request in explicit_external_requests)
         
-        # Check for external request patterns
-        has_external_request = any(request in question_lower for request in external_requests)
+        # Check for specific patterns using regex
+        import re
+        has_specific_pattern = any(re.search(pattern, question_lower) for pattern in specific_patterns)
         
-        # Return true if it's clearly asking for online/external resources
-        return has_online_indicators or has_external_request
+        # Only return true for very explicit external resource requests
+        # This prevents triggering on general engineering questions
+        return has_explicit_request or has_specific_pattern
 
     async def _handle_web_search_query(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
         """Handle queries requiring web search for external resources."""
         try:
-            logger.info("Processing web search query", question=question)
+            logger.info("Processing external resources query", question=question)
             
-            # Import web search service
-            from .web_search_service import WebSearchService
-            
-            # Determine search type based on question content
-            search_type = "all"
-            if "nz" in question.lower() or "new zealand" in question.lower():
-                search_type = "nz"
-            elif "forum" in question.lower() or "thread" in question.lower():
-                search_type = "forums"
-            elif "guideline" in question.lower() or "standard" in question.lower():
-                search_type = "technical"
-            
-            # Perform web search
-            async with WebSearchService() as web_search:
-                search_results = await web_search.comprehensive_search(question, search_type)
-            
-            # Format the response
-            answer = self._format_web_search_answer(question, search_results)
-            sources = self._format_web_search_sources(search_results)
+            # Use GPT to provide a comprehensive answer with real external resources
+            answer = await self._format_curated_external_resources(question)
+            sources = await self._format_curated_sources(question, answer)
             
             return {
                 'answer': answer,
                 'sources': sources,
-                'confidence': 'medium',  # Web search results have medium confidence
-                'documents_searched': sum(len(results) for results in search_results.values()),
-                'search_type': 'web_search'
+                'confidence': 'high',  # GPT provides good external answers
+                'documents_searched': 0,
+                'search_type': 'gpt_external_resources'
             }
             
         except Exception as e:
-            logger.error("Web search query failed", error=str(e))
+            logger.error("External resources query failed", error=str(e))
             return {
-                'answer': 'I encountered an error while searching for online resources. You might want to try searching engineering forums like Reddit r/StructuralEngineering, Engineering StackExchange, or SESOC resources directly.',
+                'answer': 'I encountered an error while gathering external resources. You might want to try searching engineering forums like Reddit r/StructuralEngineering, Engineering StackExchange, or SESOC resources directly.',
                 'sources': [],
                 'confidence': 'error',
                 'documents_searched': 0
             }
 
-    def _format_web_search_answer(self, question: str, search_results: Dict[str, List[Dict]]) -> str:
-        """Format web search results into a comprehensive answer."""
-        answer_parts = []
-        
-        # Introduction
-        answer_parts.append("Based on your request for online resources and discussions, here are relevant external references:")
-        
-        # Forums and discussions
-        if search_results.get("forums"):
-            answer_parts.append("\n🗣️ **Engineering Forums & Discussions:**")
-            for result in search_results["forums"][:3]:
-                answer_parts.append(f"• [{result['title']}]({result['url']})")
-                answer_parts.append(f"  {result['snippet']}")
-        
-        # NZ specific resources
-        if search_results.get("nz_resources"):
-            answer_parts.append("\n🇳🇿 **New Zealand Engineering Resources:**")
-            for result in search_results["nz_resources"][:3]:
-                answer_parts.append(f"• [{result['title']}]({result['url']})")
-                answer_parts.append(f"  {result['snippet']}")
-        
-        # Technical publications
-        if search_results.get("technical_publications"):
-            answer_parts.append("\n📚 **Technical Publications & Guidelines:**")
-            for result in search_results["technical_publications"][:3]:
-                answer_parts.append(f"• [{result['title']}]({result['url']})")
-                answer_parts.append(f"  {result['snippet']}")
-        
-        # Additional recommendations
-        answer_parts.append("\n💡 **Additional Recommended Resources:**")
-        answer_parts.append("• **Reddit r/StructuralEngineering** - Active community discussions")
-        answer_parts.append("• **Engineering StackExchange** - Q&A format with expert answers")
-        answer_parts.append("• **SESOC (sesoc.org.nz)** - NZ structural engineering society")
-        answer_parts.append("• **IPENZ/Engineering NZ** - Professional engineering body")
-        answer_parts.append("• **Structural Engineering forums** on LinkedIn")
-        
-        return "\n".join(answer_parts)
+    async def _format_curated_external_resources(self, question: str) -> str:
+        """Use GPT to provide a comprehensive answer with real external resources."""
+        try:
+            # Create a prompt for GPT to answer the question with real external resources
+            external_resources_prompt = f"""You are a knowledgeable structural engineering assistant. The user has asked a question that requires external resources or general engineering knowledge not available in DTCE's internal documents.
 
-    def _format_web_search_sources(self, search_results: Dict[str, List[Dict]]) -> List[Dict]:
-        """Format web search results as sources."""
+Question: {question}
+
+Please provide:
+1. A direct, helpful answer to their question
+2. Specific external resources with real working URLs where they can find more information
+3. Focus on authoritative sources like:
+   - Official software documentation and support
+   - Professional engineering organizations (SESOC, NZSEE, SCNZ, etc. for NZ context)
+   - Industry standards organizations (AISC, ACI, etc.)
+   - Academic institutions and research papers
+   - Active engineering forums and communities
+
+Format your response with clear sections and include actual clickable URLs in markdown format [text](url).
+Be specific and practical - provide resources that directly address their question."""
+
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "You are a senior structural engineering consultant with extensive knowledge of industry resources, standards, and best practices. Provide helpful, accurate information with real external links."},
+                    {"role": "user", "content": external_resources_prompt}
+                ],
+                max_tokens=1500,
+                temperature=0.3
+            )
+            
+            gpt_answer = response.choices[0].message.content.strip()
+            
+            # Add a note about DTCE's internal resources
+            footer = "\n\n� **Note:** This answer draws from general engineering knowledge and external resources. For DTCE-specific project information, methodologies, and templates, please search our internal document library."
+            
+            return gpt_answer + footer
+            
+        except Exception as e:
+            logger.error("GPT external resources generation failed", error=str(e))
+            # Fallback to a brief static response
+            return f"I couldn't generate a comprehensive answer for your question about external resources. You might want to try searching professional engineering resources like SESOC (https://sesoc.org.nz), engineering forums like Reddit r/StructuralEngineering, or the relevant software documentation directly."
+
+    async def _format_curated_sources(self, question: str = "", gpt_answer: str = "") -> List[Dict]:
+        """Format curated external resources as sources based on query context and GPT response."""
+        question_lower = question.lower()
         sources = []
         
-        for category, results in search_results.items():
-            for result in results:
+        # Try to extract URLs from GPT response if available
+        if gpt_answer:
+            import re
+            url_pattern = r'\[([^\]]+)\]\(([^)]+)\)'
+            urls_from_gpt = re.findall(url_pattern, gpt_answer)
+            
+            for title, url in urls_from_gpt[:5]:  # Limit to first 5 URLs from GPT
                 sources.append({
-                    'filename': result.get('title', 'External Resource'),
-                    'project_id': f"External ({category})",
-                    'relevance_score': result.get('relevance_score', 0.8),
-                    'blob_url': result.get('url', ''),
-                    'excerpt': result.get('snippet', '')[:200] + '...'
+                    'filename': title,
+                    'project_id': 'External Resource',
+                    'relevance_score': 0.95,
+                    'blob_url': url,
+                    'excerpt': f"Resource mentioned in AI response: {title}"
                 })
         
-        return sources
+        # Core structural engineering resources (if we don't have enough from GPT)
+        if len(sources) < 3:
+            sources.extend([
+                {
+                    'filename': 'Reddit r/StructuralEngineering',
+                    'project_id': 'External Forum',
+                    'relevance_score': 0.9,
+                    'blob_url': 'https://reddit.com/r/StructuralEngineering',
+                    'excerpt': 'Active community with daily discussions, project reviews, and Q&A sessions'
+                },
+                {
+                    'filename': 'Engineering StackExchange',
+                    'project_id': 'External Q&A',
+                    'relevance_score': 0.9,
+                    'blob_url': 'https://engineering.stackexchange.com',
+                    'excerpt': 'Professional Q&A platform with expert-validated answers'
+                }
+            ])
+        
+        # Add contextual sources based on question content (only if needed)
+        if len(sources) < 5:
+            # New Zealand specific resources
+            if any(term in question_lower for term in ['nz', 'new zealand', 'nzs', 'building code', 'sesoc', 'council']):
+                sources.append({
+                    'filename': 'SESOC - New Zealand',
+                    'project_id': 'External Organization',
+                    'relevance_score': 0.8,
+                    'blob_url': 'https://sesoc.org.nz',
+                    'excerpt': 'Structural Engineering Society of New Zealand'
+                })
+                sources.append({
+                    'filename': 'MBIE Building Performance',
+                    'project_id': 'External Government',
+                    'relevance_score': 0.8,
+                    'blob_url': 'https://www.building.govt.nz',
+                    'excerpt': 'New Zealand Building Code and compliance information'
+                })
+            
+            # Software-specific resources
+            if any(term in question_lower for term in ['etabs', 'sap2000', 'csi']):
+                sources.append({
+                    'filename': 'CSI Knowledge Base',
+                    'project_id': 'External Software',
+                    'relevance_score': 0.85,
+                    'blob_url': 'https://wiki.csiamerica.com',
+                    'excerpt': 'Official documentation and tutorials for ETABS, SAP2000, and other CSI software'
+                })
+            
+            if any(term in question_lower for term in ['spacegass', 'space gass']):
+                sources.append({
+                    'filename': 'Spacegass Support',
+                    'project_id': 'External Software',
+                    'relevance_score': 0.85,
+                    'blob_url': 'https://www.spacegass.com/support',
+                    'excerpt': 'Official Spacegass documentation and support resources'
+                })
+        
+        # Remove duplicates and limit to 6 sources
+        seen_urls = set()
+        unique_sources = []
+        for source in sources:
+            if source['blob_url'] not in seen_urls:
+                seen_urls.add(source['blob_url'])
+                unique_sources.append(source)
+                if len(unique_sources) >= 6:
+                    break
+        
+        return unique_sources
 
     async def _handle_contractor_search_query(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
         """Handle queries asking about builders, contractors, or construction companies."""
@@ -4365,3 +4434,60 @@ Focus on practical regulatory guidance that can be applied to similar situations
             })
         
         return sources
+
+    async def _handle_conversational_query(self, question: str, classification: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle conversational queries, greetings, or unclear input."""
+        try:
+            logger.info("Processing conversational query", question=question)
+            
+            question_lower = question.lower().strip()
+            
+            # Generate appropriate conversational responses
+            if question_lower in ["hey", "hi", "hello"]:
+                answer = "Hello! I'm the DTCE AI Assistant. I can help you find information from DTCE's project documents, templates, standards, and provide engineering guidance. What would you like to know?"
+            elif question_lower in ["what", "what?"]:
+                answer = """I'm here to help with engineering questions! You can ask me about:
+
+                    • Past DTCE projects and case studies
+                    • Design templates and calculation sheets  
+                    • Building codes and standards (NZS, AS/NZS)
+                    • Technical design guidance
+                    • Project timelines and costs
+                    • Best practices and methodologies
+
+                    What specific information are you looking for?
+                """
+            elif question_lower in ["really", "really?"]:
+                answer = "Yes! I have access to DTCE's extensive project database and can help you find relevant information. Try asking about specific projects, technical topics, or engineering guidance you need."
+            elif len(question.strip()) < 3:
+                answer = "I need a bit more information to help you. Please ask a specific question about engineering, projects, standards, or anything else I can assist with!"
+            else:
+                # For other unclear queries, provide a helpful prompt
+                answer = f"""I'm not quite sure what you're asking about with '{question}'. I'm designed to help with engineering questions and DTCE project information. 
+
+                        Try asking something like:
+                        • 'Find projects similar to a 3-story office building'
+                        • 'Show me NZS 3101 concrete design information'
+                        • 'What's our standard approach for steel connections?'
+                        • 'How long does PS1 preparation typically take?'
+
+                        What can I help you find?
+                    """
+            
+            return {
+                'answer': answer,
+                'sources': [],
+                'confidence': 'high',
+                'documents_searched': 0,
+                'search_type': 'conversational',
+                'classification': classification
+            }
+            
+        except Exception as e:
+            logger.error("Conversational query failed", error=str(e))
+            return {
+                'answer': "Hello! I'm the DTCE AI Assistant. How can I help you with engineering questions or project information?",
+                'sources': [],
+                'confidence': 'medium',
+                'documents_searched': 0
+            }

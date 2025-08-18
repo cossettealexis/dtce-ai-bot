@@ -170,13 +170,6 @@ def create_app() -> FastAPI:
                 else:
                     # Always show the answer, regardless of confidence level
                     confidence_indicator = ""
-                    if confidence == "low":
-                        confidence_indicator = "\n\n💡 *Note: This answer is based on limited information. Consider rephrasing your question for more specific results.*"
-                    elif confidence == "medium":
-                        confidence_indicator = "\n\n✅ *This answer is based on relevant documents from our database.*"
-                    elif confidence == "high":
-                        confidence_indicator = "\n\n🎯 *This answer is based on comprehensive information from our documents.*"
-                    
                     response_text = f"🔍 **DTCE AI Assistant**\n\n{answer}{confidence_indicator}"
                 
                 await turn_context.send_activity(MessageFactory.text(response_text))

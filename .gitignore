@@ -225,3 +225,4 @@ Thumbs.db
 local_*
 temp/
 tmp/
+*.zip

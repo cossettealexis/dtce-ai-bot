@@ -30,34 +30,48 @@ class QueryClassificationService:
         """
         
         classification_prompt = f"""
-You are an expert AI assistant that analyzes engineering queries to determine user intent.
+You are an expert AI assistant that analyzes user queries for an engineering document AI system.
 
-Analyze this user question and classify it into ONE primary intent category:
+Your job is to determine if this is a legitimate engineering question and if so, how to handle it.
 
-1. **STANDARDS_CODES**: User wants specific building codes, standards, or regulatory information (NZS, AS/NZS, etc.)
-2. **TEMPLATE_DOCUMENT**: User wants specific templates, forms, spreadsheets, or design tools (PS1, PS3, design spreadsheets, etc.)
-3. **PROJECT_HISTORY**: User wants to find past DTCE projects, examples, or case studies 
-4. **SCOPE_COMPARISON**: User wants to find similar past projects for fee proposals or scope comparison
-5. **SCENARIO_TECHNICAL**: User wants technical examples matching specific scenarios (building type + conditions + location)
-6. **REGULATORY_PRECEDENT**: User wants examples of regulatory challenges, council interactions, alternative solutions, or consent precedents
-7. **COST_TIME_INSIGHTS**: User wants project timeline analysis, cost information, duration estimates, or scope expansion examples
-8. **BEST_PRACTICES_TEMPLATES**: User wants standard approaches, best practice examples, calculation templates, or design methodologies
-9. **MATERIALS_METHODS**: User wants comparisons of materials, construction methods, or technical specifications across projects
-10. **INTERNAL_KNOWLEDGE**: User wants to identify engineers with specific expertise, find work by specific team members, or access internal knowledge
-11. **WEB_EXTERNAL**: User wants online resources, forums, external discussions, or public references
-12. **TECHNICAL_DESIGN**: User wants technical design guidance, calculations, or how-to information
-13. **CONTRACTOR_BUILDER**: User wants information about builders, contractors, or construction companies
-14. **CONTACT_EXTRACTION**: User wants contact details extracted from SuiteFiles documents for clients or builders
+First, evaluate if this is a meaningful engineering-related query:
+- Is it a complete, coherent question?
+- Does it relate to engineering, construction, or technical topics?
+- Is it asking for specific information (not just "hey", "what", random words)?
+
+If it's NOT a meaningful engineering query (like greetings, random words, unclear input), classify as CONVERSATIONAL.
+
+If it IS a meaningful engineering query, classify into the most appropriate category:
+
+**DOCUMENT SEARCH CATEGORIES** (for DTCE internal documents):
+1. **STANDARDS_CODES**: Specific building codes, standards, regulatory information (NZS, AS/NZS, etc.)
+2. **TEMPLATE_DOCUMENT**: Templates, forms, spreadsheets, design tools (PS1, PS3, design spreadsheets)
+3. **PROJECT_HISTORY**: Past DTCE projects, examples, case studies 
+4. **SCOPE_COMPARISON**: Similar past projects for fee proposals or scope comparison
+5. **SCENARIO_TECHNICAL**: Technical examples matching specific scenarios (building type + conditions)
+6. **REGULATORY_PRECEDENT**: Regulatory challenges, council interactions, consent precedents
+7. **COST_TIME_INSIGHTS**: Project timeline analysis, cost information, duration estimates, scope expansion
+8. **BEST_PRACTICES_TEMPLATES**: Standard approaches, best practice examples, calculation templates, methodologies
+9. **MATERIALS_METHODS**: Comparisons of materials, construction methods, technical specifications
+10. **INTERNAL_KNOWLEDGE**: Engineers with specific expertise, work by team members, internal knowledge
+11. **CONTRACTOR_BUILDER**: Information about builders, contractors, construction companies
+12. **CONTACT_EXTRACTION**: Contact details from documents
+
+**EXTERNAL/GPT CATEGORIES** (for external resources or general knowledge):
+13. **WEB_EXTERNAL**: User specifically wants online forums, external discussions, public references
+14. **TECHNICAL_DESIGN**: General engineering how-to questions, calculations, design guidance that GPT can answer
+15. **CONVERSATIONAL**: Greetings, unclear input, random words, non-engineering chatter
 
 User Question: "{question}"
 
 Respond with ONLY a JSON object in this exact format:
 {{
-    "primary_intent": "STANDARDS_CODES|TEMPLATE_DOCUMENT|PROJECT_HISTORY|SCOPE_COMPARISON|WEB_EXTERNAL|TECHNICAL_DESIGN|CONTRACTOR_BUILDER|CONTACT_EXTRACTION",
+    "primary_intent": "CONVERSATIONAL|STANDARDS_CODES|TEMPLATE_DOCUMENT|PROJECT_HISTORY|SCOPE_COMPARISON|SCENARIO_TECHNICAL|REGULATORY_PRECEDENT|COST_TIME_INSIGHTS|BEST_PRACTICES_TEMPLATES|MATERIALS_METHODS|INTERNAL_KNOWLEDGE|WEB_EXTERNAL|TECHNICAL_DESIGN|CONTRACTOR_BUILDER|CONTACT_EXTRACTION",
     "confidence": 0.0-1.0,
     "reasoning": "Brief explanation of why this intent was chosen",
     "keywords": ["key", "terms", "identified"],
-    "suggested_routing": "nz_standards|template_search|project_search|scope_comparison|scenario_technical|regulatory_precedent|web_search|general_search|contractor_search|contact_search"
+    "is_meaningful_query": true/false,
+    "suggested_routing": "conversational|nz_standards|template_search|project_search|scope_comparison|scenario_technical|regulatory_precedent|cost_time_insights|best_practices_templates|materials_methods|internal_knowledge|web_search|general_search|contractor_search|contact_search"
 }}
 """
 
@@ -91,15 +105,31 @@ Respond with ONLY a JSON object in this exact format:
     
     def _fallback_classification(self, question: str) -> Dict[str, any]:
         """Fallback rule-based classification if AI classification fails."""
-        question_lower = question.lower()
+        question_lower = question.lower().strip()
         
-        # Simple keyword-based fallback
+        # Check for obviously conversational/invalid queries
+        if (len(question.strip()) < 3 or 
+            question_lower in ['hey', 'hi', 'hello', 'what', 'really', 'ok', 'yes', 'no'] or
+            not any(c.isalpha() for c in question) or  # No letters at all
+            len(question.split()) < 2 or  # Less than 2 words
+            any(phrase in question_lower for phrase in ['hey what', 'ahowa', 'howa are you', 'how are you', 'what are you', 'who are you'])):  # Common conversational patterns
+            return {
+                "primary_intent": "CONVERSATIONAL",
+                "confidence": 0.9,
+                "reasoning": "Query appears to be conversational or too brief to be meaningful",
+                "keywords": [],
+                "is_meaningful_query": False,
+                "suggested_routing": "conversational"
+            }
+        
+        # Simple keyword-based fallback for meaningful queries
         if any(term in question_lower for term in ['nzs', 'standard', 'code', 'as/nzs', 'building code']):
             return {
                 "primary_intent": "STANDARDS_CODES",
                 "confidence": 0.8,
                 "reasoning": "Contains standards/codes keywords",
                 "keywords": ["standards", "codes"],
+                "is_meaningful_query": True,
                 "suggested_routing": "nz_standards"
             }
         elif any(term in question_lower for term in ['online', 'forum', 'thread', 'external', 'public', 'web']):
@@ -108,6 +138,7 @@ Respond with ONLY a JSON object in this exact format:
                 "confidence": 0.8,
                 "reasoning": "Contains web/external keywords",
                 "keywords": ["online", "external"],
+                "is_meaningful_query": True,
                 "suggested_routing": "web_search"
             }
         elif any(term in question_lower for term in ['past project', 'previous', 'dtce', 'worked on', 'done before']):
@@ -116,6 +147,7 @@ Respond with ONLY a JSON object in this exact format:
                 "confidence": 0.8,
                 "reasoning": "Asking about past projects",
                 "keywords": ["project", "history"],
+                "is_meaningful_query": True,
                 "suggested_routing": "project_search"
             }
         elif any(term in question_lower for term in ['builder', 'contractor', 'construction company', 'built']):
@@ -124,6 +156,7 @@ Respond with ONLY a JSON object in this exact format:
                 "confidence": 0.8,
                 "reasoning": "Asking about builders/contractors",
                 "keywords": ["builder", "contractor"],
+                "is_meaningful_query": True,
                 "suggested_routing": "contractor_search"
             }
         else:
@@ -132,6 +165,7 @@ Respond with ONLY a JSON object in this exact format:
                 "confidence": 0.6,
                 "reasoning": "General technical question",
                 "keywords": ["technical"],
+                "is_meaningful_query": True,
                 "suggested_routing": "general_search"
             }
 
@@ -154,6 +188,7 @@ class SmartQueryRouter:
         
         # Map intent to handler
         routing_map = {
+            "CONVERSATIONAL": "conversational",
             "STANDARDS_CODES": "nz_standards",
             "TEMPLATE_DOCUMENT": "template_search",
             "PROJECT_HISTORY": "project_search",
