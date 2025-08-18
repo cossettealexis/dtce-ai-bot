@@ -676,23 +676,27 @@ Content: {content}
                 content_type = doc.get('content_type', 'unknown')
                 doc_types[content_type] = doc_types.get(content_type, 0) + 1
                 
-                # Collect projects
-                project = doc.get('project_name')
+                # Collect projects using proper Base64 decoding
+                doc_info = self._extract_document_info(doc)
+                project = doc_info['project_name']
                 if project:
                     projects.add(project)
+            
+            # Create latest documents list with proper Base64 decoding
+            latest_docs = []
+            for doc in sorted(documents, key=lambda x: x.get('last_modified', ''), reverse=True)[:5]:
+                doc_info = self._extract_document_info(doc)
+                latest_docs.append({
+                    'filename': doc_info['filename'] or 'Unknown',
+                    'project': doc_info['project_name'] or 'Unknown',
+                    'last_modified': doc.get('last_modified', '')
+                })
             
             return {
                 'total_documents': len(documents),
                 'document_types': doc_types,
                 'projects': sorted(list(projects)),
-                'latest_documents': [
-                    {
-                        'filename': doc['filename'],
-                        'project': doc.get('project_name', 'Unknown'),
-                        'last_modified': doc.get('last_modified', '')
-                    }
-                    for doc in sorted(documents, key=lambda x: x.get('last_modified', ''), reverse=True)[:5]
-                ]
+                'latest_documents': latest_docs
             }
             
         except Exception as e:
@@ -1055,7 +1059,9 @@ Content: {content}
                 
                 # Track which keywords were found in this project
                 content = (doc.get('content') or '').lower()
-                filename = (doc.get('filename') or '').lower()
+                # Use proper Base64 decoding for filename
+                doc_info = self._extract_document_info(doc)
+                filename = doc_info['filename'].lower() if doc_info['filename'] else ''
                 for keyword in keywords:
                     if keyword in content or keyword in filename:
                         if keyword not in projects[project_id]['keywords_found']:
@@ -1070,9 +1076,10 @@ Content: {content}
         
         project_count = len(projects_found)
         keywords_text = ', '.join(keywords).title()
+        total_documents = sum(project_info['document_count'] for project_info in projects_found.values())
         
-        if project_count == 1:
-            # Single project - more conversational
+        if project_count == 1 and total_documents <= 3:
+            # Single project with few documents - conversational
             project_id, project_info = list(projects_found.items())[0]
             doc_count = project_info['document_count']
             suitefiles_url = project_info['suitefiles_url']
@@ -1084,17 +1091,29 @@ Content: {content}
             answer += f"📁 **View Project Files:** [Open in SuiteFiles]({suitefiles_url})\n\n"
             answer += "This will take you directly to the project folder where you can access all the related documents."
         else:
-            # Multiple projects
-            answer = f"I found **{project_count} projects** related to {keywords_text}:\n\n"
+            # Multiple projects OR single project with many documents - show detailed list
+            if project_count == 1:
+                answer = f"I found **{total_documents} documents** related to {keywords_text} in **1 project**:\n\n"
+            else:
+                answer = f"I found **{project_count} projects** with **{total_documents} total documents** related to {keywords_text}:\n\n"
             
             project_list = []
             for project_id, project_info in sorted(projects_found.items()):
                 doc_count = project_info['document_count']
                 suitefiles_url = project_info['suitefiles_url']
                 keywords_found = project_info['keywords_found']
+                sample_files = project_info.get('sample_documents', [])
                 
                 keywords_display = f" ({', '.join(keywords_found)})" if keywords_found else ""
-                project_list.append(f"• **Project {project_id}** - {doc_count} documents{keywords_display}\n  📁 [View Files]({suitefiles_url})")
+                project_entry = f"• **Project {project_id}** - {doc_count} documents{keywords_display}\n  📁 [View Files]({suitefiles_url})"
+                
+                # Show sample files if available
+                if sample_files and doc_count > 3:
+                    project_entry += f"\n  📄 Sample files: {', '.join(sample_files[:3])}"
+                    if len(sample_files) > 3:
+                        project_entry += f" (and {doc_count - 3} more)"
+                
+                project_list.append(project_entry)
             
             answer += "\n\n".join(project_list)
             answer += "\n\nClick any link above to access the project folders in SuiteFiles."
@@ -1240,9 +1259,10 @@ Content: {content}
             return "I couldn't find any projects with precast panel work in our documents."
         
         project_count = len(projects_found)
+        total_documents = sum(project_info['document_count'] for project_info in projects_found.values())
         
-        if project_count == 1:
-            # Single project - more conversational
+        if project_count == 1 and total_documents <= 3:
+            # Single project with few documents - conversational
             project_id, project_info = list(projects_found.items())[0]
             doc_count = project_info['document_count']
             suitefiles_url = project_info['suitefiles_url']
@@ -1251,16 +1271,29 @@ Content: {content}
             answer += f"📁 **View Project Files:** [Open in SuiteFiles]({suitefiles_url})\n\n"
             answer += "This will take you directly to the project folder where you can access all the precast-related documents."
         else:
-            # Multiple projects
-            answer = f"I found **{project_count} projects** with precast panel work:\n\n"
+            # Multiple projects OR single project with many documents - show detailed list
+            if project_count == 1:
+                answer = f"I found **{total_documents} precast-related documents** in **1 project**:\n\n"
+            else:
+                answer = f"I found **{project_count} projects** with **{total_documents} total documents** related to precast work:\n\n"
             
             project_list = []
             for project_id, project_info in sorted(projects_found.items()):
                 doc_count = project_info['document_count']
                 suitefiles_url = project_info['suitefiles_url']
-                project_list.append(f"• **Project {project_id}** ({doc_count} documents) - [View Files]({suitefiles_url})")
+                sample_files = project_info.get('sample_documents', [])
+                
+                project_entry = f"• **Project {project_id}** - {doc_count} precast documents\n  📁 [View Files]({suitefiles_url})"
+                
+                # Show sample files if available
+                if sample_files and doc_count > 3:
+                    project_entry += f"\n  📄 Sample files: {', '.join(sample_files[:3])}"
+                    if len(sample_files) > 3:
+                        project_entry += f" (and {doc_count - 3} more)"
+                
+                project_list.append(project_entry)
             
-            answer += "\n".join(project_list)
+            answer += "\n\n".join(project_list)
             answer += "\n\nClick any link above to access the project folders in SuiteFiles."
         
         return answer
@@ -2926,8 +2959,10 @@ Format your response with clear headings and bullet points. Focus on practical e
         # Create context from top documents
         context_parts = []
         for i, doc in enumerate(documents[:5]):
-            project = doc.get('project_name', 'Unknown Project')
-            filename = self._generate_meaningful_filename(doc) if not doc.get('filename') or doc.get('filename') == 'None' else doc.get('filename', 'Unknown Document')
+            # Use proper Base64 decoding for document info
+            doc_info = self._extract_document_info(doc)
+            project = doc_info['project_name'] or 'Unknown Project'
+            filename = doc_info['filename'] or self._generate_meaningful_filename(doc)
             content_excerpt = doc.get('content', '')[:400]
             
             context_parts.append(f"Document {i+1}: {filename} (Project: {project})\n{content_excerpt}...")
@@ -4113,8 +4148,10 @@ Focus on practical regulatory guidance that can be applied to similar situations
         templates_by_project = {}
         
         for doc in template_docs:
-            filename = (doc.get('filename') or '').strip()
-            project = (doc.get('project_name') or '').strip() or 'General Templates'
+            # Use the reusable method for proper Base64 decoding
+            doc_info = self._extract_document_info(doc)
+            filename = doc_info['filename']
+            project = doc_info['project_name'] or 'General Templates'
             blob_url = (doc.get('blob_url') or '').strip()
             
             # Skip documents with missing filename
@@ -4166,8 +4203,10 @@ Focus on practical regulatory guidance that can be applied to similar situations
         sources = []
         
         for doc in template_docs[:5]:  # Limit to top 5 sources
-            filename = (doc.get('filename') or '').strip()
-            project_name = (doc.get('project_name') or '').strip()
+            # Use the reusable method for proper Base64 decoding
+            doc_info = self._extract_document_info(doc)
+            filename = doc_info['filename']
+            project_name = doc_info['project_name']
             
             # Skip sources with missing essential info
             if not filename or filename == 'None':
