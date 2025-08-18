@@ -101,17 +101,31 @@ def create_app() -> FastAPI:
     
     # Bot Framework with proper Single Tenant authentication
     
+    # Bot Framework Setup
+    from botbuilder.core import BotFrameworkAdapter, BotFrameworkAdapterSettings, ActivityHandler, TurnContext, MessageFactory
+    from botbuilder.schema import Activity
+    
+    # Set up Bot Framework adapter with proper settings
+    adapter_settings = BotFrameworkAdapterSettings(
+        app_id=settings.microsoft_app_id,
+        app_password=settings.microsoft_app_password
+    )
+    adapter = BotFrameworkAdapter(adapter_settings)
+    
+    class DTCEBot(ActivityHandler):
+        async def on_message_activity(self, turn_context: TurnContext):
+            print(f"🔥 BOT RECEIVED MESSAGE: {turn_context.activity.text}")
+            
+            # Simple echo response for testing - this will actually send back to user
+            response_text = f"✅ DTCE Bot received: {turn_context.activity.text}"
+            await turn_context.send_activity(MessageFactory.text(response_text))
+    
+    bot = DTCEBot()
+
     @app.api_route("/api/messages", methods=["GET", "POST", "OPTIONS"])
     async def bot_framework_messages(request: Request):
-        """Bot Framework endpoint with Single Tenant authentication."""
+        """Bot Framework endpoint using proper adapter.process_activity."""
         logger = structlog.get_logger()
-        
-        # Log all incoming requests for debugging
-        logger.info("Incoming request", 
-                   method=request.method,
-                   url=str(request.url),
-                   headers=dict(request.headers),
-                   client=request.client.host if request.client else None)
         
         if request.method == "OPTIONS":
             return Response(headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "*"})
@@ -119,63 +133,41 @@ def create_app() -> FastAPI:
         if request.method == "GET":
             return {"status": "ready", "bot": "dtceai-bot", "timestamp": "2025-08-17T22:25:00Z"}
             
-        # POST - handle Bot Framework messages with authentication
+        # POST - handle Bot Framework messages using proper adapter
         try:
             # Track Bot Framework calls
             from datetime import datetime
             bot_calls["count"] += 1
             bot_calls["last_call"] = datetime.now().isoformat()
             
-            # Log the request
-            headers = dict(request.headers)
-            logger.info("🔥 API/MESSAGES HIT!", 
-                       call_number=bot_calls["count"],
-                       method=request.method,
-                       user_agent=headers.get('user-agent', 'unknown'),
-                       authorization_present=bool(headers.get('authorization')))
+            logger.info("🔥 API/MESSAGES HIT!", call_number=bot_calls["count"])
             
-            # Get request body and process with AI
-            body = await request.body()
-            body_text = body.decode('utf-8')
-            activity_data = json.loads(body_text)
+            # Get the request body and auth header
+            body_json = await request.json()
+            auth_header = request.headers.get("authorization", "")
             
-            # Extract the question
-            question = activity_data.get('text', '').strip()
-            if not question:
-                return {"type": "message", "text": "Please ask me something!"}
+            print(f"Incoming activity: {body_json}")
             
-            # Process with AI
-            from ..services.document_qa import DocumentQAService
-            from ..integrations.azure_search import get_search_client
+            # Create activity from JSON
+            activity = Activity().deserialize(body_json)
             
-            search_client = get_search_client()
-            qa_service = DocumentQAService(search_client)
+            # Bot handler function
+            async def bot_handler(turn_context: TurnContext):
+                await bot.on_turn(turn_context)
             
-            try:
-                result = await qa_service.answer_question(question)
-                return {
-                    "type": "message", 
-                    "text": result['answer'],
-                    "speak": result['answer'],
-                    "inputHint": "acceptingInput"
-                }
-            except Exception as e:
-                logger.error("Error in AI processing", error=str(e))
-                return {
-                    "type": "message",
-                    "text": "I encountered an error while processing your request. Please try again.",
-                    "inputHint": "acceptingInput"
-                }
+            # Use Bot Framework adapter to process the activity properly
+            response = await adapter.process_activity(
+                activity=activity,
+                auth_header=auth_header,
+                handler=bot_handler
+            )
+            
+            # Return the proper Bot Framework response
+            return Response(status_code=response.status if response else 200)
                 
         except Exception as e:
             logger.error("Error processing bot message", error=str(e))
-            return {"error": "Internal server error"}
-    
-    # Add debug endpoint to check Bot Framework call count
-    @app.get("/debug/bot-calls")
-    async def debug_bot_calls():
-        """Debug endpoint to check if Bot Framework is calling us."""
-        return bot_calls
+            return Response(status_code=500)
     
     # Add root route
     @app.get("/")
