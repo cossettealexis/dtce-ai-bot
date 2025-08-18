@@ -130,10 +130,10 @@ def create_app() -> FastAPI:
             if self.is_greeting_or_help(user_message):
                 greeting_response = (
                     "Hi there! 👋\n\n"
-                    "I'm your DTCE AI assistant. I can help you find engineering documents, reports, and project files.\n\n"
-                    "Just ask me in plain English about what you're looking for:\n\n"
-                    "• \"Find structural calculations\"\n\n"
-                    "• \"Show me bridge drawings\"\n\n"
+                    "I'm your DTCE document assistant. I can help you find engineering documents, reports, and project files.\n\n"
+                    "Just ask me in plain English about what you're looking for:\n"
+                    "• \"Find structural calculations\"\n"
+                    "• \"Show me bridge drawings\"\n"
                     "• \"What reports do we have for the project?\"\n\n"
                     "What can I help you find today?"
                 )
@@ -143,23 +143,33 @@ def create_app() -> FastAPI:
             try:
                 logger.info("Processing user query", message=user_message)
                 
-                # Use DocumentQAService directly for all questions
-                from ..services.document_qa import DocumentQAService
+                # Import the documents ask function directly instead of HTTP call
+                from ..api.documents import ask_question
                 from ..integrations.azure_search import get_search_client
                 
-                # Get search client and create QA service
+                # Get search client (not async)
                 search_client = get_search_client()
-                qa_service = DocumentQAService(search_client)
                 
-                # Let DocumentQAService handle the question
-                result = await qa_service.answer_question(user_message)
+                # Call the ask function directly
+                response = await ask_question(
+                    question=user_message,
+                    project_id=None,  # No project filter for now
+                    search_client=search_client
+                )
+                
+                # Extract data from JSONResponse
+                result_data = response.body.decode('utf-8')
+                result = json.loads(result_data)
                 
                 answer = result.get("answer", "No answer available")
-                sources_count = result.get("documents_searched", 0)
+                sources_count = len(result.get("sources", []))
                 confidence = result.get("confidence", "low")
                 
-                # Always provide the answer from DocumentQAService
-                response_text = f"🔍 **DTCE AI Assistant**\n\n{answer}\n\n📄 **Sources**: {sources_count} documents searched"
+                # Handle confidence as string (low, medium, high, error)
+                if confidence in ["high", "medium"]:  # Only show answer if confident enough
+                    response_text = f"🔍 **DTCE AI Assistant**\n\n{answer}\n\n📄 **Sources**: {sources_count} relevant documents found"
+                else:
+                    response_text = f"🔍 **DTCE AI Assistant**\n\nI found some documents but I'm not confident enough in my answer. Could you try rephrasing your question or being more specific? I searched {sources_count} documents but need clearer context to provide a reliable response."
                 
                 await turn_context.send_activity(MessageFactory.text(response_text))
                 
