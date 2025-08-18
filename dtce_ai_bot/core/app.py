@@ -124,7 +124,7 @@ def create_app() -> FastAPI:
                 # Import the AI services
                 from ..integrations.azure.search_client import AzureSearchClient
                 from ..integrations.azure.openai_client import AzureOpenAIClient
-                from ..models.search import SearchQuery
+                from ..models.legacy_models import SearchQuery
                 
                 # Initialize AI clients
                 search_client = AzureSearchClient()
