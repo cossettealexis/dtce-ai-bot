@@ -112,7 +112,7 @@ def create_app() -> FastAPI:
                    url=str(request.url),
                    headers=dict(request.headers),
                    client=request.client.host if request.client else None)
-        """
+        
         if request.method == "OPTIONS":
             return Response(headers={"Access-Control-Allow-Origin": "*", "Access-Control-Allow-Methods": "POST", "Access-Control-Allow-Headers": "*"})
             
@@ -134,8 +134,6 @@ def create_app() -> FastAPI:
                        user_agent=headers.get('user-agent', 'unknown'),
                        authorization_present=bool(headers.get('authorization')))
             
-            # Return simple 200 to check if DirectLine is calling us
-            return {"status": "endpoint_hit", "call_count": bot_calls["count"]}
             
             # COMMENTED OUT ALL THE COMPLEX LOGIC FOR DEBUGGING
             # Get request body for detailed logging
@@ -147,25 +145,24 @@ def create_app() -> FastAPI:
                 body_text = f"Error reading body: {str(e)}"
                 body_json = {}
             
-            # Comprehensive logging
-            headers = dict(request.headers)
-            logger.info("🚀 DETAILED API/MESSAGES REQUEST", 
-                       call_number=bot_calls["count"],
-                       method=request.method,
-                       url=str(request.url),
-                       query_params=dict(request.query_params),
-                       headers=headers,
-                       body_text=body_text[:500] + "..." if len(body_text) > 500 else body_text,
-                       content_type=headers.get('content-type', 'unknown'),
-                       user_agent=headers.get('user-agent', 'unknown'),
-                       authorization=headers.get('authorization', 'none')[:50] + "..." if headers.get('authorization') else 'none',
-                       message_type=body_json.get('type', 'unknown'),
-                       message_text=body_json.get('text', 'no text'),
-                       client_ip=request.client.host if request.client else None)
+                # Comprehensive logging
+                headers = dict(request.headers)
+                logger.info("🚀 DETAILED API/MESSAGES REQUEST", 
+                        call_number=bot_calls["count"],
+                        method=request.method,
+                        url=str(request.url),
+                        query_params=dict(request.query_params),
+                        headers=headers,
+                        body_text=body_text[:500] + "..." if len(body_text) > 500 else body_text,
+                        content_type=headers.get('content-type', 'unknown'),
+                        user_agent=headers.get('user-agent', 'unknown'),
+                        authorization=headers.get('authorization', 'none')[:50] + "..." if headers.get('authorization') else 'none',
+                        message_type=body_json.get('type', 'unknown'),
+                        message_text=body_json.get('text', 'no text'),
+                        client_ip=request.client.host if request.client else None)
         except Exception as e:
             logger.error("Error processing bot message", error=str(e))
             return {"error": "Internal server error"}
-            """
     
     # Add debug endpoint to check Bot Framework call count
     @app.get("/debug/bot-calls")
