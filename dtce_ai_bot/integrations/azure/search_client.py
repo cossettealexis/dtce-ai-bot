@@ -16,8 +16,7 @@ import structlog
 from datetime import datetime
 
 from ...config.settings import Settings
-from ...models.documents import DocumentMetadata
-from ...models.search import SearchQuery, SearchResult, SearchResponse
+from ...models.legacy_models import DocumentMetadata, SearchQuery, SearchResult, SearchResponse
 
 logger = structlog.get_logger(__name__)
 
@@ -188,7 +187,7 @@ class AzureSearchClient:
                 "search_text": query.query,
                 "top": query.max_results,
                 "include_total_count": True,
-                "highlight_fields": ["content_preview", "extracted_text", "file_name", "project_title"] if query.include_content else None
+                "highlight_fields": "content_preview,extracted_text,file_name,project_title" if query.include_content else None
             }
             
             # Add filters if provided
