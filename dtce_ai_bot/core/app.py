@@ -11,11 +11,6 @@ import structlog
 import httpx
 import json
 
-# Bot Framework imports
-from botbuilder.core import ActivityHandler, TurnContext, MessageFactory
-from botbuilder.schema import Activity, ChannelAccount
-from botframework.connector.auth import MicrosoftAppCredentials
-
 from ..config.settings import get_settings
 from ..api.health import router as health_router
 from ..bot.endpoints import router as bot_router
@@ -108,13 +103,15 @@ def create_app() -> FastAPI:
     # Set up Bot Framework adapter with proper settings
     adapter_settings = BotFrameworkAdapterSettings(
         app_id=settings.microsoft_app_id,
-        app_password=settings.microsoft_app_password
+        app_password=settings.microsoft_app_password,
+        channel_auth_tenant=settings.microsoft_app_tenant_id  # Required for Single Tenant
     )
     adapter = BotFrameworkAdapter(adapter_settings)
     
     class DTCEBot(ActivityHandler):
         async def on_message_activity(self, turn_context: TurnContext):
-            print(f"🔥 BOT RECEIVED MESSAGE: {turn_context.activity.text}")
+            logger = structlog.get_logger()
+            logger.info("🔥 BOT RECEIVED MESSAGE", text=turn_context.activity.text)
             
             # Simple echo response for testing - this will actually send back to user
             response_text = f"✅ DTCE Bot received: {turn_context.activity.text}"
@@ -142,28 +139,26 @@ def create_app() -> FastAPI:
             
             logger.info("🔥 API/MESSAGES HIT!", call_number=bot_calls["count"])
             
-            # Get the request body and auth header
-            body_json = await request.json()
+            # Get the raw request body (as string) and auth header
+            body = await request.body()
+            body_text = body.decode('utf-8')
             auth_header = request.headers.get("authorization", "")
             
-            print(f"Incoming activity: {body_json}")
-            
-            # Create activity from JSON
-            activity = Activity().deserialize(body_json)
+            logger.info("Incoming activity", body=body_text)
             
             # Bot handler function
             async def bot_handler(turn_context: TurnContext):
                 await bot.on_turn(turn_context)
             
-            # Use Bot Framework adapter to process the activity properly
-            response = await adapter.process_activity(
-                activity=activity,
-                auth_header=auth_header,
-                handler=bot_handler
+            # Use Bot Framework adapter with raw body string (not parsed JSON)
+            await adapter.process_activity(
+                body_text,
+                auth_header,
+                bot_handler
             )
             
-            # Return the proper Bot Framework response
-            return Response(status_code=response.status if response else 200)
+            # Return 200 OK for Bot Framework
+            return Response(status_code=200)
                 
         except Exception as e:
             logger.error("Error processing bot message", error=str(e))
