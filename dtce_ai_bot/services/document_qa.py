@@ -111,8 +111,8 @@ class DocumentQAService:
                 'answer': answer_response['answer'],
                 'sources': [
                     {
-                        'filename': doc['filename'],  # Use existing field name
-                        'project_id': self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_name', ''),  # Use existing field name
+                        'filename': self._extract_document_info(doc)['filename'],  # Use comprehensive extraction
+                        'project_id': self._extract_document_info(doc)['project_id'] or 'Unknown',  # Use comprehensive extraction
                         'relevance_score': doc['@search.score'],
                         'blob_url': doc.get('blob_url', ''),
                         'excerpt': doc.get('@search.highlights', {}).get('content',  # Use existing field name 

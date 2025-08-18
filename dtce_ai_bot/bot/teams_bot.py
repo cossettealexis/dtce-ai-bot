@@ -365,10 +365,19 @@ Just type your question or upload documents and I'll search through your enginee
                 await turn_context.send_activity(f"Sorry, I encountered an error: {result['answer']}")
                 return
             
+            # Clean the answer to remove any sources information that might be embedded
+            answer = result['answer']
+            
+            # Remove sources section if it exists in the answer
+            import re
+            answer = re.sub(r'📄\s*Sources:.*?(?=\n\n|\Z)', '', answer, flags=re.DOTALL | re.IGNORECASE)
+            answer = re.sub(r'\n\n+', '\n\n', answer)  # Clean up extra newlines
+            answer = answer.strip()
+            
             # Send the AI's answer naturally, like a human colleague would
             # (Backend still provides full metadata: confidence, sources, processing_time, etc.)
             # But Teams users only see the natural conversational answer
-            await turn_context.send_activity(MessageFactory.text(result['answer']))
+            await turn_context.send_activity(MessageFactory.text(answer))
             
         except Exception as e:
             logger.error("Q&A failed", error=str(e), question=question)
