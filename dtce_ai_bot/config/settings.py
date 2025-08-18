@@ -22,11 +22,14 @@ class Settings(BaseSettings):
     api_reload: bool = True
     cors_origins: List[str] = ["*"]
     
-    # Microsoft Bot Framework settings
+        # Bot Framework settings (Microsoft App registration)
     microsoft_app_id: str = ""
-    microsoft_app_password: str = ""
+    microsoft_app_password: str = ""  
     microsoft_app_tenant_id: str = ""
-    microsoft_app_type: str = "MultiTenant"
+    microsoft_app_type: str = "SingleTenant"
+    
+    # DirectLine settings
+    directline_secret: str = ""
     
     # Microsoft Graph API settings
     microsoft_client_id: str = ""

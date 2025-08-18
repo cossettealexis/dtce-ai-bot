@@ -126,145 +126,54 @@ def create_app() -> FastAPI:
             bot_calls["count"] += 1
             bot_calls["last_call"] = datetime.now().isoformat()
             
-            # Log the incoming request for debugging
+            # SIMPLE DEBUG - just log and return 200
             headers = dict(request.headers)
-            logger.info("🚀 Bot Framework call detected!", 
+            logger.info("🔥 API/MESSAGES HIT!", 
                        call_number=bot_calls["count"],
-                       method=request.method, 
+                       method=request.method,
+                       user_agent=headers.get('user-agent', 'unknown'),
+                       authorization_present=bool(headers.get('authorization')))
+            
+            # Return simple 200 to check if DirectLine is calling us
+            return {"status": "endpoint_hit", "call_count": bot_calls["count"]}
+            
+            # COMMENTED OUT ALL THE COMPLEX LOGIC FOR DEBUGGING
+            """
+            # Get request body for detailed logging
+            try:
+                body = await request.body()
+                body_text = body.decode('utf-8') if body else "No body"
+                body_json = json.loads(body_text) if body_text and body_text != "No body" else {}
+            except Exception as e:
+                body_text = f"Error reading body: {str(e)}"
+                body_json = {}
+            
+            # Comprehensive logging
+            headers = dict(request.headers)
+            logger.info("🚀 DETAILED API/MESSAGES REQUEST", 
+                       call_number=bot_calls["count"],
+                       method=request.method,
                        url=str(request.url),
+                       query_params=dict(request.query_params),
                        headers=headers,
-                       user_agent=headers.get('user-agent', 'unknown'))
-            
-            # ENABLE Bot Framework authentication - this is required for DirectLine to call our endpoint
-            try:
-                from botframework.connector.auth import JwtTokenValidation, SimpleCredentialProvider
-                from botframework.connector import ConnectorClient
-                
-                # Create credential provider with our app credentials
-                credential_provider = SimpleCredentialProvider(
-                    app_id=os.getenv("MICROSOFT_APP_ID"),
-                    app_password=os.getenv("MICROSOFT_APP_PASSWORD")
-                )
-                
-                # Get the Authorization header
-                auth_header = request.headers.get("Authorization", "")
-                logger.info("Bot Framework authentication enabled", auth_header=auth_header[:50] + "..." if auth_header else "None")
-                
-                # For Bot Framework messages, validate the JWT token
-                if auth_header:
-                    await JwtTokenValidation.authenticate_request(
-                        activity=None,  # We'll validate after parsing
-                        auth_header=auth_header,
-                        credentials=credential_provider,
-                        service_url="https://directline.botframework.com/"
-                    )
-                    logger.info("✅ Bot Framework authentication successful")
-                else:
-                    logger.warning("No authorization header found - allowing for testing")
-                    
-            except Exception as auth_error:
-                logger.error("Bot Framework authentication failed", error=str(auth_error))
-                # Continue without authentication for now to test
-                pass
-            
-            # Get and log the raw body with immediate acknowledgment pattern
-            import asyncio
-            from datetime import datetime
-            start_time = datetime.now()
-            
-            body = await request.json()
-            logger.info("=== MESSAGE BODY ===", body=body)
-            
-            # Extract important Bot Framework fields
-            service_url = body.get("serviceUrl", "")
-            conversation_id = body.get("conversation", {}).get("id", "")
-            activity_id = body.get("id", "")
-            channel_id = body.get("channelId", "")
-            
-            question = body.get("text", "").strip()
-            logger.info("=== EXTRACTED QUESTION ===", question=question)
-            
-            if not question.strip():
-                return {"type": "message", "text": "Please ask me something!"}
-            
-            # 🚀 IMMEDIATE ACKNOWLEDGMENT PATTERN - Reply within 5 seconds to avoid timeout
-            try:
-                # Call document search with 5 second timeout for immediate response
-                from ..services.document_qa import DocumentQAService
-                from ..integrations.azure_search import get_search_client
-                
-                search_client = get_search_client()
-                qa_service = DocumentQAService(search_client)
-                
-                # Try to get answer within 5 seconds
-                result = await asyncio.wait_for(
-                    qa_service.answer_question(question.strip()),
-                    timeout=5.0
-                )
-                
-                elapsed = (datetime.now() - start_time).total_seconds()
-                logger.info(f"✅ Fast response generated in {elapsed:.2f}s")
-                
-                # Return complete answer if we got it quickly
-                response = {
-                    "type": "message", 
-                    "text": result['answer'],
-                    "speak": result['answer'],
-                    "inputHint": "acceptingInput"
-                }
-                
-                # FOR BOT FRAMEWORK: Also try to send response back to serviceUrl
-                if service_url and conversation_id:
-                    try:
-                        import httpx
-                        async with httpx.AsyncClient() as client:
-                            await client.post(
-                                f"{service_url}/v3/conversations/{conversation_id}/activities",
-                                json=response,
-                                headers={"Content-Type": "application/json"}
-                            )
-                        logger.info("✅ Response sent back to Bot Framework serviceUrl")
-                    except Exception as send_error:
-                        logger.warning("Failed to send response to serviceUrl", error=str(send_error))
-                
-                return response
-                
-            except asyncio.TimeoutError:
-                # ⚡ IMMEDIATE ACKNOWLEDGMENT - Bot Framework requires response within 15s
-                elapsed = (datetime.now() - start_time).total_seconds()
-                logger.info(f"⚡ Sending immediate acknowledgment after {elapsed:.2f}s")
-                
-                # Return immediate acknowledgment to prevent timeout
-                response = {
-                    "type": "message", 
-                    "text": "I'm analyzing your question and searching through the documents. This might take a moment - I'll provide a comprehensive answer based on the available project information.",
-                    "speak": "I'm analyzing your question and searching through the documents. This might take a moment.",
-                    "inputHint": "acceptingInput"
-                }
-                
-                # FOR BOT FRAMEWORK: Also try to send response back to serviceUrl
-                if service_url and conversation_id:
-                    try:
-                        import httpx
-                        async with httpx.AsyncClient() as client:
-                            await client.post(
-                                f"{service_url}/v3/conversations/{conversation_id}/activities",
-                                json=response,
-                                headers={"Content-Type": "application/json"}
-                            )
-                        logger.info("✅ Acknowledgment sent back to Bot Framework serviceUrl")
-                    except Exception as send_error:
-                        logger.warning("Failed to send acknowledgment to serviceUrl", error=str(send_error))
-                
-                return response
+                       body_text=body_text[:500] + "..." if len(body_text) > 500 else body_text,
+                       content_type=headers.get('content-type', 'unknown'),
+                       user_agent=headers.get('user-agent', 'unknown'),
+                       authorization=headers.get('authorization', 'none')[:50] + "..." if headers.get('authorization') else 'none',
+                       message_type=body_json.get('type', 'unknown'),
+                       message_text=body_json.get('text', 'no text'),
+                       client_ip=request.client.host if request.client else None)
+            """
             
         except Exception as e:
-            return {
-                "type": "message", 
-                "text": f"Error: {str(e)}",
-                "speak": f"Error: {str(e)}",
-                "inputHint": "acceptingInput"
-            }
+            logger.error("Error processing bot message", error=str(e))
+            return {"error": "Internal server error"}
+    
+    # Add debug endpoint to check Bot Framework call count
+    @app.get("/debug/bot-calls")
+    async def debug_bot_calls():
+        """Debug endpoint to check if Bot Framework is calling us."""
+        return bot_calls
     
     # Add root route
     @app.get("/")
