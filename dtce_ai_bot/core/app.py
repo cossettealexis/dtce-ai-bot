@@ -126,7 +126,7 @@ def create_app() -> FastAPI:
             bot_calls["count"] += 1
             bot_calls["last_call"] = datetime.now().isoformat()
             
-            # SIMPLE DEBUG - just log and return 200
+            # Log the request
             headers = dict(request.headers)
             logger.info("🔥 API/MESSAGES HIT!", 
                        call_number=bot_calls["count"],
@@ -134,32 +134,39 @@ def create_app() -> FastAPI:
                        user_agent=headers.get('user-agent', 'unknown'),
                        authorization_present=bool(headers.get('authorization')))
             
+            # Get request body and process with AI
+            body = await request.body()
+            body_text = body.decode('utf-8')
+            activity_data = json.loads(body_text)
             
-            # COMMENTED OUT ALL THE COMPLEX LOGIC FOR DEBUGGING
-            # Get request body for detailed logging
+            # Extract the question
+            question = activity_data.get('text', '').strip()
+            if not question:
+                return {"type": "message", "text": "Please ask me something!"}
+            
+            # Process with AI
+            from ..services.document_qa import DocumentQAService
+            from ..integrations.azure_search import get_search_client
+            
+            search_client = get_search_client()
+            qa_service = DocumentQAService(search_client)
+            
             try:
-                body = await request.body()
-                body_text = body.decode('utf-8') if body else "No body"
-                body_json = json.loads(body_text) if body_text and body_text != "No body" else {}
+                result = await qa_service.answer_question(question)
+                return {
+                    "type": "message", 
+                    "text": result['answer'],
+                    "speak": result['answer'],
+                    "inputHint": "acceptingInput"
+                }
             except Exception as e:
-                body_text = f"Error reading body: {str(e)}"
-                body_json = {}
-            
-                # Comprehensive logging
-                headers = dict(request.headers)
-                logger.info("🚀 DETAILED API/MESSAGES REQUEST", 
-                        call_number=bot_calls["count"],
-                        method=request.method,
-                        url=str(request.url),
-                        query_params=dict(request.query_params),
-                        headers=headers,
-                        body_text=body_text[:500] + "..." if len(body_text) > 500 else body_text,
-                        content_type=headers.get('content-type', 'unknown'),
-                        user_agent=headers.get('user-agent', 'unknown'),
-                        authorization=headers.get('authorization', 'none')[:50] + "..." if headers.get('authorization') else 'none',
-                        message_type=body_json.get('type', 'unknown'),
-                        message_text=body_json.get('text', 'no text'),
-                        client_ip=request.client.host if request.client else None)
+                logger.error("Error in AI processing", error=str(e))
+                return {
+                    "type": "message",
+                    "text": "I encountered an error while processing your request. Please try again.",
+                    "inputHint": "acceptingInput"
+                }
+                
         except Exception as e:
             logger.error("Error processing bot message", error=str(e))
             return {"error": "Internal server error"}
