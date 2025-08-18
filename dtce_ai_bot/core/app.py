@@ -147,8 +147,8 @@ def create_app() -> FastAPI:
                 from ..api.documents import ask_question
                 from ..integrations.azure_search import get_search_client
                 
-                # Get search client
-                search_client = await get_search_client()
+                # Get search client (not async)
+                search_client = get_search_client()
                 
                 # Call the ask function directly
                 response = await ask_question(
