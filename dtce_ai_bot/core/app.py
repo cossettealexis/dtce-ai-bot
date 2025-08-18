@@ -163,9 +163,10 @@ def create_app() -> FastAPI:
                 
                 answer = result.get("answer", "No answer available")
                 sources_count = len(result.get("sources", []))
-                confidence = result.get("confidence", 0.0)
+                confidence = result.get("confidence", "low")
                 
-                if confidence > 0.3:  # Only show answer if confident enough
+                # Handle confidence as string (low, medium, high, error)
+                if confidence in ["high", "medium"]:  # Only show answer if confident enough
                     response_text = f"🔍 **DTCE AI Assistant**\n\n{answer}\n\n📄 **Sources**: {sources_count} relevant documents found"
                 else:
                     response_text = f"🔍 **DTCE AI Assistant**\n\nI found some documents but I'm not confident enough in my answer. Could you try rephrasing your question or being more specific? I searched {sources_count} documents but need clearer context to provide a reliable response."

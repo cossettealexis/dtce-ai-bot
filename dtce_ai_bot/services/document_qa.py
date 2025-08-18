@@ -118,7 +118,7 @@ class DocumentQAService:
             results = self.search_client.search(
                 search_text=search_text,
                 top=50,  # Get more results for filtering
-                highlight_fields="extracted_text,content_preview,file_name,project_title",
+                highlight_fields="file_name,project_title,content_preview",  # Use only confirmed fields
                 select=["id", "file_name", "extracted_text", "content_preview", "project_id", 
                        "folder_path", "blob_url", "modified_date", "project_title"],
                 query_type="semantic" if hasattr(self.search_client, 'query_type') else "simple"
