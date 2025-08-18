@@ -276,6 +276,12 @@ class AzureSearchClient:
         created_date = self._parse_azure_date(search_result.get("created_date"))
         indexed_date = self._parse_azure_date(search_result.get("indexed_date"))
         
+        # Provide default date if modified_date is None (required field in legacy model)
+        if modified_date is None:
+            modified_date = datetime.utcnow()
+            logger.warning("Using default date for missing modified_date", 
+                         file_id=search_result.get("file_id", "unknown"))
+        
         return DocumentMetadata(
             file_id=search_result.get("file_id", ""),
             file_name=search_result.get("file_name", ""),
