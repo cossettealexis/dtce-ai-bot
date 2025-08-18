@@ -148,11 +148,11 @@ class DocumentQAService:
                 content = content[:1500] + "..."
             
             doc_context = f"""
-Document: {filename}
-Project: {project}
-Content: {content}
----
-"""
+                    Document: {filename}
+                    Project: {project}
+                    Content: {content}
+                    ---
+                """
             
             # Check if adding this document would exceed limit
             if current_length + len(doc_context) > self.max_context_length:
