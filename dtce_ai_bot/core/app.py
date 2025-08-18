@@ -139,22 +139,24 @@ def create_app() -> FastAPI:
             
             logger.info("🔥 API/MESSAGES HIT!", call_number=bot_calls["count"])
             
-            # Get the raw request body (as string) and auth header
-            body = await request.body()
-            body_text = body.decode('utf-8')
+            # Get the request body as JSON and auth header
+            body_json = await request.json()
             auth_header = request.headers.get("authorization", "")
             
-            logger.info("Incoming activity", body=body_text)
+            logger.info("Incoming activity", body=body_json)
+            
+            # Create activity from JSON
+            activity = Activity().deserialize(body_json)
             
             # Bot handler function
             async def bot_handler(turn_context: TurnContext):
                 await bot.on_turn(turn_context)
             
-            # Use Bot Framework adapter with raw body string (not parsed JSON)
+            # Use Bot Framework adapter with Activity object
             await adapter.process_activity(
-                body_text,
-                auth_header,
-                bot_handler
+                activity=activity,
+                auth_header=auth_header,
+                handler=bot_handler
             )
             
             # Return 200 OK for Bot Framework
