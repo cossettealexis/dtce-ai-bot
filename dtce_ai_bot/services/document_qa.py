@@ -125,7 +125,8 @@ class DocumentQAService:
                 highlight_fields="filename,project_name,content",  # Use existing field names
                 select=["id", "filename", "content", "blob_url", "project_name",  # Use existing field names
                        "folder", "last_modified", "created_date", "size"],  # Use existing field names
-                query_type="semantic"  # Always use semantic search for better results
+                query_type="semantic",  # Always use semantic search for better results
+                semantic_configuration_name="default"  # Use the semantic configuration we defined
             )
             
             # Convert to list and filter by project if needed
@@ -558,7 +559,8 @@ Content: {content}
                 search_text=search_text,
                 top=100,  # Get many results to find all projects
                 select=["id", "filename", "content", "blob_url", "project_name", "folder"],
-                query_type="semantic"  # Semantic search will find similar concepts
+                query_type="semantic",  # Semantic search will find similar concepts
+                semantic_configuration_name="default"  # Use the semantic configuration we defined
             )
             
             documents = []

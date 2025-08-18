@@ -5,11 +5,8 @@ Azure Search dependency injection for FastAPI.
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents.indexes.models import (
-    SearchIndex,
-    SimpleField,
-    SearchableField,
-    SearchFieldDataType,
-    ComplexField
+    SearchIndex, SearchField, SearchFieldDataType, SimpleField, SearchableField,
+    SemanticConfiguration, SemanticPrioritizedFields, SemanticField, SemanticSearch
 )
 from azure.core.credentials import AzureKeyCredential
 from ..config.settings import get_settings
@@ -69,8 +66,30 @@ async def create_search_index_if_not_exists():
             SimpleField(name="year", type=SearchFieldDataType.Int32, filterable=True, facetable=True),
         ]
         
-        # Create the index
-        index = SearchIndex(name=settings.azure_search_index_name, fields=fields)
+        # Configure semantic search
+        semantic_config = SemanticConfiguration(
+            name="default",
+            prioritized_fields=SemanticPrioritizedFields(
+                title_field=SemanticField(field_name="filename"),
+                content_fields=[
+                    SemanticField(field_name="content"),
+                    SemanticField(field_name="project_name")
+                ],
+                keywords_fields=[
+                    SemanticField(field_name="folder"),
+                    SemanticField(field_name="content_type")
+                ]
+            )
+        )
+        
+        semantic_search = SemanticSearch(configurations=[semantic_config])
+        
+        # Create the index with semantic search
+        index = SearchIndex(
+            name=settings.azure_search_index_name, 
+            fields=fields,
+            semantic_search=semantic_search
+        )
         index_client.create_index(index)
         
         logger.info(f"Search index '{settings.azure_search_index_name}' created successfully")
