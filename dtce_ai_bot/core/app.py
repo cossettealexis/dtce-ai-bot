@@ -122,12 +122,12 @@ def create_app() -> FastAPI:
             
             try:
                 # Import the AI services
-                from ..integrations.azure_search import get_search_client
+                from ..integrations.azure.search_client import AzureSearchClient
                 from ..integrations.azure.openai_client import AzureOpenAIClient
                 from ..models.search import SearchQuery
                 
                 # Initialize AI clients
-                search_client = get_search_client()
+                search_client = AzureSearchClient()
                 openai_client = AzureOpenAIClient()
                 
                 # Create search query from user message
