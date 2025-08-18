@@ -255,21 +255,26 @@ class AzureSearchClient:
                 processing_time=processing_time
             )
     
+    def _parse_azure_date(self, date_string: str) -> Optional[datetime]:
+        """Safely parse Azure Search date format."""
+        if not date_string:
+            return None
+        try:
+            # Handle Azure date format with 'Z' suffix
+            if date_string.endswith('Z'):
+                date_string = date_string[:-1] + '+00:00'
+            return datetime.fromisoformat(date_string)
+        except (ValueError, TypeError) as e:
+            logger.warning("Failed to parse date", date_string=date_string, error=str(e))
+            return None
+
     def _search_result_to_document_metadata(self, search_result: Dict[str, Any]) -> DocumentMetadata:
         """Convert search result back to DocumentMetadata."""
         
-        # Parse dates
-        modified_date = None
-        if search_result.get("modified_date"):
-            modified_date = datetime.fromisoformat(search_result["modified_date"])
-        
-        created_date = None
-        if search_result.get("created_date"):
-            created_date = datetime.fromisoformat(search_result["created_date"])
-        
-        indexed_date = None
-        if search_result.get("indexed_date"):
-            indexed_date = datetime.fromisoformat(search_result["indexed_date"])
+        # Parse dates safely
+        modified_date = self._parse_azure_date(search_result.get("modified_date"))
+        created_date = self._parse_azure_date(search_result.get("created_date"))
+        indexed_date = self._parse_azure_date(search_result.get("indexed_date"))
         
         return DocumentMetadata(
             file_id=search_result.get("file_id", ""),
