@@ -133,11 +133,13 @@ def create_app() -> FastAPI:
                     "I'm your DTCE AI assistant. I can help you find engineering documents, reports, and project files.\n\n"
                     "Just ask me in plain English about what you're looking for:\n"
                     "• \"Find structural calculations\"\n"
-                    "• \"Show me bridge drawings\"\n"
+                    "• \"Show me bridge drawings\"\n" 
                     "• \"What reports do we have for the project?\"\n\n"
                     "What can I help you find today?"
                 )
-                await turn_context.send_activity(MessageFactory.text(greeting_response))
+                message = MessageFactory.text(greeting_response)
+                message.text_format = "markdown"
+                await turn_context.send_activity(message)
                 return
             
             try:
@@ -172,12 +174,16 @@ def create_app() -> FastAPI:
                     confidence_indicator = ""
                     response_text = f"🔍 **DTCE AI Assistant**\n\n{answer}{confidence_indicator}"
                 
-                await turn_context.send_activity(MessageFactory.text(response_text))
+                message = MessageFactory.text(response_text)
+                message.text_format = "markdown"
+                await turn_context.send_activity(message)
                 
             except Exception as e:
                 logger.error("Error processing AI request", error=str(e))
                 error_response = "🚨 I'm experiencing technical difficulties. Please try again in a moment, or contact IT support if the issue persists."
-                await turn_context.send_activity(MessageFactory.text(error_response))
+                message = MessageFactory.text(error_response)
+                message.text_format = "markdown"
+                await turn_context.send_activity(message)
     
     bot = DTCEBot()
 

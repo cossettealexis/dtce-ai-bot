@@ -135,9 +135,13 @@ class DTCETeamsBot(ActivityHandler):
             response += "\n• *'Compare this proposal with our past work'*"
             response += "\n\nJust tell me what you need! 💬"
             
-            await turn_context.send_activity(MessageFactory.text(response))
+            message = MessageFactory.text(response)
+            message.text_format = "markdown"
+            await turn_context.send_activity(message)
         else:
-            await turn_context.send_activity("❌ No supported file types found. Please upload PDF, Word, Excel, PowerPoint, CAD, or image files.")
+            error_message = MessageFactory.text("❌ No supported file types found. Please upload PDF, Word, Excel, PowerPoint, CAD, or image files.")
+            error_message.text_format = "markdown"
+            await turn_context.send_activity(error_message)
 
     async def _handle_text_with_attachments(self, turn_context: TurnContext, user_message: str):
         """Handle when user sends both text and attachments - the smart scenario!"""
@@ -162,7 +166,9 @@ Please analyze the uploaded documents in context of the user's question. If the 
         # Send acknowledgment
         file_list = "\n".join(attachment_info['supported_files'])
         ack_response = f"📁 **Analyzing files:**\n{file_list}\n\n💭 **Your question:** {user_message}\n\n🔍 Processing..."
-        await turn_context.send_activity(MessageFactory.text(ack_response))
+        ack_message = MessageFactory.text(ack_response)
+        ack_message.text_format = "markdown"
+        await turn_context.send_activity(ack_message)
         
         # Process with AI (enhanced question includes file context)
         await self._handle_question(turn_context, enhanced_question)
@@ -269,7 +275,9 @@ Just type your question or upload documents and I'll search through your enginee
                 status_text += "• AI Q&A service: Unavailable\n"
                 status_text += "• Teams integration: Active\n"
                 
-            await turn_context.send_activity(MessageFactory.text(status_text))
+            status_message = MessageFactory.text(status_text)
+            status_message.text_format = "markdown"
+            await turn_context.send_activity(status_message)
             
         except Exception as e:
             logger.error("Health check failed", error=str(e))
@@ -305,7 +313,9 @@ Just type your question or upload documents and I'll search through your enginee
             else:
                 projects_text = "📋 No projects found in the document index."
                 
-            await turn_context.send_activity(MessageFactory.text(projects_text))
+            projects_message = MessageFactory.text(projects_text)
+            projects_message.text_format = "markdown"
+            await turn_context.send_activity(projects_message)
             
         except Exception as e:
             logger.error("Projects list failed", error=str(e))

@@ -797,6 +797,12 @@ Content: {content}
         try:
             logger.info("Processing keyword project query", question=question)
             
+            # Check if this is a specific project number query (e.g., "project 225", "225", "Project 219359")
+            specific_project = self._extract_specific_project_number(question)
+            if specific_project:
+                logger.info("Detected specific project number query", project_number=specific_project)
+                return await self._handle_specific_project_query(specific_project, question)
+            
             # Check if this is a scenario-based project query (building type + conditions + location)
             if self._is_scenario_based_project_query(question):
                 return await self._handle_scenario_project_query(question, project_filter)
@@ -996,6 +1002,327 @@ Content: {content}
         # Combine and deduplicate
         all_keywords = list(set(found_keywords + explicit_keywords))
         return all_keywords if all_keywords else ["structural", "engineering"]  # fallback
+
+    def _extract_specific_project_number(self, question: str) -> Optional[str]:
+        """Extract specific project number from queries like 'project 225', '225', 'Project 219359'."""
+        import re
+        
+        question_lower = question.lower().strip()
+        
+        # Pattern 1: "project 225", "project225"
+        match = re.search(r'project\s*(\d+)', question_lower)
+        if match:
+            return match.group(1)
+        
+        # Pattern 2: Just a number by itself "225" or "219359"
+        if re.match(r'^\d+$', question.strip()):
+            return question.strip()
+        
+        # Pattern 3: "225 project", "219359 project"
+        match = re.search(r'(\d+)\s*project', question_lower)
+        if match:
+            return match.group(1)
+        
+        return None
+
+    async def _handle_specific_project_query(self, project_number: str, original_question: str) -> Dict[str, Any]:
+        """Handle queries for a specific project number."""
+        try:
+            logger.info("Searching for specific project", project_number=project_number)
+            
+            # Search for documents with this exact project number
+            # Use multiple comprehensive search patterns to catch all variations
+            search_patterns = [
+                f'Projects/{project_number}',  # Folder path: Projects/225
+                f'Projects/{project_number}/',  # Folder path with trailing slash
+                f'/{project_number}/',  # Between slashes in path
+                f'{project_number}*',  # Wildcard for sub-projects like 225006, 225066
+                project_number,  # Just the number
+            ]
+            
+            # For shorter project numbers (like "225"), also search for longer variations
+            if len(project_number) <= 3:
+                # Add patterns for common extensions like 225000, 225001, etc.
+                for i in range(10):
+                    extended_number = f"{project_number}00{i}"
+                    search_patterns.append(f'Projects/{extended_number}')
+                    search_patterns.append(f'/{extended_number}/')
+            
+            all_docs = []
+            for pattern in search_patterns:
+                try:
+                    # Use wildcard search for better matching
+                    results = self.search_client.search(
+                        search_text=pattern,
+                        top=100,  # Increased to get more results
+                        select=["id", "filename", "content", "blob_url", "project_name", "folder"],
+                        query_type="simple",
+                        search_mode="any"  # Match any of the terms
+                    )
+                    
+                    for result in results:
+                        doc_dict = dict(result)
+                        blob_url = doc_dict.get('blob_url', '')
+                        
+                        # Check if this document actually belongs to the requested project
+                        if self._document_belongs_to_project(blob_url, project_number):
+                            all_docs.append(doc_dict)
+                            
+                except Exception as e:
+                    logger.warning("Search pattern failed", pattern=pattern, error=str(e))
+                    continue
+            
+            # Remove duplicates
+            unique_docs = {}
+            for doc in all_docs:
+                doc_id = doc.get('id', '')
+                if doc_id and doc_id not in unique_docs:
+                    unique_docs[doc_id] = doc
+            
+            project_docs = list(unique_docs.values())
+            
+            if not project_docs:
+                return {
+                    'answer': f'I could not find any documents for Project {project_number}. Please verify the project number is correct.',
+                    'sources': [],
+                    'confidence': 'high',
+                    'documents_searched': 0,
+                    'search_type': 'specific_project'
+                }
+            
+            # Format the specific project response
+            answer = self._format_specific_project_answer(project_number, project_docs)
+            sources = self._format_specific_project_sources(project_number, project_docs)
+            
+            return {
+                'answer': answer,
+                'sources': sources,
+                'confidence': 'high',
+                'documents_searched': len(project_docs),
+                'search_type': 'specific_project'
+            }
+            
+        except Exception as e:
+            logger.error("Specific project query failed", error=str(e), project_number=project_number)
+            return {
+                'answer': f'I encountered an error while searching for Project {project_number}.',
+                'sources': [],
+                'confidence': 'error',
+                'documents_searched': 0,
+                'search_type': 'specific_project'
+            }
+
+    def _document_belongs_to_project(self, blob_url: str, project_number: str) -> bool:
+        """Check if a document belongs to the specified project number."""
+        if not blob_url or not project_number:
+            return False
+        
+        blob_url_lower = blob_url.lower()
+        project_lower = project_number.lower()
+        
+        # Check for direct project path patterns
+        project_patterns = [
+            f'/projects/{project_lower}/',
+            f'/projects/{project_lower}/',
+            f'projects/{project_lower}/',
+            f'projects\\{project_lower}\\',  # Windows path separators
+        ]
+        
+        # For shorter project numbers (like "225"), also check subproject patterns
+        if len(project_number) <= 3:
+            # "225" should match "225000", "225006", "225066", etc.
+            for i in range(1000):  # Check up to 225999
+                extended_number = f"{project_number}{i:03d}"
+                project_patterns.extend([
+                    f'/projects/{extended_number}/',
+                    f'projects/{extended_number}/',
+                    f'projects\\{extended_number}\\',
+                ])
+                
+            # Also check for the pattern Projects/225/225xxx/
+            project_patterns.extend([
+                f'/projects/{project_lower}/{project_lower}',
+                f'projects/{project_lower}/{project_lower}',
+            ])
+        
+        # Check if any pattern matches
+        for pattern in project_patterns:
+            if pattern in blob_url_lower:
+                return True
+        
+        # Fallback: Extract project using the existing method
+        extracted_project = self._extract_project_from_url(blob_url)
+        if not extracted_project:
+            return False
+        
+        # Exact match
+        if extracted_project == project_number:
+            return True
+        
+        # For shorter project numbers, check if they appear as prefix
+        if len(project_number) <= 3:
+            return extracted_project.startswith(project_number)
+        
+        return False
+
+    def _format_specific_project_answer(self, project_number: str, project_docs: List[Dict]) -> str:
+        """Format the answer for a specific project query."""
+        if len(project_docs) == 0:
+            return f"No documents found for Project {project_number}."
+        
+        answer_parts = [
+            f"🎯 **Project {project_number}**",
+            "",
+            f"I found **{len(project_docs)} documents** across multiple subfolders:",
+            ""
+        ]
+        
+        # Group documents by project subfolder AND document type
+        folder_groups = {}
+        for doc in project_docs:
+            blob_url = doc.get('blob_url', '')
+            filename = doc.get('filename', 'Unknown')
+            
+            # Extract subfolder from blob URL (e.g., Projects/225/225006/documents/)
+            subfolder = self._extract_subfolder_from_url(blob_url, project_number)
+            
+            if subfolder not in folder_groups:
+                folder_groups[subfolder] = {
+                    "📄 Reports & Documents": [],
+                    "📊 Spreadsheets & Calculations": [],
+                    "📐 Drawings": [],
+                    "🖼️ Images": [],
+                    "📁 Other Files": []
+                }
+            
+            # Determine document type
+            if filename.lower().endswith(('.pdf', '.doc', '.docx')):
+                doc_type = "📄 Reports & Documents"
+            elif filename.lower().endswith(('.xls', '.xlsx', '.xlsm')):
+                doc_type = "📊 Spreadsheets & Calculations"
+            elif filename.lower().endswith(('.dwg', '.dxf')):
+                doc_type = "📐 Drawings"
+            elif filename.lower().endswith(('.jpg', '.jpeg', '.png', '.gif')):
+                doc_type = "🖼️ Images"
+            else:
+                doc_type = "📁 Other Files"
+            
+            folder_groups[subfolder][doc_type].append(doc)
+        
+        # Display documents organized by subfolder
+        for subfolder, doc_types in sorted(folder_groups.items()):
+            total_docs_in_folder = sum(len(docs) for docs in doc_types.values())
+            if total_docs_in_folder > 0:
+                answer_parts.append(f"**📂 {subfolder}** ({total_docs_in_folder} files)")
+                
+                for doc_type, docs in doc_types.items():
+                    if docs:  # Only show types that have documents
+                        answer_parts.append(f"  {doc_type}")
+                        
+                        # Show first 5 files per type per folder, then summarize
+                        for doc in docs[:5]:
+                            filename = doc.get('filename', 'Unknown')
+                            blob_url = doc.get('blob_url', '')
+                            suite_files_url = self._convert_to_suitefiles_url(blob_url)
+                            
+                            if suite_files_url:
+                                answer_parts.append(f"    • [{filename}]({suite_files_url})")
+                            else:
+                                answer_parts.append(f"    • {filename}")
+                        
+                        if len(docs) > 5:
+                            answer_parts.append(f"    • ... and {len(docs) - 5} more {doc_type.split(' ')[1].lower()}")
+                
+                answer_parts.append("")  # Space between subfolders
+        
+        # Summary and tip
+        answer_parts.extend([
+            "💡 **Tips:**",
+            "• Click any file link above to open it directly in SuiteFiles",
+            "• This shows all documents found for your requested project",
+            f"• Total: {len(project_docs)} documents across all subfolders"
+        ])
+        
+        return "\n".join(answer_parts)
+
+    def _extract_subfolder_from_url(self, blob_url: str, project_number: str) -> str:
+        """Extract the subfolder name from a blob URL for a specific project."""
+        if not blob_url:
+            return "Unknown Folder"
+        
+        try:
+            # Example URL: /Projects/225/225006/documents/file.pdf
+            # We want to extract "225006" or "225006/documents"
+            
+            if f'/{project_number}/' in blob_url or f'\\{project_number}\\' in blob_url:
+                # Find the part after the main project number
+                parts = blob_url.replace('\\', '/').split('/')
+                project_index = -1
+                
+                for i, part in enumerate(parts):
+                    if part == project_number:
+                        project_index = i
+                        break
+                
+                if project_index >= 0 and project_index + 1 < len(parts):
+                    # Get the subfolder (next part after project number)
+                    subfolder = parts[project_index + 1]
+                    if subfolder and subfolder != project_number:
+                        return f"Project {subfolder}"
+                    
+            # Fallback: try to extract any project-like number from the path
+            import re
+            match = re.search(rf'/({project_number}\d+)/', blob_url)
+            if match:
+                return f"Project {match.group(1)}"
+                
+            return f"Project {project_number} (Main Folder)"
+            
+        except Exception:
+            return f"Project {project_number} (Unknown Subfolder)"
+
+    def _format_specific_project_sources(self, project_number: str, project_docs: List[Dict]) -> List[Dict[str, Any]]:
+        """Format sources for a specific project query."""
+        sources = []
+        
+        for doc in project_docs[:20]:  # Limit sources
+            blob_url = doc.get('blob_url', '')
+            suite_files_url = self._convert_to_suitefiles_url(blob_url)
+            
+            source = {
+                'title': doc.get('filename', 'Unknown'),
+                'content': (doc.get('content', '') or '')[:200] + "..." if doc.get('content') else "",
+                'url': suite_files_url or blob_url,
+                'project': project_number,
+                'relevance_score': 1.0  # High relevance for specific project match
+            }
+            sources.append(source)
+        
+        return sources
+
+    def _convert_to_suitefiles_url(self, blob_url: str) -> Optional[str]:
+        """Convert Azure blob URL to SuiteFiles URL for direct file access."""
+        if not blob_url:
+            return None
+        
+        try:
+            # Extract the file path from blob URL
+            # Example: /Projects/225/225000/documents/file.pdf
+            if '/Projects/' in blob_url:
+                # Get the path after '/Projects/'
+                path_part = blob_url.split('/Projects/')[-1]
+                
+                # URL encode the path for SuiteFiles
+                import urllib.parse
+                encoded_path = urllib.parse.quote(path_part, safe='/')
+                
+                # Build SuiteFiles URL
+                suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/file/Projects/{encoded_path}"
+                return suite_files_url
+        except Exception as e:
+            logger.warning("Failed to convert to SuiteFiles URL", blob_url=blob_url, error=str(e))
+        
+        return None
 
     async def _search_keyword_documents(self, keywords: List[str]) -> List[Dict]:
         """Search for documents related to the specified keywords using semantic search."""
@@ -4448,15 +4775,14 @@ Focus on practical regulatory guidance that can be applied to similar situations
             elif question_lower in ["what", "what?"]:
                 answer = """I'm here to help with engineering questions! You can ask me about:
 
-                    • Past DTCE projects and case studies
-                    • Design templates and calculation sheets  
-                    • Building codes and standards (NZS, AS/NZS)
-                    • Technical design guidance
-                    • Project timelines and costs
-                    • Best practices and methodologies
+• Past DTCE projects and case studies
+• Design templates and calculation sheets  
+• Building codes and standards (NZS, AS/NZS)
+• Technical design guidance
+• Project timelines and costs
+• Best practices and methodologies
 
-                    What specific information are you looking for?
-                """
+What specific information are you looking for?"""
             elif question_lower in ["really", "really?"]:
                 answer = "Yes! I have access to DTCE's extensive project database and can help you find relevant information. Try asking about specific projects, technical topics, or engineering guidance you need."
             elif len(question.strip()) < 3:
@@ -4465,14 +4791,13 @@ Focus on practical regulatory guidance that can be applied to similar situations
                 # For other unclear queries, provide a helpful prompt
                 answer = f"""I'm not quite sure what you're asking about with '{question}'. I'm designed to help with engineering questions and DTCE project information. 
 
-                        Try asking something like:
-                        • 'Find projects similar to a 3-story office building'
-                        • 'Show me NZS 3101 concrete design information'
-                        • 'What's our standard approach for steel connections?'
-                        • 'How long does PS1 preparation typically take?'
+Try asking something like:
+• 'Find projects similar to a 3-story office building'
+• 'Show me NZS 3101 concrete design information'
+• 'What's our standard approach for steel connections?'
+• 'How long does PS1 preparation typically take?'
 
-                        What can I help you find?
-                    """
+What can I help you find?"""
             
             return {
                 'answer': answer,
