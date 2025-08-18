@@ -13,6 +13,7 @@ import structlog
 from typing import List, Optional
 
 from ..services.document_qa import DocumentQAService
+from ..services.project_scoping import get_project_scoping_service
 
 logger = structlog.get_logger(__name__)
 
@@ -26,6 +27,7 @@ class DTCETeamsBot(ActivityHandler):
         self.user_state = user_state
         self.search_client = search_client
         self.qa_service = qa_service
+        self.project_scoping_service = get_project_scoping_service()
         
     async def on_members_added_activity(self, members_added: List[ChannelAccount], turn_context: TurnContext):
         """Send welcome message when members are added to conversation."""
@@ -98,8 +100,24 @@ class DTCETeamsBot(ActivityHandler):
             query = user_message.split(' ', 1)[1] if ' ' in user_message else ""
             if query:
                 await self._handle_search(turn_context, query)
-            else:
-                await turn_context.send_activity("Please provide a search query. Example: `/search bridge calculations`")
+                return
+        
+        # Handle project scoping analysis commands
+        if user_message.lower().startswith('/analyze ') or user_message.lower().startswith('analyze '):
+            scoping_text = user_message.split(' ', 1)[1] if ' ' in user_message else ""
+            if scoping_text:
+                await self._handle_project_scoping_analysis(turn_context, scoping_text)
+                return
+        
+        # Check for project scoping keywords in message
+        scoping_keywords = [
+            'please review this request', 'rfp', 'request for proposal', 
+            'similar past projects', 'design philosophy', 'marquee', 
+            'certification', 'quote for ps1', 'similar projects'
+        ]
+        
+        if any(keyword in user_message.lower() for keyword in scoping_keywords):
+            await self._handle_project_scoping_analysis(turn_context, user_message)
             return
         
         # Handle ask commands  
@@ -230,31 +248,41 @@ Please analyze the uploaded documents in context of the user's question. If the 
         welcome_text = """
 🤖 **Welcome to DTCE AI Assistant!**
 
-I can help you find information from engineering documents and project files.
+I can help you find information from engineering documents, analyze project requests, and provide design guidance based on our past experience.
 
 **Available Commands:**
 • `help` or `Hello` - Show this help message
 • `search [query]` - Search documents (e.g., `search bridge calculations`)
 • `ask [question]` - Ask questions about documents (e.g., `ask What are the seismic requirements?`)
+• `analyze [project request]` - Analyze project scoping requests
 • `projects` - List available projects
 • `health` - Check system status
 
 **📎 File Upload Support:**
-• **PDF** - Reports, RFPs, specifications
+• **PDF** - Reports, RFPs, specifications, scoping documents
 • **Word/Excel/PowerPoint** - Documents, spreadsheets, presentations
 • **CAD Files** - .dwg, .dxf drawings
 • **Images** - .png, .jpg engineering drawings
 • **Text/Email** - .txt, .md, .msg files
 
+**🎯 Project Scoping & Analysis:**
+I can analyze client requests and RFPs to:
+• Find similar past projects for reference
+• Identify potential issues and solutions
+• Generate design philosophy recommendations
+• Provide compliance guidance (PS1, building consent)
+• Warn about risks based on past experience
+
 **Quick Examples:**
 • "What projects do we have?"
 • "Show me structural calculations for project 222"
 • "What were the conclusions in the final report?"
+• "Please review this request for our services from our client..."
 • Upload an RFP → "Please analyze this RFP and find similar past projects"
 • Upload drawings → "Review these structural drawings"
 • "Hi" - Get this welcome message
 
-Just type your question or upload documents and I'll search through your engineering files to help! 🔍
+Just type your question, paste a client request, or upload documents and I'll search through your engineering files to help! 🔍
         """
         
         await turn_context.send_activity(MessageFactory.text(welcome_text.strip()))
@@ -392,6 +420,90 @@ Just type your question or upload documents and I'll search through your enginee
         except Exception as e:
             logger.error("Q&A failed", error=str(e), question=question)
             await turn_context.send_activity(f"❌ Failed to answer question: {str(e)}")
+
+    async def _handle_project_scoping_analysis(self, turn_context: TurnContext, scoping_text: str):
+        """Handle project scoping analysis requests."""
+        try:
+            logger.info("Processing project scoping analysis", text_length=len(scoping_text))
+            
+            # Send acknowledgment
+            status_message = MessageFactory.text("🔍 **Analyzing your project request...**\n\n" +
+                                               "• Extracting project characteristics\n" +
+                                               "• Finding similar past projects\n" +
+                                               "• Analyzing potential issues\n" +
+                                               "• Generating design recommendations\n\n" +
+                                               "⏳ This may take a moment...")
+            status_message.text_format = "markdown"
+            await turn_context.send_activity(status_message)
+            
+            # Perform the analysis using the existing project scoping service
+            analysis_result = await self.project_scoping_service.analyze_project_request(scoping_text)
+            
+            if 'error' in analysis_result:
+                await turn_context.send_activity(f"❌ Analysis failed: {analysis_result.get('error', 'Unknown error')}")
+                return
+            
+            # Format and send the comprehensive analysis
+            response = self._format_project_scoping_response(analysis_result)
+            response_message = MessageFactory.text(response)
+            response_message.text_format = "markdown"
+            await turn_context.send_activity(response_message)
+            
+        except Exception as e:
+            logger.error("Project scoping analysis failed", error=str(e))
+            await turn_context.send_activity(f"❌ Failed to analyze project request: {str(e)}")
+
+    def _format_project_scoping_response(self, analysis_result: dict) -> str:
+        """Format the project scoping analysis result for Teams display."""
+        try:
+            response = "# 📋 Project Analysis Report\n\n"
+            
+            # Add the main analysis (from the project scoping service)
+            if analysis_result.get('analysis'):
+                response += analysis_result['analysis']
+                response += "\n\n"
+            
+            # Add characteristics summary if available
+            characteristics = analysis_result.get('characteristics', {})
+            if characteristics and not characteristics.get('error'):
+                response += "## 📊 Project Characteristics\n\n"
+                
+                if characteristics.get('project_type'):
+                    response += f"**Type:** {characteristics['project_type']}\n"
+                if characteristics.get('dimensions'):
+                    response += f"**Dimensions:** {characteristics['dimensions']}\n"
+                if characteristics.get('location'):
+                    response += f"**Location:** {characteristics['location']}\n"
+                if characteristics.get('loads'):
+                    response += f"**Loads:** {characteristics['loads']}\n"
+                if characteristics.get('compliance'):
+                    response += f"**Compliance:** {characteristics['compliance']}\n"
+                if characteristics.get('materials'):
+                    response += f"**Materials:** {characteristics['materials']}\n"
+                
+                response += "\n"
+            
+            # Add similar projects summary
+            similar_projects = analysis_result.get('similar_projects', [])
+            if similar_projects:
+                response += f"## 🔍 Found {len(similar_projects)} Similar Projects\n\n"
+                for i, project in enumerate(similar_projects[:3], 1):  # Top 3
+                    title = project.get('title', 'Unknown Project')
+                    project_id = project.get('project', 'N/A')
+                    similarity = project.get('similarity_score', 0)
+                    response += f"**{i}.** {title} (Project {project_id}) - {similarity:.1%} similarity\n"
+                response += "\n"
+            
+            # Add footer
+            response += "---\n"
+            response += "*This analysis is based on our project database and engineering experience. " \
+                       "For detailed quotes and technical specifications, please provide additional project details.*"
+            
+            return response
+            
+        except Exception as e:
+            logger.error("Failed to format project scoping response", error=str(e))
+            return f"Analysis completed but formatting failed: {str(e)}"
 
     async def on_members_added_activity(self, members_added: List[ChannelAccount], turn_context: TurnContext):
         """Welcome new members."""

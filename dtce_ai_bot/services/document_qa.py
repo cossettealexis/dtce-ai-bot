@@ -37,6 +37,9 @@ class DocumentQAService:
         self.classification_service = QueryClassificationService(self.openai_client, self.model_name)
         self.smart_router = SmartQueryRouter(self.classification_service)
         
+        # Project scoping and analysis configuration
+        self.project_analysis_enabled = True
+        
     async def answer_question(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
         """
         Answer a question using document context from the search index.
@@ -134,6 +137,60 @@ class DocumentQAService:
                 'sources': [],
                 'confidence': 'error',
                 'documents_searched': 0
+            }
+    
+    async def analyze_project_scoping_request(self, scoping_text: str, rfp_content: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Analyze a project scoping request or RFP to find similar past projects,
+        identify potential issues, and provide design philosophy recommendations.
+        
+        Args:
+            scoping_text: The main scoping request text from client
+            rfp_content: Optional additional RFP document content
+            
+        Returns:
+            Dictionary with similar projects, recommendations, and potential issues
+        """
+        try:
+            logger.info("Analyzing project scoping request", text_length=len(scoping_text))
+            
+            # Step 1: Extract key project characteristics from the scoping text
+            project_characteristics = await self._extract_project_characteristics(scoping_text, rfp_content)
+            
+            # Step 2: Find similar past projects based on characteristics
+            similar_projects = await self._find_similar_projects(project_characteristics)
+            
+            # Step 3: Analyze past issues and solutions from similar projects
+            issues_analysis = await self._analyze_past_issues(similar_projects, project_characteristics)
+            
+            # Step 4: Generate design philosophy and recommendations
+            design_philosophy = await self._generate_design_philosophy(project_characteristics, similar_projects, issues_analysis)
+            
+            # Step 5: Provide comprehensive analysis
+            analysis_result = await self._generate_comprehensive_project_analysis(
+                scoping_text, project_characteristics, similar_projects, issues_analysis, design_philosophy
+            )
+            
+            return {
+                'project_characteristics': project_characteristics,
+                'similar_projects': similar_projects,
+                'past_issues_analysis': issues_analysis,
+                'design_philosophy': design_philosophy,
+                'comprehensive_analysis': analysis_result,
+                'confidence': 'high' if len(similar_projects) > 0 else 'medium',
+                'similar_projects_found': len(similar_projects)
+            }
+            
+        except Exception as e:
+            logger.error("Project scoping analysis failed", error=str(e))
+            return {
+                'project_characteristics': {},
+                'similar_projects': [],
+                'past_issues_analysis': {},
+                'design_philosophy': {},
+                'comprehensive_analysis': f'I encountered an error while analyzing the project request: {str(e)}',
+                'confidence': 'error',
+                'similar_projects_found': 0
             }
 
     async def _search_relevant_documents(self, question: str, project_filter: Optional[str] = None) -> List[Dict]:
@@ -4761,6 +4818,400 @@ Focus on practical regulatory guidance that can be applied to similar situations
             })
         
         return sources
+
+    async def _extract_project_characteristics(self, scoping_text: str, rfp_content: Optional[str] = None) -> Dict[str, Any]:
+        """Extract key characteristics from the project scoping request."""
+        try:
+            # Combine scoping text and RFP content
+            full_text = scoping_text
+            if rfp_content:
+                full_text += "\n\n" + rfp_content
+            
+            # Use GPT to extract structured project characteristics
+            prompt = f"""
+            Analyze the following project scoping request and extract key characteristics:
+
+            {full_text}
+
+            Please extract and categorize the following information:
+            1. Project Type (e.g., residential, commercial, industrial, infrastructure)
+            2. Structure Type (e.g., building, bridge, marquee, temporary structure)
+            3. Key Dimensions/Scale
+            4. Materials mentioned
+            5. Location/Environment
+            6. Load Requirements (wind, seismic, live loads)
+            7. Specific Challenges mentioned
+            8. Certification Requirements (PS1, building consent, etc.)
+            9. Timeline considerations
+            10. Budget considerations
+
+            Return the analysis in a structured format with clear categories.
+            """
+            
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "You are a structural engineering expert who specializes in project analysis and scoping."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=1000
+            )
+            
+            # Parse the response to extract characteristics
+            characteristics_text = response.choices[0].message.content
+            
+            # Use another GPT call to structure the characteristics as JSON-like data
+            structure_prompt = f"""
+            Convert the following project characteristics analysis into a structured format:
+            
+            {characteristics_text}
+            
+            Return as categories with specific values. Focus on extracting:
+            - structure_type
+            - dimensions
+            - materials
+            - location
+            - loads
+            - challenges
+            - certifications
+            - timeline
+            - budget_indicators
+            """
+            
+            structure_response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "Extract specific project characteristics into clear categories."},
+                    {"role": "user", "content": structure_prompt}
+                ],
+                temperature=0.1,
+                max_tokens=800
+            )
+            
+            return {
+                'raw_analysis': characteristics_text,
+                'structured_analysis': structure_response.choices[0].message.content,
+                'extracted_keywords': self._extract_search_keywords_from_text(full_text)
+            }
+            
+        except Exception as e:
+            logger.error("Failed to extract project characteristics", error=str(e))
+            return {'error': str(e)}
+
+    async def _find_similar_projects(self, project_characteristics: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Find similar past projects based on project characteristics."""
+        try:
+            # Extract search terms from characteristics
+            search_keywords = project_characteristics.get('extracted_keywords', [])
+            
+            # Add specific engineering terms for better matching
+            engineering_terms = [
+                'PS1', 'structural', 'certification', 'design', 'engineering',
+                'load', 'wind', 'seismic', 'foundation', 'steel', 'concrete'
+            ]
+            
+            # Search for similar projects using multiple search strategies
+            all_similar_docs = []
+            
+            # Strategy 1: Search by structure type and materials
+            structure_search = await self._search_by_characteristics(
+                project_characteristics.get('structured_analysis', ''), 
+                search_type='structure'
+            )
+            all_similar_docs.extend(structure_search)
+            
+            # Strategy 2: Search by keywords
+            for keyword in search_keywords[:5]:  # Top 5 keywords
+                keyword_docs = await self._search_relevant_documents(keyword)
+                all_similar_docs.extend(keyword_docs[:3])  # Top 3 per keyword
+            
+            # Strategy 3: Search by engineering terms combined with characteristics
+            for term in engineering_terms[:3]:
+                if search_keywords:
+                    combined_query = f"{term} {search_keywords[0]}"
+                    eng_docs = await self._search_relevant_documents(combined_query)
+                    all_similar_docs.extend(eng_docs[:2])
+            
+            # Remove duplicates and rank by relevance
+            unique_docs = self._remove_duplicate_documents(all_similar_docs)
+            
+            # Filter and rank by similarity to project characteristics
+            similar_projects = await self._rank_project_similarity(unique_docs, project_characteristics)
+            
+            return similar_projects[:10]  # Top 10 most similar
+            
+        except Exception as e:
+            logger.error("Failed to find similar projects", error=str(e))
+            return []
+
+    async def _analyze_past_issues(self, similar_projects: List[Dict], project_characteristics: Dict) -> Dict[str, Any]:
+        """Analyze past issues and solutions from similar projects."""
+        try:
+            if not similar_projects:
+                return {'issues': [], 'solutions': [], 'warnings': []}
+            
+            # Prepare context from similar projects
+            projects_context = ""
+            for i, project in enumerate(similar_projects[:5]):  # Top 5 projects
+                projects_context += f"\nProject {i+1}:\n"
+                projects_context += f"File: {project.get('blob_name', 'Unknown')}\n"
+                projects_context += f"Content: {project.get('content_preview', '')[:500]}...\n"
+            
+            # Analyze for common issues and solutions
+            analysis_prompt = f"""
+            Based on these similar past projects and the current project characteristics, identify:
+            
+            SIMILAR PAST PROJECTS:
+            {projects_context}
+            
+            CURRENT PROJECT CHARACTERISTICS:
+            {project_characteristics.get('structured_analysis', '')}
+            
+            Please analyze and provide:
+            1. COMMON ISSUES: What problems frequently occurred in similar projects?
+            2. PROVEN SOLUTIONS: What solutions worked well for these issues?
+            3. RISK WARNINGS: What specific risks should we watch for in this new project?
+            4. LESSONS LEARNED: What key learnings can guide this project?
+            
+            Focus on structural engineering challenges, regulatory compliance, timeline issues, and technical difficulties.
+            """
+            
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "You are a senior structural engineer analyzing past project experiences to prevent future issues."},
+                    {"role": "user", "content": analysis_prompt}
+                ],
+                temperature=0.2,
+                max_tokens=1200
+            )
+            
+            issues_analysis = response.choices[0].message.content
+            
+            return {
+                'analysis': issues_analysis,
+                'projects_analyzed': len(similar_projects),
+                'risk_level': self._assess_risk_level(issues_analysis)
+            }
+            
+        except Exception as e:
+            logger.error("Failed to analyze past issues", error=str(e))
+            return {'error': str(e)}
+
+    async def _generate_design_philosophy(self, project_characteristics: Dict, similar_projects: List[Dict], issues_analysis: Dict) -> Dict[str, Any]:
+        """Generate design philosophy and recommendations for the project."""
+        try:
+            # Create comprehensive prompt for design philosophy
+            philosophy_prompt = f"""
+            As a senior structural engineer, develop a design philosophy and approach for this project:
+            
+            PROJECT CHARACTERISTICS:
+            {project_characteristics.get('structured_analysis', '')}
+            
+            LESSONS FROM SIMILAR PROJECTS:
+            {issues_analysis.get('analysis', '')}
+            
+            Please provide:
+            1. DESIGN PHILOSOPHY: Core principles that should guide this project
+            2. TECHNICAL APPROACH: Recommended methods and standards
+            3. RISK MITIGATION: How to avoid common pitfalls
+            4. COMPLIANCE STRATEGY: Approach for certifications and approvals
+            5. QUALITY ASSURANCE: Checks and validations needed
+            6. TIMELINE CONSIDERATIONS: Key milestones and dependencies
+            
+            Make this practical and actionable for the engineering team.
+            """
+            
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "You are a principal structural engineer providing design guidance based on extensive experience."},
+                    {"role": "user", "content": philosophy_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=1500
+            )
+            
+            design_philosophy = response.choices[0].message.content
+            
+            return {
+                'philosophy': design_philosophy,
+                'confidence': 'high' if len(similar_projects) > 3 else 'medium',
+                'based_on_projects': len(similar_projects)
+            }
+            
+        except Exception as e:
+            logger.error("Failed to generate design philosophy", error=str(e))
+            return {'error': str(e)}
+
+    async def _generate_comprehensive_project_analysis(self, scoping_text: str, characteristics: Dict, 
+                                                     similar_projects: List[Dict], issues_analysis: Dict, 
+                                                     design_philosophy: Dict) -> str:
+        """Generate a comprehensive analysis combining all findings."""
+        try:
+            # Create the comprehensive analysis
+            analysis_prompt = f"""
+            Provide a comprehensive project analysis report for this client request:
+            
+            CLIENT REQUEST:
+            {scoping_text}
+            
+            PROJECT ANALYSIS:
+            {characteristics.get('raw_analysis', '')}
+            
+            SIMILAR PROJECTS FOUND: {len(similar_projects)} projects
+            
+            ISSUES ANALYSIS:
+            {issues_analysis.get('analysis', '')}
+            
+            DESIGN PHILOSOPHY:
+            {design_philosophy.get('philosophy', '')}
+            
+            Please write a professional response to the client that includes:
+            1. Acknowledgment of their request
+            2. Our experience with similar projects (reference specific past work)
+            3. Key considerations and potential challenges
+            4. Our recommended approach
+            5. What we need from them to proceed
+            6. Timeline and cost considerations (general guidance)
+            
+            Make this client-friendly but technically sound.
+            """
+            
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "You are a senior structural engineer responding professionally to a client inquiry, drawing on extensive project experience."},
+                    {"role": "user", "content": analysis_prompt}
+                ],
+                temperature=0.4,
+                max_tokens=2000
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            logger.error("Failed to generate comprehensive analysis", error=str(e))
+            return f"I encountered an error generating the comprehensive analysis: {str(e)}"
+
+    async def _search_by_characteristics(self, characteristics_text: str, search_type: str = 'structure') -> List[Dict]:
+        """Search documents by specific project characteristics."""
+        try:
+            # Extract key search terms from characteristics
+            search_terms = []
+            
+            if 'marquee' in characteristics_text.lower():
+                search_terms.extend(['marquee', 'temporary structure', 'tent'])
+            if 'wind' in characteristics_text.lower():
+                search_terms.extend(['wind load', 'wind rating', 'wind resistance'])
+            if 'foundation' in characteristics_text.lower() or 'concrete' in characteristics_text.lower():
+                search_terms.extend(['foundation', 'concrete pad', 'anchoring'])
+            if 'PS1' in characteristics_text:
+                search_terms.extend(['PS1', 'producer statement', 'certification'])
+            
+            # Search using combined terms
+            all_docs = []
+            for term in search_terms[:5]:  # Limit to prevent too many queries
+                docs = await self._search_relevant_documents(term)
+                all_docs.extend(docs[:3])  # Top 3 per term
+            
+            return self._remove_duplicate_documents(all_docs)
+            
+        except Exception as e:
+            logger.error("Search by characteristics failed", error=str(e))
+            return []
+
+    def _extract_search_keywords_from_text(self, text: str) -> List[str]:
+        """Extract relevant engineering keywords from text."""
+        # Engineering-specific keywords to look for
+        engineering_keywords = [
+            'marquee', 'structure', 'foundation', 'concrete', 'steel', 'wind', 'load',
+            'PS1', 'certification', 'building consent', 'wellington', 'temporary',
+            'anchor', 'bolt', 'seismic', 'design', 'engineer', 'compliance'
+        ]
+        
+        text_lower = text.lower()
+        found_keywords = []
+        
+        for keyword in engineering_keywords:
+            if keyword in text_lower:
+                found_keywords.append(keyword)
+        
+        # Also extract dimensions and technical specifications
+        import re
+        # Look for dimensions like "15x40m", "120kph", etc.
+        dimensions = re.findall(r'\d+x\d+m?|\d+\s*(?:kph|mph|m|mm|kn)', text_lower)
+        found_keywords.extend(dimensions)
+        
+        return found_keywords
+
+    def _remove_duplicate_documents(self, docs: List[Dict]) -> List[Dict]:
+        """Remove duplicate documents based on blob_name."""
+        seen = set()
+        unique_docs = []
+        
+        for doc in docs:
+            blob_name = doc.get('blob_name', '') or doc.get('filename', '')
+            if blob_name not in seen:
+                seen.add(blob_name)
+                unique_docs.append(doc)
+        
+        return unique_docs
+
+    async def _rank_project_similarity(self, docs: List[Dict], characteristics: Dict) -> List[Dict]:
+        """Rank documents by similarity to project characteristics."""
+        try:
+            # Get key characteristics for comparison
+            char_text = characteristics.get('structured_analysis', '') + ' ' + characteristics.get('raw_analysis', '')
+            char_keywords = characteristics.get('extracted_keywords', [])
+            
+            # Score each document
+            scored_docs = []
+            for doc in docs:
+                score = 0
+                content = doc.get('content_preview', '') + ' ' + doc.get('blob_name', '')
+                
+                # Keyword matching
+                for keyword in char_keywords:
+                    if keyword.lower() in content.lower():
+                        score += 2
+                
+                # Specific engineering terms
+                if any(term in content.lower() for term in ['ps1', 'structural', 'design']):
+                    score += 3
+                
+                # Project type matching
+                if 'marquee' in char_text.lower() and 'marquee' in content.lower():
+                    score += 5
+                
+                scored_docs.append((score, doc))
+            
+            # Sort by score (highest first)
+            scored_docs.sort(key=lambda x: x[0], reverse=True)
+            
+            return [doc for score, doc in scored_docs if score > 0]
+            
+        except Exception as e:
+            logger.error("Failed to rank project similarity", error=str(e))
+            return docs
+
+    def _assess_risk_level(self, issues_analysis: str) -> str:
+        """Assess risk level based on issues analysis."""
+        risk_indicators = [
+            'complex', 'challenging', 'difficult', 'risk', 'problem', 'issue',
+            'failure', 'delay', 'cost overrun', 'non-compliance'
+        ]
+        
+        analysis_lower = issues_analysis.lower()
+        risk_count = sum(1 for indicator in risk_indicators if indicator in analysis_lower)
+        
+        if risk_count >= 5:
+            return 'high'
+        elif risk_count >= 3:
+            return 'medium'
+        else:
+            return 'low'
 
     async def _handle_conversational_query(self, question: str, classification: Dict[str, Any]) -> Dict[str, Any]:
         """Handle conversational queries, greetings, or unclear input."""
