@@ -101,10 +101,16 @@ def create_app() -> FastAPI:
     from botbuilder.schema import Activity
     
     # Set up Bot Framework adapter with proper settings
+    bot_logger = structlog.get_logger()
+    bot_logger.info("🔧 Bot Framework Config", 
+                app_id=settings.effective_app_id, 
+                tenant_id=settings.effective_app_tenant_id,
+                has_password=bool(settings.effective_app_password))
+    
     adapter_settings = BotFrameworkAdapterSettings(
-        app_id=settings.microsoft_app_id,
-        app_password=settings.microsoft_app_password,
-        channel_auth_tenant=settings.microsoft_app_tenant_id  # Required for Single Tenant
+        app_id=settings.effective_app_id,
+        app_password=settings.effective_app_password,
+        channel_auth_tenant=settings.effective_app_tenant_id  # Required for Single Tenant
     )
     adapter = BotFrameworkAdapter(adapter_settings)
     

@@ -28,6 +28,32 @@ class Settings(BaseSettings):
     microsoft_app_tenant_id: str = ""
     microsoft_app_type: str = "SingleTenant"
     
+    # Azure Bot Service uses different naming convention
+    MicrosoftAppId: str = ""
+    MicrosoftAppPassword: str = ""
+    MicrosoftAppTenantId: str = ""
+    MicrosoftAppType: str = "SingleTenant"
+    
+    @property
+    def effective_app_id(self) -> str:
+        """Get the Microsoft App ID from either naming convention."""
+        return self.MicrosoftAppId or self.microsoft_app_id
+    
+    @property
+    def effective_app_password(self) -> str:
+        """Get the Microsoft App Password from either naming convention."""
+        return self.MicrosoftAppPassword or self.microsoft_app_password
+    
+    @property
+    def effective_app_tenant_id(self) -> str:
+        """Get the Microsoft App Tenant ID from either naming convention."""
+        return self.MicrosoftAppTenantId or self.microsoft_app_tenant_id
+    
+    @property
+    def effective_app_type(self) -> str:
+        """Get the Microsoft App Type from either naming convention."""
+        return self.MicrosoftAppType or self.microsoft_app_type
+    
     # DirectLine settings
     directline_secret: str = ""
     
