@@ -152,11 +152,11 @@ def create_app() -> FastAPI:
             async def bot_handler(turn_context: TurnContext):
                 await bot.on_turn(turn_context)
             
-            # Use Bot Framework adapter with Activity object
+            # Use Bot Framework adapter with positional arguments
             await adapter.process_activity(
-                activity=activity,
-                auth_header=auth_header,
-                handler=bot_handler
+                activity,
+                auth_header,
+                bot_handler
             )
             
             # Return 200 OK for Bot Framework
