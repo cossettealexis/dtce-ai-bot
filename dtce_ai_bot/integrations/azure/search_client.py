@@ -328,4 +328,8 @@ class AzureSearchClient:
             }
         except Exception as e:
             logger.error("Failed to get index statistics", error=str(e))
-            return {}
+            return {
+                "document_count": 0,
+                "storage_size": 0,
+                "error": str(e)
+            }
