@@ -4113,9 +4113,9 @@ Focus on practical regulatory guidance that can be applied to similar situations
         templates_by_project = {}
         
         for doc in template_docs:
-            filename = doc.get('filename', '').strip()
-            project = doc.get('project_name', '').strip() or 'General Templates'
-            blob_url = doc.get('blob_url', '').strip()
+            filename = (doc.get('filename') or '').strip()
+            project = (doc.get('project_name') or '').strip() or 'General Templates'
+            blob_url = (doc.get('blob_url') or '').strip()
             
             # Skip documents with missing filename
             if not filename or filename == 'None':
@@ -4166,8 +4166,8 @@ Focus on practical regulatory guidance that can be applied to similar situations
         sources = []
         
         for doc in template_docs[:5]:  # Limit to top 5 sources
-            filename = doc.get('filename', '').strip()
-            project_name = doc.get('project_name', '').strip()
+            filename = (doc.get('filename') or '').strip()
+            project_name = (doc.get('project_name') or '').strip()
             
             # Skip sources with missing essential info
             if not filename or filename == 'None':
