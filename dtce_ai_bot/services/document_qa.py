@@ -71,11 +71,12 @@ class DocumentQAService:
                 'answer': answer_response['answer'],
                 'sources': [
                     {
-                        'filename': doc['filename'],
-                        'project_id': self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_name', ''),
+                        'filename': doc['file_name'],
+                        'project_id': self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_id', ''),
                         'relevance_score': doc['@search.score'],
                         'blob_url': doc.get('blob_url', ''),
-                        'excerpt': doc.get('@search.highlights', {}).get('content', [''])[0][:200] + '...'
+                        'excerpt': doc.get('@search.highlights', {}).get('extracted_text', 
+                                  doc.get('@search.highlights', {}).get('content_preview', ['']))[0][:200] + '...'
                     }
                     for doc in relevant_docs[:3]  # Top 3 sources
                 ],
@@ -113,13 +114,13 @@ class DocumentQAService:
             # Convert date formats in the question to match filename patterns
             search_text = self._convert_date_formats(search_text)
             
-            # Search without project filter initially since project_name field is often empty
+            # Search without project filter initially since project_id field might be empty
             results = self.search_client.search(
                 search_text=search_text,
                 top=50,  # Get more results for filtering
-                highlight_fields="content",
-                select=["id", "blob_name", "filename", "content", "project_name", 
-                       "folder", "blob_url", "last_modified"],
+                highlight_fields="extracted_text,content_preview,file_name,project_title",
+                select=["id", "file_name", "extracted_text", "content_preview", "project_id", 
+                       "folder_path", "blob_url", "modified_date", "project_title"],
                 query_type="semantic" if hasattr(self.search_client, 'query_type') else "simple"
             )
             
@@ -163,10 +164,11 @@ class DocumentQAService:
         current_length = 0
         
         for doc in documents:
-            # Extract relevant information
-            filename = doc.get('filename', 'Unknown')
-            project = self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_name', 'Unknown')
-            content = doc.get('content', '')
+            # Extract relevant information using correct field names
+            filename = doc.get('file_name', 'Unknown')
+            project = self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_id', 'Unknown')
+            # Try both extracted_text and content_preview for content
+            content = doc.get('extracted_text') or doc.get('content_preview', '')
             
             # Truncate content if too long
             if len(content) > 1000:

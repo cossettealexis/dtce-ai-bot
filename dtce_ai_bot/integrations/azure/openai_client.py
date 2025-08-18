@@ -150,27 +150,31 @@ Only include fields where you found clear information. Return "null" for fields 
         # Prepare context
         context_parts = []
         for doc in context_documents[:5]:  # Limit context
+            content = doc.get('content', '').strip()
+            if not content:
+                content = "No content available for this document"
+            
             context_parts.append(f"""
 Document: {doc.get('file_name', 'Unknown')}
 Project: {doc.get('project_id', 'N/A')}
-Content: {doc.get('content_preview', 'No content available')[:300]}...
+Content: {content[:500]}{'...' if len(content) > 500 else ''}
 """)
         
         context = "\n".join(context_parts)
         
         prompt = f"""
-You are an AI assistant helping DTCE engineers with their project documentation.
+                You are an AI assistant helping DTCE engineers with their project documentation.
 
-Question: {question}
+                Question: {question}
 
-Available Context from Documents:
-{context}
+                Available Context from Documents:
+                {context}
 
-Please provide a helpful answer based on the available documents. If the documents don't contain enough information to fully answer the question, say so and suggest what type of documents might contain the answer.
+                Please provide a helpful answer based on the available documents. If the documents don't contain enough information to fully answer the question, say so and suggest what type of documents might contain the answer.
 
-Keep your response professional, engineering-focused, and cite specific documents when possible.
+                Keep your response professional, engineering-focused, and cite specific documents when possible.
 
-Answer:"""
+                Answer:"""
 
         try:
             response = await asyncio.to_thread(

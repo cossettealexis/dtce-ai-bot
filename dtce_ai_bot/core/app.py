@@ -141,49 +141,34 @@ def create_app() -> FastAPI:
                 return
             
             try:
-                # Import the AI services
-                from ..integrations.azure.search_client import AzureSearchClient
-                from ..integrations.azure.openai_client import AzureOpenAIClient
-                from ..models.legacy_models import SearchQuery
+                logger.info("Processing user query", message=user_message)
                 
-                # Initialize AI clients
-                search_client = AzureSearchClient()
-                openai_client = AzureOpenAIClient()
+                # Import the documents ask function directly instead of HTTP call
+                from ..api.documents import ask_question
+                from ..integrations.azure_search import get_search_client
                 
-                # Create search query from user message
-                search_query = SearchQuery(
-                    query=user_message,
-                    max_results=5,
-                    include_content=True
+                # Get search client
+                search_client = await get_search_client()
+                
+                # Call the ask function directly
+                response = await ask_question(
+                    question=user_message,
+                    project_id=None,  # No project filter for now
+                    search_client=search_client
                 )
                 
-                # Search for relevant documents
-                search_response = await search_client.search_documents(search_query)
+                # Extract data from JSONResponse
+                result_data = response.body.decode('utf-8')
+                result = json.loads(result_data)
                 
-                if search_response.results:
-                    # Use AI to answer based on found documents
-                    context_documents = []
-                    for result in search_response.results[:3]:  # Top 3 results
-                        doc = result.document
-                        context_documents.append({
-                            "file_name": doc.file_name,
-                            "content": doc.content_preview or doc.extracted_text or "",
-                            "project_id": doc.project_id,
-                            "document_type": doc.document_type.value,
-                            "score": result.score
-                        })
-                    
-                    # Generate AI response
-                    ai_response = await openai_client.answer_engineering_question(
-                        user_message, 
-                        context_documents
-                    )
-                    
-                    response_text = f"🔍 **DTCE AI Assistant**\n\n{ai_response}\n\n📄 **Sources**: {len(context_documents)} relevant documents found"
-                    
+                answer = result.get("answer", "No answer available")
+                sources_count = len(result.get("sources", []))
+                confidence = result.get("confidence", 0.0)
+                
+                if confidence > 0.3:  # Only show answer if confident enough
+                    response_text = f"🔍 **DTCE AI Assistant**\n\n{answer}\n\n📄 **Sources**: {sources_count} relevant documents found"
                 else:
-                    # No documents found, provide general response
-                    response_text = f"🔍 **DTCE AI Assistant**\n\nI couldn't find specific documents related to your query '{user_message}'. Could you try rephrasing your question or provide more specific terms? I can help you search for:\n\n• Project reports and specifications\n• Calculations and drawings\n• Technical standards and codes\n• Past project examples"
+                    response_text = f"🔍 **DTCE AI Assistant**\n\nI found some documents but I'm not confident enough in my answer. Could you try rephrasing your question or being more specific? I searched {sources_count} documents but need clearer context to provide a reliable response."
                 
                 await turn_context.send_activity(MessageFactory.text(response_text))
                 
