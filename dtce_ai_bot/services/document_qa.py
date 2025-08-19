@@ -5588,27 +5588,69 @@ What can I help you find?"""
             # Extract user intent from the question using AI analysis
             intent_analysis = await self._analyze_question_intent(question, classification)
             
-            # Search for relevant documents with intent-aware search
-            relevant_docs = await self._search_with_intent(question, intent_analysis, project_filter)
+            # Check source preference from intent analysis
+            preferred_source = intent_analysis.get('preferred_source', 'either')
             
-            if not relevant_docs:
-                # Provide intelligent response even without documents
+            if preferred_source == 'internal_documents':
+                # User specifically wants internal documents - search them
+                logger.info("User specified internal documents - searching SuiteFiles")
+                relevant_docs = await self._search_with_intent(question, intent_analysis, project_filter, force_internal=True)
+                
+                if not relevant_docs:
+                    return {
+                        'answer': "I couldn't find any relevant information in our internal documents (SuiteFiles). Could you please rephrase your question or provide more specific details about what you're looking for in our documents?",
+                        'sources': [],
+                        'confidence': 'low',
+                        'documents_searched': 0,
+                        'search_type': 'internal_only',
+                        'intent_analysis': intent_analysis,
+                        'source_breakdown': {'internal_docs': 0, 'ai_knowledge': 0}
+                    }
+                    
+                # Generate answer from internal documents only
+                context = self._prepare_intent_aware_context(relevant_docs, intent_analysis)
+                answer = await self._generate_intent_aware_answer(question, context, intent_analysis)
+                source_analysis = self._analyze_answer_sources(answer, len(relevant_docs))
+                
+                return {
+                    'answer': answer,
+                    'sources': self._format_intelligent_sources(relevant_docs, intent_analysis),
+                    'confidence': 'high' if len(relevant_docs) >= 3 else 'medium',
+                    'documents_searched': len(relevant_docs),
+                    'search_type': 'internal_documents',
+                    'intent_analysis': intent_analysis,
+                    'source_breakdown': source_analysis
+                }
+                
+            elif preferred_source == 'external_knowledge':
+                # User wants general knowledge - provide AI knowledge response
+                logger.info("User wants general knowledge - using AI knowledge")
                 return await self._generate_no_docs_intelligent_response(question, intent_analysis)
             
-            # Prepare context with intent awareness
-            context = self._prepare_intent_aware_context(relevant_docs, intent_analysis)
-            
-            # Generate answer with intent understanding
-            answer = await self._generate_intent_aware_answer(question, context, intent_analysis)
-            
-            return {
-                'answer': answer,
-                'sources': self._format_intelligent_sources(relevant_docs, intent_analysis),
-                'confidence': 'high' if len(relevant_docs) >= 3 else 'medium',
-                'documents_searched': len(relevant_docs),
-                'search_type': 'intelligent_general',
-                'intent_analysis': intent_analysis
-            }
+            else:
+                # Either source preference - try internal documents first, then general knowledge
+                logger.info("Checking internal documents first, then general knowledge if needed")
+                relevant_docs = await self._search_with_intent(question, intent_analysis, project_filter)
+                
+                if not relevant_docs:
+                    # No internal documents found - use general knowledge
+                    logger.info("No internal documents found - using general AI knowledge")
+                    return await self._generate_no_docs_intelligent_response(question, intent_analysis)
+                
+                # Generate answer from found documents
+                context = self._prepare_intent_aware_context(relevant_docs, intent_analysis)
+                answer = await self._generate_intent_aware_answer(question, context, intent_analysis)
+                source_analysis = self._analyze_answer_sources(answer, len(relevant_docs))
+                
+                return {
+                    'answer': answer,
+                    'sources': self._format_intelligent_sources(relevant_docs, intent_analysis),
+                    'confidence': 'high' if len(relevant_docs) >= 3 else 'medium',
+                    'documents_searched': len(relevant_docs),
+                    'search_type': 'intelligent_general',
+                    'intent_analysis': intent_analysis,
+                    'source_breakdown': source_analysis
+                }
             
         except Exception as e:
             logger.error("Intelligent general query failed", error=str(e))
@@ -5634,9 +5676,14 @@ What can I help you find?"""
         - seeking_comparison: User wants to compare different options
         - seeking_troubleshooting: User has a problem and wants solutions
 
+        Also determine the PREFERRED SOURCE:
+        - internal_documents: If user mentions "suitefiles", "our documents", "our projects", "company files", "internal", etc.
+        - external_knowledge: If user asks for general standards, codes, best practices without specifying internal sources
+        - either: If not specified
+
         Please extract key concepts and determine what type of response would be most helpful.
 
-        Respond with JSON containing: intent_category, key_concepts, response_type_needed, user_goal"""
+        Respond with JSON containing: intent_category, key_concepts, response_type_needed, user_goal, preferred_source"""
         
         user_prompt = f"""Question: {question}
 
@@ -5682,30 +5729,47 @@ What can I help you find?"""
                 "user_goal": "general_information"
             }
 
-    async def _search_with_intent(self, question: str, intent_analysis: Dict, project_filter: Optional[str] = None) -> List[Dict]:
+    async def _search_with_intent(self, question: str, intent_analysis: Dict, project_filter: Optional[str] = None, force_internal: bool = False) -> List[Dict]:
         """Search for documents with understanding of user intent."""
         
         intent_category = intent_analysis.get('intent_category', 'seeking_guidance')
         key_concepts = intent_analysis.get('key_concepts', [])
         
+        # Check if user specifically requested SuiteFiles/internal documents
+        question_lower = question.lower()
+        internal_document_indicators = [
+            'suitefiles', 'suite files', 'our documents', 'our files', 
+            'company documents', 'internal documents', 'project files',
+            'our projects', 'dtce documents', 'in our', 'from our'
+        ]
+        
+        wants_internal_docs = any(indicator in question_lower for indicator in internal_document_indicators)
+        
         # Build intent-aware search terms
         search_terms = []
         search_terms.extend(key_concepts)
         
-        # Add intent-specific search modifiers
-        if intent_category == "seeking_examples":
-            search_terms.extend(["project", "case", "example", "similar", "past"])
-        elif intent_category == "seeking_specifications":
-            search_terms.extend(["specification", "requirement", "standard", "code", "detail"])
-        elif intent_category == "seeking_processes":
-            search_terms.extend(["process", "procedure", "workflow", "step", "method"])
-        elif intent_category == "seeking_data":
-            search_terms.extend(["cost", "time", "duration", "timeline", "data", "number"])
-        elif intent_category == "seeking_contacts":
-            search_terms.extend(["contact", "vendor", "supplier", "contractor", "consultant"])
+        # Add intent-specific search modifiers only if not specifically asking for internal docs
+        if not wants_internal_docs:
+            if intent_category == "seeking_examples":
+                search_terms.extend(["project", "case", "example", "similar", "past"])
+            elif intent_category == "seeking_specifications":
+                search_terms.extend(["specification", "requirement", "standard", "code", "detail"])
+            elif intent_category == "seeking_processes":
+                search_terms.extend(["process", "procedure", "workflow", "step", "method"])
+            elif intent_category == "seeking_data":
+                search_terms.extend(["cost", "time", "duration", "timeline", "data", "number"])
+            elif intent_category == "seeking_contacts":
+                search_terms.extend(["contact", "vendor", "supplier", "contractor", "consultant"])
         
-        # Perform enhanced search
-        search_query = " OR ".join(search_terms)
+        # For internal document requests, focus on document content search
+        if wants_internal_docs:
+            # Use broader search to find relevant internal content
+            search_query = " AND ".join(key_concepts[:3])  # Use top 3 concepts with AND
+            logger.info("Internal document search", query=search_query, intent=intent_category)
+        else:
+            # Use OR for general searches
+            search_query = " OR ".join(search_terms)
         
         try:
             search_results = self.search_client.search(
@@ -5760,29 +5824,58 @@ What can I help you find?"""
         intent_category = intent_analysis.get('intent_category', 'seeking_guidance')
         user_goal = intent_analysis.get('user_goal', 'general_information')
         
-        system_prompt = f"""You are a helpful AI assistant for an engineering consultancy. Please provide relevant information based on what the user is looking for.
+        system_prompt = f"""You are an intelligent engineering AI assistant that provides exactly what users need based on their intent.
 
-        The user appears to be {intent_category.replace('_', ' ')} with the goal of {user_goal}.
+        USER INTENT: {intent_category}
+        USER GOAL: {user_goal}
         
-        Response guidelines:
-        - For guidance requests: Provide actionable advice and recommendations
-        - For examples requests: Show specific case studies and past project references  
-        - For specifications requests: Provide technical details, codes, and standards
-        - For process requests: Explain workflows and step-by-step methods
-        - For data requests: Extract specific numbers, timelines, and costs
-        - For contact requests: Provide vendor and contractor information
-        - For comparison requests: Compare options and help with decisions
-        - For troubleshooting requests: Diagnose problems and suggest solutions
+        RESPONSE GUIDELINES FOR EACH INTENT:
         
-        Please focus on being helpful and providing the most relevant information from the documents provided."""
+        seeking_guidance: Provide actionable advice, recommendations, and step-by-step guidance
+        seeking_examples: Show specific examples, case studies, and past project references
+        seeking_specifications: Provide technical details, codes, standards, and precise requirements
+        seeking_processes: Explain workflows, procedures, and step-by-step methods
+        seeking_data: Extract and present specific numbers, timelines, costs, and quantitative data
+        seeking_contacts: Provide contact information, vendor details, and people references
+        seeking_comparison: Compare options, show pros/cons, and help with decision-making
+        seeking_troubleshooting: Diagnose problems and provide specific solutions
+        
+        RESPONSE PRINCIPLES:
+        1. Avoid generic template lists or document dumps
+        2. Address the user's specific intent and goal directly
+        3. Extract the most relevant information from the provided context
+        4. When context is incomplete, supplement with professional guidance
+        5. Be specific, actionable, and directly helpful
+        6. Focus on what the user actually needs, not just what documents contain
+        
+        RESPONSE STRUCTURE:
+        - Start with direct answer to their question
+        - Provide specific details from context when available
+        - Add professional recommendations when appropriate
+        - End with actionable next steps if relevant"""
         
         user_prompt = f"""Question: {question}
 
         Document Context:
         {context}
         
-        Provide a comprehensive answer that addresses the user's specific intent: {intent_category}.
-        Focus on being directly helpful rather than just listing available documents."""
+        Please provide a comprehensive answer that addresses the user's specific intent: {intent_category}.
+        
+        IMPORTANT: Determine the appropriate source for your response:
+        
+        IF the user asked about "suitefiles", "our documents", "our projects", or similar internal references:
+        - Search the Document Context above for relevant information
+        - Start with "Based on our project documents..." or "From our SuiteFiles archive..."
+        - If no relevant internal documents found, clearly state this and suggest where to look
+        
+        IF the user asked about general standards, codes, or best practices without specifying internal sources:
+        - Provide general engineering knowledge 
+        - Start with "From engineering best practices..." or "Based on industry standards..."
+        
+        IF combining both sources, clearly distinguish which information comes from which source.
+        
+        The user specifically asked: "{question}"
+        Focus on providing exactly what they requested from the appropriate source."""
         
         try:
             response = await self.openai_client.chat.completions.create(
@@ -5824,6 +5917,8 @@ What can I help you find?"""
 
         Please {guidance_instruction} for their question.
         
+        IMPORTANT: Since no internal documents were found, clearly indicate this is general engineering knowledge by starting your response with "Based on general engineering practices..." or "From industry standards and best practices..."
+        
         Be helpful and professional, providing actionable advice based on general engineering knowledge."""
         
         try:
@@ -5842,7 +5937,14 @@ What can I help you find?"""
                 'sources': [],
                 'confidence': 'medium',
                 'documents_searched': 0,
-                'search_type': 'intelligent_guidance'
+                'search_type': 'intelligent_guidance',
+                'source_breakdown': {
+                    'primary_source': 'ai_knowledge',
+                    'has_internal_documents': False,
+                    'document_indicators_found': 0,
+                    'ai_knowledge_indicators_found': 1,
+                    'source_clarity': 'clear'
+                }
             }
             
         except Exception as e:
@@ -5885,3 +5987,44 @@ What can I help you find?"""
             })
             
         return sources
+
+    def _analyze_answer_sources(self, answer: str, document_count: int) -> Dict[str, Any]:
+        """Analyze what sources the answer is drawing from."""
+        
+        answer_lower = answer.lower()
+        
+        # Check for indicators of document-based content
+        document_indicators = [
+            'based on our project documents', 'from our suitefiles', 'according to our records',
+            'our project files show', 'documented in our', 'from the documents',
+            'project data shows', 'our files indicate'
+        ]
+        
+        # Check for indicators of AI knowledge
+        ai_knowledge_indicators = [
+            'from engineering best practices', 'based on industry standards', 
+            'general engineering guidance', 'typical approach', 'commonly',
+            'industry practice', 'standard procedure', 'best practice'
+        ]
+        
+        doc_indicators_found = sum(1 for indicator in document_indicators if indicator in answer_lower)
+        ai_indicators_found = sum(1 for indicator in ai_knowledge_indicators if indicator in answer_lower)
+        
+        # Determine primary source type
+        if doc_indicators_found > 0 and document_count > 0:
+            if ai_indicators_found > 0:
+                primary_source = "hybrid"  # Both internal docs and AI knowledge
+            else:
+                primary_source = "internal_documents"  # Primarily from SuiteFiles
+        elif ai_indicators_found > 0 or document_count == 0:
+            primary_source = "ai_knowledge"  # Primarily AI-generated knowledge
+        else:
+            primary_source = "mixed"  # Unclear or mixed sources
+            
+        return {
+            'primary_source': primary_source,
+            'has_internal_documents': document_count > 0,
+            'document_indicators_found': doc_indicators_found,
+            'ai_knowledge_indicators_found': ai_indicators_found,
+            'source_clarity': 'clear' if (doc_indicators_found > 0 or ai_indicators_found > 0) else 'unclear'
+        }
