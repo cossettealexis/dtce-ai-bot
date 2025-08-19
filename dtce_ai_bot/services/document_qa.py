@@ -5622,25 +5622,21 @@ What can I help you find?"""
     async def _analyze_question_intent(self, question: str, classification: Optional[Dict] = None) -> Dict[str, Any]:
         """Analyze what the user actually wants from their question."""
         
-        system_prompt = """Analyze the user's question to understand their true intent and information needs.
+        system_prompt = """Please analyze the user's question to understand what type of information they're looking for.
 
-        INTENT CATEGORIES:
-        - seeking_guidance: User wants advice, recommendations, or how-to information
-        - seeking_examples: User wants to see past examples, case studies, or similar situations  
-        - seeking_specifications: User wants technical details, codes, standards, or specific requirements
-        - seeking_processes: User wants to understand workflows, procedures, or step-by-step processes
-        - seeking_data: User wants specific facts, numbers, timelines, or quantitative information
-        - seeking_contacts: User wants contact information, vendor details, or people references
-        - seeking_comparison: User wants to compare options, alternatives, or trade-offs
-        - seeking_troubleshooting: User has a problem and wants solutions or debugging help
+        Consider these common request types:
+        - seeking_guidance: User wants advice or recommendations
+        - seeking_examples: User wants to see past examples or case studies
+        - seeking_specifications: User wants technical details or standards
+        - seeking_processes: User wants to understand workflows or procedures
+        - seeking_data: User wants specific facts, numbers, or timelines
+        - seeking_contacts: User wants contact information or vendor details
+        - seeking_comparison: User wants to compare different options
+        - seeking_troubleshooting: User has a problem and wants solutions
 
-        INFORMATION EXTRACTION:
-        - Extract key concepts, technical terms, and domain areas
-        - Identify what type of response would be most helpful
-        - Determine if user wants general information or specific project details
-        - Note any constraints, preferences, or context clues
+        Please extract key concepts and determine what type of response would be most helpful.
 
-        Return JSON with: intent_category, key_concepts, response_type_needed, user_goal"""
+        Respond with JSON containing: intent_category, key_concepts, response_type_needed, user_goal"""
         
         user_prompt = f"""Question: {question}
 
@@ -5764,35 +5760,21 @@ What can I help you find?"""
         intent_category = intent_analysis.get('intent_category', 'seeking_guidance')
         user_goal = intent_analysis.get('user_goal', 'general_information')
         
-        system_prompt = f"""You are an intelligent AI assistant that understands user intent and provides exactly what they need.
+        system_prompt = f"""You are a helpful AI assistant for an engineering consultancy. Please provide relevant information based on what the user is looking for.
 
-        USER INTENT: {intent_category}
-        USER GOAL: {user_goal}
+        The user appears to be {intent_category.replace('_', ' ')} with the goal of {user_goal}.
         
-        RESPONSE GUIDELINES BASED ON INTENT:
+        Response guidelines:
+        - For guidance requests: Provide actionable advice and recommendations
+        - For examples requests: Show specific case studies and past project references  
+        - For specifications requests: Provide technical details, codes, and standards
+        - For process requests: Explain workflows and step-by-step methods
+        - For data requests: Extract specific numbers, timelines, and costs
+        - For contact requests: Provide vendor and contractor information
+        - For comparison requests: Compare options and help with decisions
+        - For troubleshooting requests: Diagnose problems and suggest solutions
         
-        If seeking_guidance: Provide actionable advice, recommendations, and step-by-step guidance
-        If seeking_examples: Show specific examples, case studies, and past project references
-        If seeking_specifications: Provide technical details, codes, standards, and precise requirements
-        If seeking_processes: Explain workflows, procedures, and step-by-step methods
-        If seeking_data: Extract and present specific numbers, timelines, costs, and quantitative data
-        If seeking_contacts: Provide contact information, vendor details, and people references
-        If seeking_comparison: Compare options, show pros/cons, and help with decision-making
-        If seeking_troubleshooting: Diagnose problems and provide specific solutions
-        
-        CRITICAL RULES:
-        1. NEVER provide generic template lists or document dumps
-        2. ALWAYS address the user's specific intent and goal
-        3. Extract the most relevant information from the provided context
-        4. If context doesn't fully answer the question, provide professional guidance
-        5. Be specific, actionable, and directly helpful
-        6. Focus on what the user actually needs, not what documents contain
-        
-        RESPONSE STRUCTURE:
-        - Start with direct answer to their question
-        - Provide specific details from context when available
-        - Add professional recommendations when appropriate
-        - End with actionable next steps if relevant"""
+        Please focus on being helpful and providing the most relevant information from the documents provided."""
         
         user_prompt = f"""Question: {question}
 
@@ -5838,11 +5820,11 @@ What can I help you find?"""
         
         guidance_instruction = guidance_prompts.get(intent_category, "provide helpful professional guidance")
         
-        system_prompt = f"""You are a professional engineering consultant. The user asked a question but no specific documents were found.
+        system_prompt = f"""You are a professional engineering consultant. The user asked a question but no specific documents were found in our database.
+
+        Please {guidance_instruction} for their question.
         
-        Instead of saying "no documents found", {guidance_instruction} for their question.
-        
-        Be helpful, professional, and provide actionable advice even without specific documents."""
+        Be helpful and professional, providing actionable advice based on general engineering knowledge."""
         
         try:
             response = await self.openai_client.chat.completions.create(
