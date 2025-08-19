@@ -29,40 +29,88 @@ class DTCETeamsBot(ActivityHandler):
         self.qa_service = qa_service
         self.project_scoping_service = get_project_scoping_service()
 
+    def _format_teams_text(self, text: str) -> str:
+        """Format text for Teams to ensure proper line breaks and readability."""
+        if not text:
+            return text
+            
+        # Fix common Teams formatting issues
+        formatted = text
+        
+        # Ensure double line breaks between major sections
+        formatted = formatted.replace('\n\n', '\n\n')  # Keep existing double breaks
+        
+        # Add extra line breaks before section headers (emoji + **text**)
+        import re
+        formatted = re.sub(r'(\n|^)(🔗|📝|⚠️|📋|✅|💡|🔍)\s*\*\*', r'\1\n\2 **', formatted)
+        
+        # Ensure bullet points have proper spacing
+        formatted = re.sub(r'\n•\s*', '\n\n• ', formatted)
+        
+        # Add spacing before Requirements/Notes sections
+        formatted = re.sub(r'\n(⚠️\s*\*\*Requirements)', r'\n\n\1', formatted)
+        formatted = re.sub(r'\n(💡\s*\*\*)', r'\n\n\1', formatted)
+        formatted = re.sub(r'\n(📝\s*\*\*)', r'\n\n\1', formatted)
+        
+        # Clean up any triple+ line breaks
+        formatted = re.sub(r'\n{3,}', '\n\n', formatted)
+        
+        return formatted.strip()
+
+    async def _send_teams_message(self, turn_context: TurnContext, text: str):
+        """Send a message to Teams with proper formatting."""
+        # Format the text for Teams
+        formatted_text = self._format_teams_text(text)
+        
+        # Check if message is too long or has many sections
+        if len(formatted_text) > 2000 or formatted_text.count('\n') > 15:
+            # Split into smaller chunks at logical breaks
+            chunks = self._split_teams_message(formatted_text)
+            
+            for chunk in chunks:
+                await turn_context.send_activity(MessageFactory.text(chunk))
+                # Small delay between chunks to ensure proper order
+                await asyncio.sleep(0.1)
+        else:
+            # Send as single message
+            await turn_context.send_activity(MessageFactory.text(formatted_text))
+    
+    def _split_teams_message(self, text: str) -> List[str]:
+        """Split long messages into logical chunks for Teams."""
+        chunks = []
+        lines = text.split('\n')
+        
+        current_chunk = []
+        current_length = 0
+        
+        for line in lines:
+            # Check if this line starts a new major section
+            if line.strip().startswith(('🔗', '📝', '⚠️', '📋')) and current_chunk and current_length > 500:
+                # Start new chunk for this section
+                chunks.append('\n'.join(current_chunk))
+                current_chunk = [line]
+                current_length = len(line)
+            elif current_length + len(line) > 1800 and current_chunk:
+                # Split at current point
+                chunks.append('\n'.join(current_chunk))
+                current_chunk = [line]
+                current_length = len(line)
+            else:
+                current_chunk.append(line)
+                current_length += len(line) + 1  # +1 for newline
+        
+        # Add remaining chunk
+        if current_chunk:
+            chunks.append('\n'.join(current_chunk))
+            
+        return chunks
+
     def _create_teams_message(self, text: str) -> MessageFactory:
         """Create a properly formatted Teams message that handles line breaks correctly."""
         # For Teams, we need to split long messages or use plain text format
         # Teams doesn't handle \n\n well in single messages
         message = MessageFactory.text(text)
         return message
-
-    async def _send_teams_message(self, turn_context: TurnContext, text: str):
-        """Send a message to Teams with proper formatting."""
-        # Check if message is too long or has formatting issues
-        if len(text) > 2000 or text.count('\n') > 10:
-            # Split into smaller chunks
-            lines = text.split('\n')
-            current_chunk = []
-            current_length = 0
-            
-            for line in lines:
-                if current_length + len(line) > 1500 and current_chunk:
-                    # Send current chunk
-                    chunk_text = '\n'.join(current_chunk)
-                    await turn_context.send_activity(MessageFactory.text(chunk_text))
-                    current_chunk = [line]
-                    current_length = len(line)
-                else:
-                    current_chunk.append(line)
-                    current_length += len(line) + 1  # +1 for newline
-            
-            # Send remaining chunk
-            if current_chunk:
-                chunk_text = '\n'.join(current_chunk)
-                await turn_context.send_activity(MessageFactory.text(chunk_text))
-        else:
-            # Send as single message
-            await turn_context.send_activity(MessageFactory.text(text))
         
     async def on_members_added_activity(self, members_added: List[ChannelAccount], turn_context: TurnContext):
         """Send welcome message when members are added to conversation."""
