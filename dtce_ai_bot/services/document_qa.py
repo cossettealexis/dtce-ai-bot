@@ -4942,117 +4942,181 @@ Would you like me to search for specific templates or documents that might help?
         return template_docs
 
     async def _provide_helpful_template_guidance(self, question: str, template_type: str) -> Dict[str, Any]:
-        """Provide comprehensive guidance and perform broader search when specific templates aren't found."""
+        """Provide comprehensive guidance and perform broader search for ANY template type."""
         
         # First try a broader search with related terms
         broader_results = []
-        if 'ps1' in question.lower():
-            search_terms = ['producer statement', 'PS1', 'structural', 'compliance', 'building consent']
-            for term in search_terms:
-                try:
-                    response = await self.client.search(
-                        search_text=term,
-                        search_fields=["title", "content"],
-                        top=5,
-                        query_type="semantic"
-                    )
-                    async for result in response:
-                        if result.get('@search.score', 0) > 0.7:  # Only high-relevance results
-                            broader_results.append({
-                                'title': result.get('title', 'Untitled'),
-                                'content': result.get('content', '')[:500] + '...',
-                                'metadata': result.get('metadata', {}),
-                                'score': result.get('@search.score', 0)
-                            })
-                    if len(broader_results) >= 3:  # Stop if we found enough relevant docs
-                        break
-                except Exception:
-                    continue
         
-        # Special handling for PS1 template requests
-        if 'ps1' in question.lower() and 'template' in question.lower():
-            answer = """**PS1 Template Guidance**
-
-While I couldn't find a specific PS1 template in SuiteFiles, here's comprehensive guidance:
-
-📋 **PS1 Template Sources:**
-• **MBIE Website**: Download official Producer Statement forms from building.govt.nz
-• **Engineering NZ**: Access standardized templates through engineeringnz.org  
-• **Your Project Manager**: They may have DTCE-specific PS1 templates
-• **Previous Projects**: Check similar completed projects for template examples
-
-🔍 **What to Include in PS1:**
-- Project details and consent numbers
-- Structural design compliance statement
-- Reference to relevant building codes (NZS 3604, NZS 1170, etc.)
-- CPEng details and registration number
-- Clear scope of work covered
-
-⚠️ **Important Requirements:**
-- Must be signed by a CPEng (Chartered Professional Engineer)
-- Specific to your project and council requirements  
-- Include all structural elements in scope
-- Reference design drawings and calculations"""
-
-            if broader_results:
-                answer += "\n\n🔍 **Related Documents Found:**\n"
-                for doc in broader_results[:3]:
-                    answer += f"• **{doc['title']}** (Relevance: {doc['score']:.1f})\n"
-
-            return {
-                'answer': answer,
-                'sources': broader_results,
-                'confidence': 'high',
-                'documents_searched': len(broader_results),
-                'search_type': 'comprehensive_guidance'
-            }
+        # Create search terms based on template type
+        search_terms = []
+        question_lower = question.lower()
         
-        # For other Producer Statement types
-        if template_type.startswith('PS'):
-            template_name = template_type
-            guidance = f"""**{template_name} Template Guidance**
-
-I couldn't find a specific {template_name} template, but here's what you need to know:
-
-📋 **Sources:**
-• Contact your project manager for DTCE-specific {template_name} templates
-• Visit MBIE Building website for official Producer Statement forms
-• Check Engineering NZ resources for professional guidance
-
-⚠️ **Requirements:**
-• Must be signed by appropriately qualified professional
-• Specific to your project and council jurisdiction
-• Include all relevant scope and compliance statements"""
-            
-            if broader_results:
-                guidance += "\n\n🔍 **Related Documents Found:**\n"
-                for doc in broader_results[:3]:
-                    guidance += f"• **{doc['title']}** (Relevance: {doc['score']:.1f})\n"
+        if any(word in question_lower for word in ['ps1', 'producer statement 1']):
+            search_terms = ['producer statement', 'PS1', 'design', 'structural', 'compliance', 'building consent']
+        elif any(word in question_lower for word in ['ps2', 'producer statement 2']):
+            search_terms = ['producer statement', 'PS2', 'construction monitoring', 'supervision']
+        elif any(word in question_lower for word in ['ps3', 'producer statement 3']):
+            search_terms = ['producer statement', 'PS3', 'construction review', 'verification']
+        elif any(word in question_lower for word in ['ps4', 'producer statement 4']):
+            search_terms = ['producer statement', 'PS4', 'completion', 'building consent']
+        elif any(word in question_lower for word in ['calculation', 'calc']):
+            search_terms = ['calculation', 'analysis', 'structural', 'design', 'load']
+        elif any(word in question_lower for word in ['report', 'assessment']):
+            search_terms = ['report', 'assessment', 'investigation', 'structural', 'engineering']
+        elif any(word in question_lower for word in ['drawing', 'detail']):
+            search_terms = ['drawing', 'detail', 'sketch', 'plan', 'structural']
+        elif any(word in question_lower for word in ['letter', 'correspondence']):
+            search_terms = ['letter', 'correspondence', 'memo', 'engineering']
         else:
-            # For general template requests, provide helpful guidance
-            template_name = template_type.replace('_', ' ').title()
-            guidance = f"""**{template_name} Template Guidance**
-
-While I couldn't find specific {template_name} templates in SuiteFiles, here's how to proceed:
-
-📋 **Recommended Actions:**
-• **Project Team**: Check with your project manager or senior engineer for DTCE-specific templates
-• **SuiteFiles Search**: Try searching with alternative keywords or browse relevant project folders
-• **Previous Projects**: Look for similar projects that may have used comparable templates
-• **Professional Resources**: Consult relevant professional bodies or industry standards"""
-
-            if broader_results:
-                guidance += "\n\n🔍 **Related Documents Found:**\n"
-                for doc in broader_results[:3]:
-                    guidance += f"• **{doc['title']}** (Relevance: {doc['score']:.1f})\n"
-
+            # Generic template search
+            template_words = template_type.lower().split()
+            search_terms = template_words + ['template', 'format', 'standard']
+        
+        # Perform broader search
+        for term in search_terms[:3]:  # Limit to top 3 search terms
+            try:
+                response = await self.client.search(
+                    search_text=term,
+                    search_fields=["title", "content"],
+                    top=5,
+                    query_type="semantic"
+                )
+                async for result in response:
+                    if result.get('@search.score', 0) > 0.6:  # Lower threshold for more results
+                        broader_results.append({
+                            'title': result.get('title', 'Untitled'),
+                            'content': result.get('content', '')[:300] + '...',
+                            'metadata': result.get('metadata', {}),
+                            'score': result.get('@search.score', 0)
+                        })
+                if len(broader_results) >= 5:  # Stop if we found enough relevant docs
+                    break
+            except Exception:
+                continue
+        
+        # Generate helpful guidance based on template type
+        template_guidance = self._generate_template_guidance(template_type, question_lower)
+        
+        if broader_results:
+            template_guidance += "\n\n🔍 **Related Documents Found:**\n"
+            for doc in broader_results[:5]:
+                template_guidance += f"• **{doc['title']}** (Relevance: {doc['score']:.1f})\n"
+        
         return {
-            'answer': guidance,
+            'answer': template_guidance,
             'sources': broader_results,
             'confidence': 'high' if broader_results else 'medium',
             'documents_searched': len(broader_results),
             'search_type': 'comprehensive_guidance'
         }
+    
+    def _generate_template_guidance(self, template_type: str, question_lower: str) -> str:
+        """Generate specific guidance for different template types."""
+        
+        if any(word in question_lower for word in ['ps1', 'producer statement 1']):
+            return """📋 **PS1 (Producer Statement - Design) Template**
+
+While I couldn't find a specific PS1 template, here's comprehensive guidance:
+
+✅ **Template Sources:**
+• **MBIE Website**: Download official Producer Statement forms from building.govt.nz
+• **Engineering NZ**: Access standardized templates through engineeringnz.org  
+• **Your Project Manager**: They may have DTCE-specific PS1 templates
+• **Previous Projects**: Check similar completed projects for examples
+
+� **What to Include:**
+• Project details and consent numbers
+• Structural design compliance statement
+• Reference to relevant codes (NZS 3604, NZS 1170, etc.)
+• CPEng details and registration number
+• Clear scope of work covered
+
+⚠️ **Requirements:**
+• Must be signed by a CPEng (Chartered Professional Engineer)
+• Specific to your project and council requirements"""
+
+        elif any(word in question_lower for word in ['ps2', 'ps3', 'ps4', 'producer statement']):
+            ps_type = 'PS2' if 'ps2' in question_lower else 'PS3' if 'ps3' in question_lower else 'PS4'
+            return f"""📋 **{ps_type} Producer Statement Template**
+
+**Template Sources:**
+• Contact your project manager for DTCE-specific {ps_type} templates
+• Visit MBIE Building website for official Producer Statement forms
+• Check Engineering NZ resources for professional guidance
+
+**Requirements:**
+• Must be signed by appropriately qualified professional
+• Specific to your project and council jurisdiction
+• Include all relevant scope and compliance statements"""
+
+        elif any(word in question_lower for word in ['calculation', 'calc']):
+            return """📋 **Structural Calculation Template**
+
+**What You Need:**
+• Check previous similar projects for calculation formats
+• Ask your senior engineer for DTCE calculation standards
+• Review relevant design codes for required content
+
+**Template Should Include:**
+• Design assumptions and criteria
+• Load calculations and combinations
+• Material properties and design codes used
+• Clear analysis methodology and results"""
+
+        elif any(word in question_lower for word in ['report', 'assessment']):
+            return """📋 **Engineering Report Template**
+
+**Template Sources:**
+• Check SuiteFiles under Templates or similar projects
+• Ask your project manager for DTCE report standards
+• Review previous reports for format guidance
+
+**Report Should Include:**
+• Executive summary and recommendations
+• Site conditions and constraints documentation
+• Clear conclusions and next steps
+• Professional formatting with DTCE standards"""
+
+        elif any(word in question_lower for word in ['drawing', 'detail']):
+            return """📋 **Drawing Template**
+
+**Template Sources:**
+• CAD standards folder in DTCE systems
+• Ask your senior engineer for drawing templates
+• Check AutoCAD/Revit template libraries
+
+**Requirements:**
+• DTCE title block and drawing standards
+• Proper revision tracking and approval boxes
+• Scale and dimension standards compliance"""
+
+        elif any(word in question_lower for word in ['letter', 'correspondence']):
+            return """📋 **Engineering Letter Template**
+
+**Template Sources:**
+• DTCE letterhead templates should be available
+• Check with administration or your manager
+• Previous correspondence for format examples
+
+**Requirements:**
+• Include DTCE letterhead and engineer details
+• Clear subject line and reference numbers
+• Professional sign-off with qualifications"""
+
+        else:
+            template_name = template_type.replace('_', ' ').title()
+            return f"""📋 **{template_name} Template**
+
+**Recommended Actions:**
+• **Project Team**: Check with your project manager or senior engineer for DTCE-specific templates
+• **SuiteFiles Search**: Try searching with alternative keywords or browse relevant project folders
+• **Previous Projects**: Look for similar projects that may have used comparable templates
+• **Professional Resources**: Consult relevant professional bodies or industry standards
+
+**General Guidance:**
+• Ensure templates follow DTCE company standards
+• Include appropriate headers and professional formatting
+• Verify you have the most current version before use"""
 
     def _format_template_answer(self, template_docs: List[Dict], template_type: str, question: str) -> str:
         """Format template search results into a comprehensive answer."""
