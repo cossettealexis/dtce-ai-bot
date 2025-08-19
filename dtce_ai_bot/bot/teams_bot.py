@@ -28,6 +28,41 @@ class DTCETeamsBot(ActivityHandler):
         self.search_client = search_client
         self.qa_service = qa_service
         self.project_scoping_service = get_project_scoping_service()
+
+    def _create_teams_message(self, text: str) -> MessageFactory:
+        """Create a properly formatted Teams message that handles line breaks correctly."""
+        # For Teams, we need to split long messages or use plain text format
+        # Teams doesn't handle \n\n well in single messages
+        message = MessageFactory.text(text)
+        return message
+
+    async def _send_teams_message(self, turn_context: TurnContext, text: str):
+        """Send a message to Teams with proper formatting."""
+        # Check if message is too long or has formatting issues
+        if len(text) > 2000 or text.count('\n') > 10:
+            # Split into smaller chunks
+            lines = text.split('\n')
+            current_chunk = []
+            current_length = 0
+            
+            for line in lines:
+                if current_length + len(line) > 1500 and current_chunk:
+                    # Send current chunk
+                    chunk_text = '\n'.join(current_chunk)
+                    await turn_context.send_activity(MessageFactory.text(chunk_text))
+                    current_chunk = [line]
+                    current_length = len(line)
+                else:
+                    current_chunk.append(line)
+                    current_length += len(line) + 1  # +1 for newline
+            
+            # Send remaining chunk
+            if current_chunk:
+                chunk_text = '\n'.join(current_chunk)
+                await turn_context.send_activity(MessageFactory.text(chunk_text))
+        else:
+            # Send as single message
+            await turn_context.send_activity(MessageFactory.text(text))
         
     async def on_members_added_activity(self, members_added: List[ChannelAccount], turn_context: TurnContext):
         """Send welcome message when members are added to conversation."""
@@ -282,10 +317,10 @@ I can analyze client requests and RFPs to:
 • Upload drawings → "Review these structural drawings"
 • "Hi" - Get this welcome message
 
-Just type your question, paste a client request, or upload documents and I'll search through your engineering files to help! 🔍
+        Just type your question, paste a client request, or upload documents and I'll search through your engineering files to help! 🔍
         """
         
-        await turn_context.send_activity(MessageFactory.text(welcome_text.strip()))
+        await self._send_teams_message(turn_context, welcome_text.strip())
 
     async def _send_health_status(self, turn_context: TurnContext):
         """Send system health status."""
@@ -410,27 +445,8 @@ Just type your question, paste a client request, or upload documents and I'll se
             import re
             answer = re.sub(r'📄\s*Sources:.*?(?=\n\n|\Z)', '', answer, flags=re.DOTALL | re.IGNORECASE)
             
-            # Split into multiple messages if the response is too long or has many projects
-            # Teams has better formatting when messages are broken up
-            if len(answer) > 2000 or answer.count('• Project') > 3:
-                # Split by projects for better readability
-                parts = answer.split('• Project')
-                if len(parts) > 1:
-                    # Send header first
-                    header = parts[0].strip()
-                    await turn_context.send_activity(MessageFactory.text(header))
-                    
-                    # Send each project as separate message
-                    for i, part in enumerate(parts[1:], 1):
-                        project_text = '• Project' + part.strip()
-                        if i < len(parts) - 1:  # Not the last one
-                            project_text = project_text.rstrip('\n\nClick any link above to access the project folders in SuiteFiles.')
-                        await turn_context.send_activity(MessageFactory.text(project_text))
-                    return
-            
-            # Send as single message for shorter responses
-            answer_message = MessageFactory.text(answer)
-            await turn_context.send_activity(answer_message)
+            # Use the new Teams message sending method
+            await self._send_teams_message(turn_context, answer)
             
         except Exception as e:
             logger.error("Q&A failed", error=str(e), question=question)
