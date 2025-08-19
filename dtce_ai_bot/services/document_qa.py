@@ -2263,95 +2263,122 @@ Be specific and practical - provide resources that directly address their questi
 
     def _extract_contractor_info(self, content: str) -> List[Dict[str, str]]:
         """Extract contractor names and contact information from document content."""
-        contractors = []
+        if not content or len(content) < 50:
+            return []
         
-        if not content:
-            return contractors
-            
-        # Clean up content first to remove weird formatting
+        contractors = []
+        found_names = set()
+        
+        # Clean content
         content = content.replace('\n', ' ').replace('\r', ' ')
         content = ' '.join(content.split())  # Normalize whitespace
         
-        # More specific patterns for contractor information
-        contractor_patterns = [
-            r'(?:contractor|builder|construction company|built by|constructed by)[\s:\-]+([A-Z][A-Za-z\s&\.]{3,30}(?:Ltd|Limited|Inc|Corporation|Construction|Building|Contractors?))',
-            r'([A-Z][A-Za-z\s&\.]{5,30}(?:Construction|Building|Contractors?)(?:\s+Ltd|\s+Limited)?)',
+        # Very specific patterns to avoid garbage
+        company_patterns = [
+            r'\b([A-Z][a-zA-Z]{2,20}\s+Construction(?:\s+(?:Ltd|Limited))?)\b',
+            r'\b([A-Z][a-zA-Z]{2,20}\s+Building(?:\s+(?:Ltd|Limited))?)\b',
+            r'\b([A-Z][a-zA-Z]{2,20}\s+Contractors?(?:\s+(?:Ltd|Limited))?)\b',
+            r'\b([A-Z][a-zA-Z\s]{5,25}\s+Ltd)\b',
+            r'\b([A-Z][a-zA-Z\s]{5,25}\s+Limited)\b',
         ]
         
-        # Email pattern - more restrictive
-        email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,4}\b'
-        
-        # Phone pattern (NZ format)
-        phone_pattern = r'(?:\+64[\s\-]?|0)[2-9][\s\-]?\d{3}[\s\-]?\d{4}'
-        
-        found_contractors = set()  # Avoid duplicates
-        
-        for pattern in contractor_patterns:
+        # Look for well-formed company names
+        for pattern in company_patterns:
             matches = re.findall(pattern, content, re.IGNORECASE)
-            for match in matches:
-                contractor_name = match.strip()
+            for company_name in matches:
+                company_name = company_name.strip()
                 
-                # Filter out common false positives
-                skip_words = ['and', 'or', 'the', 'that', 'this', 'with', 'from', 'to', 'for', 'we', 'you', 'they']
-                if (len(contractor_name) > 5 and 
-                    contractor_name.lower() not in skip_words and
-                    contractor_name not in found_contractors):
+                # Skip if too short, too long, or already found
+                if (len(company_name) < 6 or 
+                    len(company_name) > 40 or 
+                    company_name in found_names):
+                    continue
+                
+                # Skip obvious false positives
+                bad_words = ['building consent', 'building code', 'construction site', 'construction work']
+                if any(bad in company_name.lower() for bad in bad_words):
+                    continue
                     
-                    found_contractors.add(contractor_name)
+                found_names.add(company_name)
+                
+                # Look for contact info near this company
+                company_pos = content.lower().find(company_name.lower())
+                if company_pos >= 0:
+                    context_start = max(0, company_pos - 150)
+                    context_end = min(len(content), company_pos + len(company_name) + 150)
+                    context = content[context_start:context_end]
                     
-                    # Look for contact info in a wider context around the contractor name
-                    name_pos = content.lower().find(contractor_name.lower())
-                    if name_pos >= 0:
-                        context_start = max(0, name_pos - 300)
-                        context_end = min(len(content), name_pos + len(contractor_name) + 300)
-                        context = content[context_start:context_end]
-                        
-                        emails = re.findall(email_pattern, context)
-                        phones = re.findall(phone_pattern, context)
-                        
+                    # Find emails and phones in context
+                    emails = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,4}\b', context)
+                    phones = re.findall(r'(?:\+64[\s\-]?|0)[2-9][\s\-]?\d{3}[\s\-]?\d{4}', context)
+                    
+                    # Only add if we have either email or phone
+                    if emails or phones:
                         contractors.append({
-                            'name': contractor_name,
-                            'emails': list(set(emails)),  # Remove duplicates
-                            'phones': list(set(phones))   # Remove duplicates
+                            'name': company_name,
+                            'emails': list(set(emails))[:1],  # Max 1 email
+                            'phones': list(set(phones))[:1]   # Max 1 phone
                         })
         
-        return contractors[:10]  # Limit to top 10 to avoid spam
+        return contractors[:3]  # Max 3 contractors to keep response clean
 
     def _format_contractor_answer(self, contractor_info: Dict[str, List[Dict]], question: str) -> str:
-        """Format contractor information into a readable answer."""
+        """Format contractor information into a clean, readable answer."""
         if not contractor_info:
-            return "I could not find specific contractor information in the available documents."
+            return "I couldn't find specific contractor information in our project documents. You may want to check with the project managers for recent contractor recommendations."
         
-        answer_parts = []
-        answer_parts.append("Based on our project documents, here are the contractors and builders we've worked with:")
+        answer = "Based on our project documents, here are contractors we've worked with:\n\n"
         
+        contractor_count = 0
         for project_id, contractors in contractor_info.items():
-            # Clean up project_id display
-            project_display = project_id if project_id and project_id != 'None' else 'Unknown Project'
-            answer_parts.append(f"")  # Empty line for spacing
-            answer_parts.append(f"🏗️ **{project_display}:**")
+            if not contractors:
+                continue
+                
+            # Clean up project display
+            if project_id and project_id != 'None' and project_id != 'Unknown':
+                project_display = f"Project {project_id}"
+            else:
+                project_display = "Previous Projects"
+            
+            answer += f"🏗️ **{project_display}**\n"
             
             for contractor in contractors:
-                answer_parts.append(f"• **{contractor['name']}**")
+                contractor_count += 1
+                contractor_name = contractor['name'].strip()
+                if not contractor_name or len(contractor_name) < 3:
+                    continue
+                    
+                answer += f"• **{contractor_name}**\n"
                 
-                if contractor['emails']:
-                    answer_parts.append(f"  📧 Email: {', '.join(contractor['emails'])}")
+                # Add contact info if available
+                if contractor.get('emails'):
+                    clean_emails = [email for email in contractor['emails'] if '@' in email and '.' in email]
+                    if clean_emails:
+                        answer += f"  📧 {', '.join(clean_emails[:2])}\n"  # Max 2 emails
                 
-                if contractor['phones']:
-                    answer_parts.append(f"  📞 Phone: {', '.join(contractor['phones'])}")
+                if contractor.get('phones'):
+                    clean_phones = [phone for phone in contractor['phones'] if len(phone.replace(' ', '').replace('-', '')) >= 8]
+                    if clean_phones:
+                        answer += f"  📞 {', '.join(clean_phones[:1])}\n"  # Max 1 phone
+                
+                answer += "\n"
         
-        # Add recommendations based on the question
-        if "steel" in question.lower() and "retrofit" in question.lower():
-            answer_parts.append("")  # Empty line
-            answer_parts.append("💡 **For steel structure retrofits, consider:**")
-            answer_parts.append("• Contractors with steel construction experience")
-            answer_parts.append("• Companies familiar with heritage/existing building work")  
-            answer_parts.append("• Builders experienced with structural modifications")
+        # Add context-specific recommendations
+        if contractor_count > 0:
+            answer += "💡 **For your steel structure retrofit:**\n"
+            answer += "• Look for contractors with steel construction experience\n"
+            answer += "• Choose companies familiar with heritage building work\n"
+            answer += "• Verify they have experience with structural modifications\n\n"
+            answer += "⚠️ **Note:** Please verify current contact details and availability. Consider getting recent references for any contractor you're considering."
+        else:
+            answer = "I couldn't find clear contractor contact information in our documents. For steel structure retrofits on heritage buildings, I recommend:\n\n"
+            answer += "• Contacting local steel fabrication companies\n"
+            answer += "• Looking for contractors with heritage building experience\n"
+            answer += "• Checking with building consent authorities for recommended contractors\n"
+            answer += "• Getting multiple quotes from different specialists\n\n"
+            answer += "You may want to check with your project manager for specific contractor recommendations."
         
-        answer_parts.append("")  # Empty line
-        answer_parts.append("⚠️ **Note:** This information is from project documents. Please verify current contact details and availability.")
-        
-        return "\n".join(answer_parts)
+        return answer
 
     def _format_contractor_sources(self, contractor_docs: List[Dict]) -> List[Dict]:
         """Format contractor documents as sources."""
