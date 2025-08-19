@@ -2273,14 +2273,19 @@ Be specific and practical - provide resources that directly address their questi
         content = content.replace('\n', ' ').replace('\r', ' ')
         content = ' '.join(content.split())  # Normalize whitespace
         
-        # Very specific patterns to avoid garbage
+        # Very specific patterns - must end with company identifiers
         company_patterns = [
-            r'\b([A-Z][a-zA-Z]{2,20}\s+Construction(?:\s+(?:Ltd|Limited))?)\b',
-            r'\b([A-Z][a-zA-Z]{2,20}\s+Building(?:\s+(?:Ltd|Limited))?)\b',
-            r'\b([A-Z][a-zA-Z]{2,20}\s+Contractors?(?:\s+(?:Ltd|Limited))?)\b',
-            r'\b([A-Z][a-zA-Z\s]{5,25}\s+Ltd)\b',
-            r'\b([A-Z][a-zA-Z\s]{5,25}\s+Limited)\b',
+            r'\b([A-Z][a-zA-Z]{3,15}\s+Construction\s+(?:Ltd|Limited))\b',
+            r'\b([A-Z][a-zA-Z]{3,15}\s+Building\s+(?:Ltd|Limited))\b',
+            r'\b([A-Z][a-zA-Z]{3,15}\s+Contractors\s+(?:Ltd|Limited))\b',
+            r'\b([A-Z][a-zA-Z]{3,15}\s+Engineering\s+(?:Ltd|Limited))\b',
+            # Specific known good patterns
+            r'\b(Griffiths\s+Construction)\b',
+            r'\b(Strongman\s+Building)\b',
         ]
+        
+        # DTCE emails to exclude (our own company)
+        dtce_domains = ['dtce.co.nz', 'donthomson.co.nz']
         
         # Look for well-formed company names
         for pattern in company_patterns:
@@ -2289,14 +2294,23 @@ Be specific and practical - provide resources that directly address their questi
                 company_name = company_name.strip()
                 
                 # Skip if too short, too long, or already found
-                if (len(company_name) < 6 or 
-                    len(company_name) > 40 or 
+                if (len(company_name) < 8 or 
+                    len(company_name) > 35 or 
                     company_name in found_names):
                     continue
                 
-                # Skip obvious false positives
-                bad_words = ['building consent', 'building code', 'construction site', 'construction work']
-                if any(bad in company_name.lower() for bad in bad_words):
+                # Skip obvious bad matches
+                bad_words = [
+                    'building consent', 'building code', 'construction site', 
+                    'construction work', 'consulting engineers', 'main building',
+                    'scott building', 'wall building', 'and construction',
+                    'which contractor', 'the contractor', 'a contractor'
+                ]
+                if any(bad.lower() in company_name.lower() for bad in bad_words):
+                    continue
+                    
+                # Skip if it contains DTCE (our own company)
+                if 'dtce' in company_name.lower() or 'consulting engineers limited' in company_name.lower():
                     continue
                     
                 found_names.add(company_name)
@@ -2304,49 +2318,73 @@ Be specific and practical - provide resources that directly address their questi
                 # Look for contact info near this company
                 company_pos = content.lower().find(company_name.lower())
                 if company_pos >= 0:
-                    context_start = max(0, company_pos - 150)
-                    context_end = min(len(content), company_pos + len(company_name) + 150)
+                    context_start = max(0, company_pos - 100)
+                    context_end = min(len(content), company_pos + len(company_name) + 100)
                     context = content[context_start:context_end]
                     
                     # Find emails and phones in context
                     emails = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,4}\b', context)
                     phones = re.findall(r'(?:\+64[\s\-]?|0)[2-9][\s\-]?\d{3}[\s\-]?\d{4}', context)
                     
-                    # Only add if we have either email or phone
-                    if emails or phones:
+                    # Filter out DTCE emails
+                    clean_emails = []
+                    for email in emails:
+                        email_lower = email.lower()
+                        if not any(domain in email_lower for domain in dtce_domains):
+                            clean_emails.append(email)
+                    
+                    # Only add if we have external contact info
+                    if clean_emails or phones:
                         contractors.append({
                             'name': company_name,
-                            'emails': list(set(emails))[:1],  # Max 1 email
+                            'emails': clean_emails[:1],  # Max 1 email
                             'phones': list(set(phones))[:1]   # Max 1 phone
                         })
         
-        return contractors[:3]  # Max 3 contractors to keep response clean
+        return contractors[:2]  # Max 2 contractors to keep response very clean
 
     def _format_contractor_answer(self, contractor_info: Dict[str, List[Dict]], question: str) -> str:
         """Format contractor information into a clean, readable answer."""
         if not contractor_info:
             return "I couldn't find specific contractor information in our project documents. You may want to check with the project managers for recent contractor recommendations."
         
+        # Filter out projects with no valid contractors
+        valid_projects = {}
+        for project_id, contractors in contractor_info.items():
+            valid_contractors = [c for c in contractors if c.get('name') and len(c['name']) > 5]
+            if valid_contractors:
+                valid_projects[project_id] = valid_contractors
+        
+        if not valid_projects:
+            return "I couldn't find clear contractor contact information in our documents. For steel structure retrofits on heritage buildings, I recommend contacting local steel fabrication companies with heritage building experience."
+        
         answer = "Based on our project documents, here are contractors we've worked with:\n\n"
         
         contractor_count = 0
-        for project_id, contractors in contractor_info.items():
-            if not contractors:
+        for project_id, contractors in valid_projects.items():
+            # Clean up project display - skip if problematic
+            if (not project_id or 
+                project_id == 'None' or 
+                project_id == 'Unknown' or
+                'unknown' in project_id.lower() or
+                len(project_id) < 3):
                 continue
                 
-            # Clean up project display
-            if project_id and project_id != 'None' and project_id != 'Unknown':
+            # Format project name properly
+            if project_id.isdigit():
                 project_display = f"Project {project_id}"
             else:
-                project_display = "Previous Projects"
+                # Clean up project ID
+                project_clean = project_id.replace('Project ', '').strip()
+                if len(project_clean) > 20:  # Too long, probably corrupted
+                    continue
+                project_display = f"Project {project_clean}"
             
             answer += f"🏗️ **{project_display}**\n"
             
             for contractor in contractors:
                 contractor_count += 1
                 contractor_name = contractor['name'].strip()
-                if not contractor_name or len(contractor_name) < 3:
-                    continue
                     
                 answer += f"• **{contractor_name}**\n"
                 
@@ -2354,7 +2392,7 @@ Be specific and practical - provide resources that directly address their questi
                 if contractor.get('emails'):
                     clean_emails = [email for email in contractor['emails'] if '@' in email and '.' in email]
                     if clean_emails:
-                        answer += f"  📧 {', '.join(clean_emails[:2])}\n"  # Max 2 emails
+                        answer += f"  📧 {', '.join(clean_emails[:1])}\n"  # Max 1 email
                 
                 if contractor.get('phones'):
                     clean_phones = [phone for phone in contractor['phones'] if len(phone.replace(' ', '').replace('-', '')) >= 8]
@@ -2363,13 +2401,13 @@ Be specific and practical - provide resources that directly address their questi
                 
                 answer += "\n"
         
-        # Add context-specific recommendations
+        # Add context-specific recommendations only if we found contractors
         if contractor_count > 0:
             answer += "💡 **For your steel structure retrofit:**\n"
             answer += "• Look for contractors with steel construction experience\n"
             answer += "• Choose companies familiar with heritage building work\n"
             answer += "• Verify they have experience with structural modifications\n\n"
-            answer += "⚠️ **Note:** Please verify current contact details and availability. Consider getting recent references for any contractor you're considering."
+            answer += "⚠️ **Note:** Please verify current contact details and availability."
         else:
             answer = "I couldn't find clear contractor contact information in our documents. For steel structure retrofits on heritage buildings, I recommend:\n\n"
             answer += "• Contacting local steel fabrication companies\n"
