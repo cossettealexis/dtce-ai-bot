@@ -1935,3 +1935,80 @@ async def cancel_sync_job(job_id: str) -> JSONResponse:
             "error": str(e),
             "timestamp": datetime.utcnow().isoformat()
         })
+
+
+@router.post("/index/update")
+async def update_search_index():
+    """
+    Update the Azure Search index schema and configuration.
+    This will recreate the index with the latest schema and semantic search capabilities.
+    """
+    try:
+        from ..integrations.azure_search import create_search_index_if_not_exists
+        
+        logger.info("Starting Azure Search index update")
+        
+        # Update the index with latest schema and semantic search
+        await create_search_index_if_not_exists()
+        
+        logger.info("Azure Search index updated successfully")
+        
+        return JSONResponse({
+            "status": "success",
+            "message": "Azure Search index updated successfully with latest schema and semantic search capabilities",
+            "features_enabled": [
+                "Semantic search for better relevance",
+                "Natural language query understanding", 
+                "Context-aware similarity matching",
+                "Improved document ranking"
+            ],
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error("Failed to update search index", error=str(e))
+        return JSONResponse({
+            "status": "error", 
+            "error": f"Failed to update search index: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        }, status_code=500)
+
+
+@router.get("/index/status")
+async def get_index_status():
+    """
+    Get the current status and configuration of the Azure Search index.
+    """
+    try:
+        from ..integrations.azure_search import get_search_index_client
+        from ..config.settings import get_settings
+        
+        settings = get_settings()
+        index_client = get_search_index_client()
+        
+        # Get index information
+        index = index_client.get_index(settings.azure_search_index_name)
+        
+        # Count documents (approximate)
+        search_client = get_search_client()
+        results = search_client.search("*", include_total_count=True, top=1)
+        doc_count = results.get_count() or 0
+        
+        return JSONResponse({
+            "status": "success",
+            "index_name": settings.azure_search_index_name,
+            "document_count": doc_count,
+            "fields_count": len(index.fields),
+            "semantic_search_enabled": index.semantic_search is not None,
+            "semantic_configurations": len(index.semantic_search.configurations) if index.semantic_search else 0,
+            "created_date": index.last_modified.isoformat() if hasattr(index, 'last_modified') and index.last_modified else None,
+            "timestamp": datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        logger.error("Failed to get index status", error=str(e))
+        return JSONResponse({
+            "status": "error",
+            "error": f"Failed to get index status: {str(e)}",
+            "timestamp": datetime.utcnow().isoformat()
+        }, status_code=500)

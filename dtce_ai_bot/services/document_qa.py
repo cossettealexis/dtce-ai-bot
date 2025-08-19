@@ -1003,7 +1003,7 @@ Content: {content}
         
         # Define keyword categories with their variations
         keyword_categories = {
-            "precast": ["precast", "pre-cast", "precast panel", "precast connection", "unispans", "unispan", "prefab", "prefabricated"],
+            "precast": ["precast", "pre-cast", "precast panel", "precast connection", "unispans", "unispan", "prefab", "prefabricated", "precast concrete", "precast element", "precast beam", "precast slab"],
             "timber": ["timber", "wood", "wooden", "timber frame", "timber framed", "timber retaining", "glulam", "lvl"],
             "concrete": ["concrete", "reinforced concrete", "cast in place", "cast-in-place", "concrete building"],
             "steel": ["steel", "steel frame", "steel structure", "structural steel", "cold-formed"],
@@ -1356,7 +1356,7 @@ Content: {content}
             
             results = self.search_client.search(
                 search_text=search_text,
-                top=100,  # Get many results to find all projects
+                top=500,  # Get many more results to find all projects
                 select=["id", "filename", "content", "blob_url", "project_name", "folder"],
                 query_type="semantic",  # Semantic search will find similar concepts
                 semantic_configuration_name="default"  # Use the semantic configuration we defined
@@ -1392,6 +1392,8 @@ Content: {content}
         """Extract unique project numbers from keyword-related documents."""
         projects = {}
         
+        logger.info(f"Extracting projects from {len(keyword_docs)} documents for keywords: {keywords}")
+        
         for doc in keyword_docs:
             blob_url = doc.get('blob_url', '')
             project_id = self._extract_project_from_url(blob_url)
@@ -1420,6 +1422,7 @@ Content: {content}
                         if keyword not in projects[project_id]['keywords_found']:
                             projects[project_id]['keywords_found'].append(keyword)
         
+        logger.info(f"Found {len(projects)} unique projects: {list(projects.keys())}")
         return projects
 
     def _format_keyword_project_answer(self, projects_found: Dict[str, Dict], keywords: List[str]) -> str:
@@ -1431,45 +1434,32 @@ Content: {content}
         keywords_text = ', '.join(keywords).title()
         total_documents = sum(project_info['document_count'] for project_info in projects_found.values())
         
-        if project_count == 1 and total_documents <= 3:
-            # Single project with few documents - conversational
-            project_id, project_info = list(projects_found.items())[0]
+        # Always show detailed list format to display all projects
+        if project_count == 1:
+            answer = f"I found **{total_documents} documents** related to {keywords_text} in **1 project**:\n\n"
+        else:
+            answer = f"I found **{project_count} projects** with **{total_documents} total documents** related to {keywords_text}:\n\n"
+        
+        project_list = []
+        for project_id, project_info in sorted(projects_found.items()):
             doc_count = project_info['document_count']
             suitefiles_url = project_info['suitefiles_url']
             keywords_found = project_info['keywords_found']
+            sample_files = project_info.get('sample_documents', [])
             
-            answer = f"I found **Project {project_id}** which has {doc_count} documents related to {keywords_text}.\n\n"
-            if keywords_found:
-                answer += f"**Keywords Found:** {', '.join(keywords_found).title()}\n\n"
-            answer += f"📁 **View Project Files:** [Open in SuiteFiles]({suitefiles_url})\n\n"
-            answer += "This will take you directly to the project folder where you can access all the related documents."
-        else:
-            # Multiple projects OR single project with many documents - show detailed list
-            if project_count == 1:
-                answer = f"I found **{total_documents} documents** related to {keywords_text} in **1 project**:\n\n"
-            else:
-                answer = f"I found **{project_count} projects** with **{total_documents} total documents** related to {keywords_text}:\n\n"
+            keywords_display = f" ({', '.join(keywords_found)})" if keywords_found else ""
+            project_entry = f"• **Project {project_id}** - {doc_count} documents{keywords_display}\n  📁 [View Files]({suitefiles_url})"
             
-            project_list = []
-            for project_id, project_info in sorted(projects_found.items()):
-                doc_count = project_info['document_count']
-                suitefiles_url = project_info['suitefiles_url']
-                keywords_found = project_info['keywords_found']
-                sample_files = project_info.get('sample_documents', [])
-                
-                keywords_display = f" ({', '.join(keywords_found)})" if keywords_found else ""
-                project_entry = f"• **Project {project_id}** - {doc_count} documents{keywords_display}\n  📁 [View Files]({suitefiles_url})"
-                
-                # Show sample files if available
-                if sample_files and doc_count > 3:
-                    project_entry += f"\n  📄 Sample files: {', '.join(sample_files[:3])}"
-                    if len(sample_files) > 3:
-                        project_entry += f" (and {doc_count - 3} more)"
-                
-                project_list.append(project_entry)
+            # Show sample files if available
+            if sample_files:
+                project_entry += f"\n  📄 Sample files: {', '.join(sample_files[:3])}"
+                if doc_count > len(sample_files):
+                    project_entry += f" (and {doc_count - len(sample_files)} more)"
             
-            answer += "\n\n".join(project_list)
-            answer += "\n\nClick any link above to access the project folders in SuiteFiles."
+            project_list.append(project_entry)
+        
+        answer += "\n\n".join(project_list)
+        answer += "\n\nClick any link above to access the project folders in SuiteFiles."
         
         return answer
 
