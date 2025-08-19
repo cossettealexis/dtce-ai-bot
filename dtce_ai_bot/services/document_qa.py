@@ -4509,7 +4509,10 @@ Focus on practical regulatory guidance that can be applied to similar situations
             }
             
         except Exception as e:
-            logger.error("Template search query failed", error=str(e))
+            logger.error("Template search query failed", error=str(e), error_type=type(e).__name__)
+            # Add more detailed error logging
+            import traceback
+            logger.error("Template search error traceback", traceback=traceback.format_exc())
             return {
                 'answer': 'I encountered an error while searching for templates. Please check SuiteFiles directly or contact your team for template access.',
                 'sources': [],
@@ -4752,22 +4755,26 @@ Focus on practical regulatory guidance that can be applied to similar situations
         sources = []
         
         for doc in template_docs[:5]:  # Limit to top 5 sources
-            # Use the reusable method for proper Base64 decoding
-            doc_info = self._extract_document_info(doc)
-            filename = doc_info['filename']
-            project_id = doc_info['project_id']  # Fix: use project_id instead of project_name
-            
-            # Skip sources with missing essential info
-            if not filename or filename == 'None':
-                continue
+            try:
+                # Use the reusable method for proper Base64 decoding
+                doc_info = self._extract_document_info(doc)
+                filename = doc_info['filename']
+                project_id = doc_info['project_id']  # Fix: use project_id instead of project_name
                 
-            sources.append({
-                'filename': filename,
-                'project_id': project_id or 'Template Library',
-                'relevance_score': doc.get('@search.score', 0.9),
-                'blob_url': doc.get('blob_url', ''),
-                'excerpt': f"Template document: {filename}"
-            })
+                # Skip sources with missing essential info
+                if not filename or filename == 'None':
+                    continue
+                    
+                sources.append({
+                    'filename': filename,
+                    'project_id': project_id or 'Template Library',
+                    'relevance_score': doc.get('@search.score', 0.9),
+                    'blob_url': doc.get('blob_url', ''),
+                    'excerpt': f"Template document: {filename}"
+                })
+            except Exception as e:
+                logger.warning(f"Failed to format template source: {e}, doc keys: {list(doc.keys()) if isinstance(doc, dict) else 'not dict'}")
+                continue
         
         return sources
 
