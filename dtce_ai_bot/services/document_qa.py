@@ -4518,63 +4518,73 @@ Focus on practical regulatory guidance that can be applied to similar situations
             }
 
     def _identify_template_type(self, question: str) -> str:
-        """Identify what type of template the user is looking for."""
+        """Identify what type of template the user is looking for using flexible pattern matching."""
         question_lower = question.lower()
         
-        # PS Templates
-        if any(term in question_lower for term in ['ps1', 'ps 1', 'producer statement 1']):
+        # PS Templates - be more flexible with variations
+        if any(term in question_lower for term in ['ps1', 'ps 1', 'ps-1', 'producer statement 1', 'producer statement design']):
             return 'PS1'
-        elif any(term in question_lower for term in ['ps1a', 'ps 1a', 'producer statement 1a']):
+        elif any(term in question_lower for term in ['ps1a', 'ps 1a', 'ps-1a', 'producer statement 1a']):
             return 'PS1A'
-        elif any(term in question_lower for term in ['ps3', 'ps 3', 'producer statement 3']):
+        elif any(term in question_lower for term in ['ps3', 'ps 3', 'ps-3', 'producer statement 3', 'producer statement construction']):
             return 'PS3'
-        elif any(term in question_lower for term in ['ps4', 'ps 4', 'producer statement 4']):
+        elif any(term in question_lower for term in ['ps4', 'ps 4', 'ps-4', 'producer statement 4', 'producer statement review']):
             return 'PS4'
-        elif 'producer statement' in question_lower:
+        elif any(term in question_lower for term in ['producer statement', 'ps ', ' ps']):
             return 'PS_GENERAL'
             
-        # Design Spreadsheets
-        elif any(term in question_lower for term in ['timber beam', 'beam design', 'timber design']):
+        # Design and Engineering Spreadsheets - more flexible terms
+        elif any(term in question_lower for term in ['timber beam', 'beam design', 'timber design', 'wood beam', 'timber calculator']):
             return 'TIMBER_BEAM_DESIGN'
-        elif any(term in question_lower for term in ['concrete beam', 'concrete design']):
+        elif any(term in question_lower for term in ['concrete beam', 'concrete design', 'concrete calculator', 'reinforced concrete']):
             return 'CONCRETE_DESIGN'
-        elif any(term in question_lower for term in ['steel beam', 'steel design']):
+        elif any(term in question_lower for term in ['steel beam', 'steel design', 'steel calculator', 'structural steel']):
             return 'STEEL_DESIGN'
-        elif any(term in question_lower for term in ['spreadsheet', 'calculator', 'design tool']):
+        elif any(term in question_lower for term in ['foundation design', 'foundation calculator', 'footing design']):
+            return 'FOUNDATION_DESIGN'
+        elif any(term in question_lower for term in ['seismic', 'earthquake', 'seismic design', 'seismic assessment']):
+            return 'SEISMIC_DESIGN'
+        elif any(term in question_lower for term in ['spreadsheet', 'calculator', 'design tool', 'excel']):
             return 'DESIGN_SPREADSHEET'
             
-        # General templates
-        elif any(term in question_lower for term in ['template', 'form', 'document']):
+        # General document types
+        elif any(term in question_lower for term in ['checklist', 'check list']):
+            return 'CHECKLIST'
+        elif any(term in question_lower for term in ['report template', 'report format']):
+            return 'REPORT_TEMPLATE'
+        elif any(term in question_lower for term in ['template', 'form', 'format', 'example']):
             return 'GENERAL_TEMPLATE'
+        
+        # If no specific pattern matches, it's unknown - let the search be flexible
         else:
             return 'UNKNOWN'
 
     async def _search_template_documents(self, question: str, template_type: str) -> List[Dict]:
-        """Search for template documents in SuiteFiles."""
+        """Search for template documents in SuiteFiles using flexible approach."""
         
-        # Build search terms based on template type
-        search_terms = {
-            'PS1': ['PS1', 'producer statement 1', 'PS-1', 'producer statement', 'template'],
-            'PS1A': ['PS1A', 'PS1-A', 'producer statement 1A', 'PS-1A', 'template'],
-            'PS3': ['PS3', 'producer statement 3', 'PS-3', 'producer statement', 'template'],
-            'PS4': ['PS4', 'producer statement 4', 'PS-4', 'producer statement', 'template'],
-            'PS_GENERAL': ['producer statement', 'PS', 'template', 'form'],
-            'TIMBER_BEAM_DESIGN': ['timber beam', 'timber design', 'beam calculator', 'timber spreadsheet'],
-            'CONCRETE_DESIGN': ['concrete beam', 'concrete design', 'concrete calculator', 'concrete spreadsheet'],
-            'STEEL_DESIGN': ['steel beam', 'steel design', 'steel calculator', 'steel spreadsheet'],
-            'DESIGN_SPREADSHEET': ['design spreadsheet', 'calculator', 'design tool', 'template'],
-            'GENERAL_TEMPLATE': ['template', 'form', 'document'],
-            'UNKNOWN': [question]  # Use the original question
-        }
+        # Start with the original question as primary search term
+        primary_terms = [question]
         
-        terms = search_terms.get(template_type, [question])
-        search_query = ' '.join(terms)
+        # Add contextual terms based on template type (but don't override the question)
+        contextual_terms = []
+        
+        if template_type.startswith('PS'):
+            contextual_terms.extend(['producer statement', 'template', 'form'])
+        elif 'DESIGN' in template_type:
+            contextual_terms.extend(['design', 'spreadsheet', 'calculator', 'template'])
+        elif template_type in ['GENERAL_TEMPLATE', 'UNKNOWN']:
+            contextual_terms.extend(['template', 'form', 'document'])
+        
+        # Combine original question with contextual terms
+        search_query = question
+        if contextual_terms:
+            search_query += f" OR {' OR '.join(contextual_terms)}"
         
         # Search with focus on templates and forms
         results = self.search_client.search(
             search_text=search_query,
-            top=20,
-            select=["id", "filename", "content", "blob_url", "project_name", "folder"],
+            top=25,  # Increased to get more potential matches
+            select=["id", "filename", "content", "blob_url", "project_id", "folder"],
             query_type="semantic",
             semantic_configuration_name="default"
         )
@@ -4585,69 +4595,94 @@ Focus on practical regulatory guidance that can be applied to similar situations
             filename = (doc_dict.get('filename') or '').lower()
             content = (doc_dict.get('content') or '').lower()
             
-            # Filter for template-like documents
+            # More flexible template detection - look for various indicators
             template_indicators = [
                 'template', 'form', 'ps1', 'ps3', 'ps4', 'producer statement',
                 'spreadsheet', 'calculator', 'design tool', '.xlsx', '.xls',
-                'beam design', 'concrete design', 'steel design'
+                'beam design', 'concrete design', 'steel design', 'checklist',
+                'format', 'example', 'blank', 'fillable'
             ]
             
-            if any(indicator in filename or indicator in content for indicator in template_indicators):
+            # Also check if the content seems template-like (has placeholders, instructions, etc.)
+            template_content_indicators = [
+                '[insert', '[fill', 'enter your', 'complete this', 'instructions:',
+                'step 1', 'step 2', 'procedure', 'guidelines'
+            ]
+            
+            is_template_like = (
+                any(indicator in filename for indicator in template_indicators) or
+                any(indicator in content for indicator in template_indicators) or
+                any(indicator in content for indicator in template_content_indicators)
+            )
+            
+            if is_template_like:
                 template_docs.append(doc_dict)
         
         return template_docs
 
     async def _provide_external_template_links(self, question: str, template_type: str) -> Dict[str, Any]:
-        """Provide external links when templates are not found in SuiteFiles."""
+        """Provide intelligent guidance when templates are not found in SuiteFiles."""
         
-        external_links = {
-            'PS1': {
-                'title': 'PS1 - Producer Statement Design',
-                'links': [
-                    'https://www.building.govt.nz/building-code-compliance/how-the-building-consent-process-works/documentation-for-a-building-consent/producer-statements/',
-                    'https://www.ipenz.org.nz/practice/producer-statements/'
-                ]
-            },
-            'PS3': {
-                'title': 'PS3 - Producer Statement Construction',
-                'links': [
-                    'https://www.building.govt.nz/building-code-compliance/how-the-building-consent-process-works/documentation-for-a-building-consent/producer-statements/',
-                    'https://www.ipenz.org.nz/practice/producer-statements/'
-                ]
-            },
-            'PS4': {
-                'title': 'PS4 - Producer Statement Construction Review',
-                'links': [
-                    'https://www.building.govt.nz/building-code-compliance/how-the-building-consent-process-works/documentation-for-a-building-consent/producer-statements/'
-                ]
-            }
-        }
+        # Use AI to understand what the user is really looking for
+        analysis_prompt = f"""
+        The user asked: "{question}"
         
-        link_info = external_links.get(template_type, {
-            'title': 'Engineering Templates',
-            'links': [
-                'https://www.building.govt.nz/building-code-compliance/',
-                'https://www.engineering.org.nz/resources/'
-            ]
-        })
+        We couldn't find relevant templates in our internal documents. 
         
-        answer = f"I couldn't find a {template_type} template in our SuiteFiles documents.\n\n"
-        answer += f"📋 **{link_info['title']} - External Resources:**\n"
+        Analyze this question and provide:
+        1. What specific type of document/template they likely need
+        2. Relevant external resources (professional engineering bodies, government sites, industry standards)
+        3. Alternative approaches they could take
+        4. Questions they should ask their team/supervisor
         
-        for link in link_info['links']:
-            answer += f"• {link}\n"
+        Be specific and helpful. Don't make assumptions about what they need.
+        Focus on the actual intent behind their question.
+        """
         
-        answer += "\n💡 **Recommendations:**\n"
-        answer += "• Check with your team lead for DTCE-specific templates\n"
-        answer += "• Contact Engineering New Zealand for official forms\n"
-        answer += "• Ask your local council for their preferred template formats\n"
+        try:
+            # Get AI analysis of what the user really needs
+            ai_response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "You are a helpful engineering assistant. Provide practical, specific guidance for finding engineering documents and templates. Be concise but thorough."
+                    },
+                    {"role": "user", "content": analysis_prompt}
+                ],
+                max_tokens=400,
+                temperature=0.3
+            )
+            
+            ai_guidance = ai_response.choices[0].message.content
+            
+            answer = f"I couldn't find specific templates for your request in our SuiteFiles documents.\n\n"
+            answer += f"**Based on your question about '{question}':**\n\n"
+            answer += ai_guidance
+            answer += "\n\n💡 **Next Steps:**\n"
+            answer += "• Try rephrasing your question with different keywords\n"
+            answer += "• Contact your team lead for DTCE-specific templates\n"
+            answer += "• Check if the document might be filed under a different name\n"
+            
+        except Exception as e:
+            logger.warning(f"Failed to get AI guidance for template request: {e}")
+            
+            # Fallback to basic response without hardcoded assumptions
+            answer = f"I couldn't find templates matching your request in our SuiteFiles documents.\n\n"
+            answer += f"**For your question: '{question}'**\n\n"
+            answer += "🔍 **Suggestions:**\n"
+            answer += "• Try using different keywords or terminology\n"
+            answer += "• Check with your team lead for available templates\n"
+            answer += "• Contact Engineering New Zealand for professional templates\n"
+            answer += "• Search the DTCE shared drive for relevant documents\n\n"
+            answer += "💭 **Alternative approach:** Try asking about the specific engineering task or calculation you need help with instead of looking for a template."
         
         return {
             'answer': answer,
             'sources': [],
-            'confidence': 'medium',
+            'confidence': 'low',
             'documents_searched': 0,
-            'search_type': 'external_template_links'
+            'search_type': 'intelligent_guidance'
         }
 
     def _format_template_answer(self, template_docs: List[Dict], template_type: str, question: str) -> str:
