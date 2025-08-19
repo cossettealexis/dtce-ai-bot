@@ -4584,7 +4584,7 @@ Focus on practical regulatory guidance that can be applied to similar situations
         results = self.search_client.search(
             search_text=search_query,
             top=25,  # Increased to get more potential matches
-            select=["id", "filename", "content", "blob_url", "project_id", "folder"],
+            select=["id", "filename", "content", "blob_url", "project_name", "folder"],
             query_type="semantic",
             semantic_configuration_name="default"
         )
