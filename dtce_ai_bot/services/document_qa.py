@@ -87,48 +87,9 @@ class DocumentQAService:
                 return await self._handle_web_search_query(question, project_filter)
             elif handler_type == "contractor_search":
                 return await self._handle_contractor_search_query(question, project_filter)
-            else:  # general_search
-                # Fall back to normal document search
-                pass
-            
-            # Convert dates in the question to match filename formats
-            converted_question = self._convert_date_formats(question)
-            
-            # Step 1: Search for relevant documents
-            relevant_docs = await self._search_relevant_documents(converted_question, project_filter)
-            
-            if not relevant_docs:
-                return {
-                    'answer': 'I could not find any relevant documents to answer your question.',
-                    'sources': [],
-                    'confidence': 'low',
-                    'documents_searched': 0
-                }
-            
-            # Step 2: Prepare context from relevant documents
-            context = self._prepare_context(relevant_docs)
-            
-            # Step 3: Generate answer using GPT
-            answer_response = await self._generate_answer(question, context)
-            
-            # Step 4: Format response with sources
-            return {
-                'answer': answer_response['answer'],
-                'sources': [
-                    {
-                        'filename': self._extract_document_info(doc)['filename'],  # Use comprehensive extraction
-                        'project_id': self._extract_document_info(doc)['project_id'] or 'Unknown',  # Use comprehensive extraction
-                        'relevance_score': doc['@search.score'],
-                        'blob_url': doc.get('blob_url', ''),
-                        'excerpt': doc.get('@search.highlights', {}).get('content',  # Use existing field name 
-                                  doc.get('@search.highlights', {}).get('content_preview', ['']))[0][:200] + '...'
-                    }
-                    for doc in relevant_docs[:3]  # Top 3 sources
-                ],
-                'confidence': answer_response['confidence'],
-                'documents_searched': len(relevant_docs),
-                'processing_time': answer_response.get('processing_time', 0)
-            }
+            else:  # general_search or fallback
+                # Use intelligent general search instead of dumb keyword matching
+                return await self._handle_intelligent_general_query(question, project_filter, classification)
             
         except Exception as e:
             logger.error("Question answering failed", error=str(e), question=question)
@@ -4492,27 +4453,38 @@ Focus on practical regulatory guidance that can be applied to similar situations
         try:
             logger.info("Processing template search query", question=question)
             
-            # Extract template type from question
-            template_type = self._identify_template_type(question)
+            # First, analyze the intent - are they asking for templates or asking ABOUT templates?
+            intent_analysis = await self._analyze_template_question_intent(question)
             
-            # Search for template documents
-            template_docs = await self._search_template_documents(question, template_type)
-            
-            if not template_docs:
-                # If no templates found in SuiteFiles, provide external links
-                return await self._provide_external_template_links(question, template_type)
-            
-            # Format the answer with direct SuiteFiles links
-            answer = self._format_template_answer(template_docs, template_type, question)
-            sources = self._format_template_sources(template_docs)
-            
-            return {
-                'answer': answer,
-                'sources': sources,
-                'confidence': 'high',
-                'documents_searched': len(template_docs),
-                'search_type': 'template_search'
-            }
+            if intent_analysis['intent'] == 'process_guidance':
+                # They're asking about how to do something, timing, process, etc.
+                return await self._provide_template_process_guidance(question, intent_analysis)
+            elif intent_analysis['intent'] == 'template_files':
+                # They actually want template files
+                # Extract template type from question
+                template_type = self._identify_template_type(question)
+                
+                # Search for template documents
+                template_docs = await self._search_template_documents(question, template_type)
+                
+                if not template_docs:
+                    # If no templates found in SuiteFiles, provide external links
+                    return await self._provide_external_template_links(question, template_type)
+                
+                # Format the answer with direct SuiteFiles links
+                answer = self._format_template_answer(template_docs, template_type, question)
+                sources = self._format_template_sources(template_docs)
+                
+                return {
+                    'answer': answer,
+                    'sources': sources,
+                    'confidence': 'high',
+                    'documents_searched': len(template_docs),
+                    'search_type': 'template_search'
+                }
+            else:
+                # Mixed intent or unclear - provide both guidance and templates
+                return await self._provide_comprehensive_template_response(question, intent_analysis)
             
         except Exception as e:
             logger.error("Template search query failed", error=str(e), error_type=type(e).__name__)
@@ -4525,6 +4497,233 @@ Focus on practical regulatory guidance that can be applied to similar situations
                 'confidence': 'error',
                 'documents_searched': 0
             }
+
+    async def _analyze_template_question_intent(self, question: str) -> Dict[str, Any]:
+        """Analyze whether user wants template files or guidance about templates."""
+        question_lower = question.lower()
+        
+        # Process/guidance indicators
+        process_indicators = [
+            'how long', 'how much time', 'duration', 'take to', 'preparation time',
+            'how to', 'process', 'steps', 'procedure', 'requirements', 'what do i need',
+            'how do i', 'guidance', 'help with', 'assist', 'explain', 'when to',
+            'why', 'what is', 'difference between', 'compare', 'typical',
+            'usually', 'normally', 'generally', 'best practice'
+        ]
+        
+        # Template file indicators  
+        template_indicators = [
+            'template', 'form', 'download', 'file', 'document', 'spreadsheet',
+            'get the', 'need the', 'find the', 'access', 'link to', 'copy of'
+        ]
+        
+        process_score = sum(1 for indicator in process_indicators if indicator in question_lower)
+        template_score = sum(1 for indicator in template_indicators if indicator in question_lower)
+        
+        if process_score > template_score:
+            return {
+                'intent': 'process_guidance',
+                'confidence': process_score / len(process_indicators),
+                'topic': self._extract_template_topic(question)
+            }
+        elif template_score > process_score:
+            return {
+                'intent': 'template_files',
+                'confidence': template_score / len(template_indicators),
+                'topic': self._extract_template_topic(question)
+            }
+        else:
+            return {
+                'intent': 'mixed',
+                'confidence': 0.5,
+                'topic': self._extract_template_topic(question)
+            }
+
+    def _extract_template_topic(self, question: str) -> str:
+        """Extract what type of template they're asking about."""
+        question_lower = question.lower()
+        
+        if any(term in question_lower for term in ['ps1', 'producer statement 1']):
+            return 'PS1'
+        elif any(term in question_lower for term in ['ps3', 'producer statement 3']):
+            return 'PS3'
+        elif any(term in question_lower for term in ['ps4', 'producer statement 4']):
+            return 'PS4'
+        elif 'producer statement' in question_lower:
+            return 'producer_statement'
+        elif any(term in question_lower for term in ['seismic', 'earthquake']):
+            return 'seismic'
+        elif any(term in question_lower for term in ['foundation', 'footing']):
+            return 'foundation'
+        else:
+            return 'general'
+
+    async def _provide_template_process_guidance(self, question: str, intent_analysis: Dict) -> Dict[str, Any]:
+        """Provide guidance about template processes, timing, requirements, etc."""
+        
+        topic = intent_analysis['topic']
+        
+        # Use AI to provide comprehensive guidance
+        guidance_prompt = f"""
+        The user asked: "{question}"
+        
+        This is about {topic} in structural engineering context. 
+        
+        Provide a helpful, practical answer that covers:
+        1. Typical timeframes and duration
+        2. Process steps and requirements  
+        3. Who needs to be involved
+        4. Key considerations and best practices
+        5. Common challenges or tips
+        
+        Be specific and practical. Draw from engineering best practices.
+        Keep it conversational but professional.
+        """
+        
+        try:
+            ai_response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "You are a helpful structural engineering assistant with expertise in New Zealand engineering practices, producer statements, and project processes."
+                    },
+                    {"role": "user", "content": guidance_prompt}
+                ],
+                max_tokens=500,
+                temperature=0.3
+            )
+            
+            answer = ai_response.choices[0].message.content
+            
+            # Add specific template links if relevant
+            if topic in ['PS1', 'PS3', 'PS4', 'producer_statement']:
+                answer += "\n\n📋 **Need the actual templates?** Let me know and I can help you find the specific template files in SuiteFiles."
+            
+            return {
+                'answer': answer,
+                'sources': [],
+                'confidence': 'high',
+                'documents_searched': 0,
+                'search_type': 'process_guidance'
+            }
+            
+        except Exception as e:
+            logger.warning(f"Failed to get AI guidance: {e}")
+            
+            # Fallback to predefined guidance
+            fallback_answer = self._get_fallback_guidance(topic, question)
+            
+            return {
+                'answer': fallback_answer,
+                'sources': [],
+                'confidence': 'medium',
+                'documents_searched': 0,
+                'search_type': 'fallback_guidance'
+            }
+
+    def _get_fallback_guidance(self, topic: str, question: str) -> str:
+        """Provide fallback guidance when AI is unavailable."""
+        
+        if topic == 'PS1':
+            return """**PS1 (Producer Statement Design) - Typical Preparation Time:**
+
+⏱️ **Duration:** Usually 2-4 hours for experienced engineers, depending on complexity
+
+📋 **Process Steps:**
+1. **Design Review** (30-60 mins) - Review structural calculations and drawings
+2. **Code Compliance Check** (45-90 mins) - Verify compliance with building codes  
+3. **Documentation** (30-60 mins) - Complete PS1 form with design details
+4. **Quality Review** (15-30 mins) - Internal review before signing
+
+👤 **Requirements:**
+• Must be completed by a Chartered Professional Engineer (CPEng)
+• Design must be substantially complete
+• All relevant calculations and drawings available
+
+💡 **Tips for Efficiency:**
+• Have all design documentation ready before starting
+• Use standardized templates and checklists
+• Allow extra time for complex or unusual structures
+• Consider peer review for high-risk projects
+
+Need the PS1 template files? Let me know and I can help you find them in SuiteFiles."""
+            
+        elif topic in ['PS3', 'PS4', 'producer_statement']:
+            return f"""**Producer Statement Preparation - General Guidance:**
+
+⏱️ **Typical Timeline:** 1-4 hours depending on statement type and project complexity
+
+📋 **Key Considerations:**
+• PS1 (Design): 2-4 hours - requires complete design review
+• PS3 (Construction): 1-3 hours - depends on construction complexity  
+• PS4 (Construction Review): 2-3 hours - thorough inspection required
+
+👤 **Who Can Prepare:**
+• Must be a Chartered Professional Engineer (CPEng)
+• Relevant experience in the specific area required
+• Current practicing certificate essential
+
+💡 **Best Practices:**
+• Allow adequate time for thorough review
+• Keep detailed records of the review process
+• Ensure all supporting documentation is available
+• Consider the liability implications
+
+Would you like me to help you find specific template files in SuiteFiles?"""
+        
+        else:
+            return f"""**Engineering Process Guidance:**
+
+Based on your question about "{question}", here are some general guidelines:
+
+⏱️ **Planning:** Allow adequate time for thorough preparation and review
+📋 **Process:** Follow established procedures and best practices  
+👥 **Collaboration:** Involve appropriate team members and stakeholders
+📝 **Documentation:** Maintain clear records throughout the process
+
+For specific guidance on your situation, I recommend:
+• Consulting with your team lead or senior engineer
+• Reviewing relevant standards and guidelines
+• Checking DTCE's internal procedures
+
+Would you like me to search for specific templates or documents that might help?"""
+
+    async def _provide_comprehensive_template_response(self, question: str, intent_analysis: Dict) -> Dict[str, Any]:
+        """Provide both guidance and template files when intent is mixed."""
+        
+        # Get the guidance part
+        guidance_response = await self._provide_template_process_guidance(question, intent_analysis)
+        
+        # Get template files
+        template_type = self._identify_template_type(question)
+        template_docs = await self._search_template_documents(question, template_type)
+        
+        # Combine both
+        combined_answer = guidance_response['answer']
+        
+        if template_docs:
+            combined_answer += f"\n\n📁 **Related Templates Found:**\n"
+            # Add a brief list of key templates (not the full dump)
+            key_templates = template_docs[:3]  # Just show top 3
+            for doc in key_templates:
+                doc_info = self._extract_document_info(doc)
+                filename = doc_info['filename']
+                if filename and filename != 'Unknown':
+                    combined_answer += f"• {filename}\n"
+            
+            if len(template_docs) > 3:
+                combined_answer += f"• ... and {len(template_docs) - 3} more templates available\n"
+                
+            combined_answer += "\n💡 Ask specifically for \"PS1 templates\" if you need the complete list of template files."
+        
+        return {
+            'answer': combined_answer,
+            'sources': guidance_response.get('sources', []),
+            'confidence': 'high',
+            'documents_searched': len(template_docs) if template_docs else 0,
+            'search_type': 'comprehensive_guidance'
+        }
 
     def _identify_template_type(self, question: str) -> str:
         """Identify what type of template the user is looking for using flexible pattern matching."""
@@ -5377,3 +5576,330 @@ What can I help you find?"""
                 'confidence': 'medium',
                 'documents_searched': 0
             }
+
+    async def _handle_intelligent_general_query(self, question: str, project_filter: Optional[str] = None, classification: Optional[Dict] = None) -> Dict[str, Any]:
+        """
+        Handle general queries with intelligence - understand intent even when not specifically classified.
+        This prevents falling back to dumb keyword-based template dumps.
+        """
+        try:
+            logger.info("Processing intelligent general query", question=question)
+            
+            # Extract user intent from the question using AI analysis
+            intent_analysis = await self._analyze_question_intent(question, classification)
+            
+            # Search for relevant documents with intent-aware search
+            relevant_docs = await self._search_with_intent(question, intent_analysis, project_filter)
+            
+            if not relevant_docs:
+                # Provide intelligent response even without documents
+                return await self._generate_no_docs_intelligent_response(question, intent_analysis)
+            
+            # Prepare context with intent awareness
+            context = self._prepare_intent_aware_context(relevant_docs, intent_analysis)
+            
+            # Generate answer with intent understanding
+            answer = await self._generate_intent_aware_answer(question, context, intent_analysis)
+            
+            return {
+                'answer': answer,
+                'sources': self._format_intelligent_sources(relevant_docs, intent_analysis),
+                'confidence': 'high' if len(relevant_docs) >= 3 else 'medium',
+                'documents_searched': len(relevant_docs),
+                'search_type': 'intelligent_general',
+                'intent_analysis': intent_analysis
+            }
+            
+        except Exception as e:
+            logger.error("Intelligent general query failed", error=str(e))
+            return {
+                'answer': 'I encountered an error while processing your question intelligently. Please try rephrasing your question.',
+                'sources': [],
+                'confidence': 'error',
+                'documents_searched': 0
+            }
+
+    async def _analyze_question_intent(self, question: str, classification: Optional[Dict] = None) -> Dict[str, Any]:
+        """Analyze what the user actually wants from their question."""
+        
+        system_prompt = """Analyze the user's question to understand their true intent and information needs.
+
+        INTENT CATEGORIES:
+        - seeking_guidance: User wants advice, recommendations, or how-to information
+        - seeking_examples: User wants to see past examples, case studies, or similar situations  
+        - seeking_specifications: User wants technical details, codes, standards, or specific requirements
+        - seeking_processes: User wants to understand workflows, procedures, or step-by-step processes
+        - seeking_data: User wants specific facts, numbers, timelines, or quantitative information
+        - seeking_contacts: User wants contact information, vendor details, or people references
+        - seeking_comparison: User wants to compare options, alternatives, or trade-offs
+        - seeking_troubleshooting: User has a problem and wants solutions or debugging help
+
+        INFORMATION EXTRACTION:
+        - Extract key concepts, technical terms, and domain areas
+        - Identify what type of response would be most helpful
+        - Determine if user wants general information or specific project details
+        - Note any constraints, preferences, or context clues
+
+        Return JSON with: intent_category, key_concepts, response_type_needed, user_goal"""
+        
+        user_prompt = f"""Question: {question}
+
+        Existing classification: {classification}
+        
+        Analyze this question and return a JSON response with the user's true intent and information needs."""
+        
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.1,
+                max_tokens=300
+            )
+            
+            import json
+            intent_text = response.choices[0].message.content.strip()
+            # Extract JSON from response
+            if '{' in intent_text:
+                json_start = intent_text.find('{')
+                json_end = intent_text.rfind('}') + 1
+                intent_analysis = json.loads(intent_text[json_start:json_end])
+            else:
+                # Fallback if JSON parsing fails
+                intent_analysis = {
+                    "intent_category": "seeking_guidance",
+                    "key_concepts": [question.lower()],
+                    "response_type_needed": "comprehensive_answer",
+                    "user_goal": "general_information"
+                }
+                
+            return intent_analysis
+            
+        except Exception as e:
+            logger.error("Intent analysis failed", error=str(e))
+            return {
+                "intent_category": "seeking_guidance", 
+                "key_concepts": [question.lower()],
+                "response_type_needed": "comprehensive_answer",
+                "user_goal": "general_information"
+            }
+
+    async def _search_with_intent(self, question: str, intent_analysis: Dict, project_filter: Optional[str] = None) -> List[Dict]:
+        """Search for documents with understanding of user intent."""
+        
+        intent_category = intent_analysis.get('intent_category', 'seeking_guidance')
+        key_concepts = intent_analysis.get('key_concepts', [])
+        
+        # Build intent-aware search terms
+        search_terms = []
+        search_terms.extend(key_concepts)
+        
+        # Add intent-specific search modifiers
+        if intent_category == "seeking_examples":
+            search_terms.extend(["project", "case", "example", "similar", "past"])
+        elif intent_category == "seeking_specifications":
+            search_terms.extend(["specification", "requirement", "standard", "code", "detail"])
+        elif intent_category == "seeking_processes":
+            search_terms.extend(["process", "procedure", "workflow", "step", "method"])
+        elif intent_category == "seeking_data":
+            search_terms.extend(["cost", "time", "duration", "timeline", "data", "number"])
+        elif intent_category == "seeking_contacts":
+            search_terms.extend(["contact", "vendor", "supplier", "contractor", "consultant"])
+        
+        # Perform enhanced search
+        search_query = " OR ".join(search_terms)
+        
+        try:
+            search_results = self.search_client.search(
+                search_text=search_query,
+                top=20,
+                include_total_count=True,
+                search_fields=["content", "filename", "project_id"],
+                select=["content", "filename", "project_id", "blob_url", "project_name"],
+                filter=f"project_id eq '{project_filter}'" if project_filter else None,
+                highlight_fields="content"
+            )
+            
+            documents = []
+            for result in search_results:
+                documents.append(dict(result))
+                
+            return documents
+            
+        except Exception as e:
+            logger.error("Intent-aware search failed", error=str(e))
+            return []
+
+    async def _prepare_intent_aware_context(self, documents: List[Dict], intent_analysis: Dict) -> str:
+        """Prepare document context with awareness of user intent."""
+        
+        intent_category = intent_analysis.get('intent_category', 'seeking_guidance')
+        
+        # Filter and prioritize documents based on intent
+        relevant_content = []
+        
+        for doc in documents[:10]:  # Top 10 documents
+            content = doc.get('content', '')
+            filename = doc.get('filename', 'Unknown')
+            project_id = doc.get('project_id', 'Unknown')
+            
+            # Extract relevant content based on intent
+            if intent_category == "seeking_data" and any(term in content.lower() for term in ['cost', 'time', 'duration', 'timeline', 'weeks', 'months', 'days']):
+                relevant_content.append(f"From {filename} (Project {project_id}):\n{content[:800]}")
+            elif intent_category == "seeking_specifications" and any(term in content.lower() for term in ['nzs', 'standard', 'code', 'specification', 'requirement']):
+                relevant_content.append(f"From {filename} (Project {project_id}):\n{content[:800]}")  
+            elif intent_category == "seeking_examples" and any(term in content.lower() for term in ['project', 'design', 'construction', 'completed']):
+                relevant_content.append(f"From {filename} (Project {project_id}):\n{content[:800]}")
+            else:
+                # Include all content for other intent types
+                relevant_content.append(f"From {filename} (Project {project_id}):\n{content[:800]}")
+        
+        return "\n\n---\n\n".join(relevant_content[:5])  # Top 5 most relevant
+
+    async def _generate_intent_aware_answer(self, question: str, context: str, intent_analysis: Dict) -> str:
+        """Generate answer with full understanding of user intent."""
+        
+        intent_category = intent_analysis.get('intent_category', 'seeking_guidance')
+        user_goal = intent_analysis.get('user_goal', 'general_information')
+        
+        system_prompt = f"""You are an intelligent AI assistant that understands user intent and provides exactly what they need.
+
+        USER INTENT: {intent_category}
+        USER GOAL: {user_goal}
+        
+        RESPONSE GUIDELINES BASED ON INTENT:
+        
+        If seeking_guidance: Provide actionable advice, recommendations, and step-by-step guidance
+        If seeking_examples: Show specific examples, case studies, and past project references
+        If seeking_specifications: Provide technical details, codes, standards, and precise requirements
+        If seeking_processes: Explain workflows, procedures, and step-by-step methods
+        If seeking_data: Extract and present specific numbers, timelines, costs, and quantitative data
+        If seeking_contacts: Provide contact information, vendor details, and people references
+        If seeking_comparison: Compare options, show pros/cons, and help with decision-making
+        If seeking_troubleshooting: Diagnose problems and provide specific solutions
+        
+        CRITICAL RULES:
+        1. NEVER provide generic template lists or document dumps
+        2. ALWAYS address the user's specific intent and goal
+        3. Extract the most relevant information from the provided context
+        4. If context doesn't fully answer the question, provide professional guidance
+        5. Be specific, actionable, and directly helpful
+        6. Focus on what the user actually needs, not what documents contain
+        
+        RESPONSE STRUCTURE:
+        - Start with direct answer to their question
+        - Provide specific details from context when available
+        - Add professional recommendations when appropriate
+        - End with actionable next steps if relevant"""
+        
+        user_prompt = f"""Question: {question}
+
+        Document Context:
+        {context}
+        
+        Provide a comprehensive answer that addresses the user's specific intent: {intent_category}.
+        Focus on being directly helpful rather than just listing available documents."""
+        
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.2,
+                max_tokens=800
+            )
+            
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            logger.error("Intent-aware answer generation failed", error=str(e))
+            return f"I understand you're {intent_category.replace('_', ' ')}, but I encountered an error generating a comprehensive response. Please try rephrasing your question."
+
+    async def _generate_no_docs_intelligent_response(self, question: str, intent_analysis: Dict) -> Dict[str, Any]:
+        """Generate intelligent response even when no documents are found."""
+        
+        intent_category = intent_analysis.get('intent_category', 'seeking_guidance')
+        
+        # Provide professional guidance based on intent
+        guidance_prompts = {
+            "seeking_guidance": "provide professional engineering guidance and best practices",
+            "seeking_examples": "suggest where to find examples and recommend typical approaches",  
+            "seeking_specifications": "provide general specification guidance and suggest standard references",
+            "seeking_processes": "outline typical processes and recommend standard procedures",
+            "seeking_data": "provide typical ranges and suggest where to find specific data",
+            "seeking_contacts": "suggest how to find appropriate contacts and professional networks",
+            "seeking_comparison": "provide comparison framework and decision criteria",
+            "seeking_troubleshooting": "suggest troubleshooting approaches and common solutions"
+        }
+        
+        guidance_instruction = guidance_prompts.get(intent_category, "provide helpful professional guidance")
+        
+        system_prompt = f"""You are a professional engineering consultant. The user asked a question but no specific documents were found.
+        
+        Instead of saying "no documents found", {guidance_instruction} for their question.
+        
+        Be helpful, professional, and provide actionable advice even without specific documents."""
+        
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"Question: {question}"}
+                ],
+                temperature=0.3,
+                max_tokens=500
+            )
+            
+            return {
+                'answer': response.choices[0].message.content,
+                'sources': [],
+                'confidence': 'medium',
+                'documents_searched': 0,
+                'search_type': 'intelligent_guidance'
+            }
+            
+        except Exception as e:
+            logger.error("No docs intelligent response failed", error=str(e))
+            return {
+                'answer': "I couldn't find specific documents for your question, but I'd be happy to help if you can provide more details or rephrase your question.",
+                'sources': [],
+                'confidence': 'low', 
+                'documents_searched': 0
+            }
+
+    def _format_intelligent_sources(self, documents: List[Dict], intent_analysis: Dict) -> List[Dict]:
+        """Format sources with understanding of what user actually needs."""
+        
+        sources = []
+        for doc in documents[:3]:  # Top 3 sources
+            doc_info = self._extract_document_info(doc)
+            
+            # Create more helpful source descriptions based on intent
+            intent_category = intent_analysis.get('intent_category', 'seeking_guidance')
+            
+            excerpt = doc.get('@search.highlights', {}).get('content', [''])[0][:200] + '...'
+            
+            if intent_category == "seeking_examples":
+                source_description = f"Project example from {doc_info['project_id']}"
+            elif intent_category == "seeking_specifications":  
+                source_description = f"Technical specification from {doc_info['filename']}"
+            elif intent_category == "seeking_data":
+                source_description = f"Project data from {doc_info['project_id']}"
+            else:
+                source_description = f"Reference from {doc_info['filename']}"
+            
+            sources.append({
+                'filename': doc_info['filename'],
+                'project_id': doc_info['project_id'] or 'Unknown',
+                'relevance_score': doc.get('@search.score', 0),
+                'blob_url': doc.get('blob_url', ''),
+                'excerpt': excerpt,
+                'source_type': source_description
+            })
+            
+        return sources
