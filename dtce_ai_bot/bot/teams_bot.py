@@ -37,23 +37,23 @@ class DTCETeamsBot(ActivityHandler):
         # Fix common Teams formatting issues
         formatted = text
         
-        # Ensure double line breaks between major sections
-        formatted = formatted.replace('\n\n', '\n\n')  # Keep existing double breaks
+        # Replace single line breaks with double line breaks for better Teams display
+        # This is crucial for Teams to properly render line breaks
+        formatted = re.sub(r'(?<!\n)\n(?!\n)', '\n\n', formatted)
         
-        # Add extra line breaks before section headers (emoji + **text**)
+        # Ensure emoji headers have proper spacing
         import re
-        formatted = re.sub(r'(\n|^)(🔗|📝|⚠️|📋|✅|💡|🔍)\s*\*\*', r'\1\n\2 **', formatted)
+        formatted = re.sub(r'(\n|^)(🔗|📝|⚠️|📋|✅|💡|🔍)\s*', r'\1\n\2 ', formatted)
         
         # Ensure bullet points have proper spacing
+        formatted = re.sub(r'\n\n•\s*', '\n\n• ', formatted)
         formatted = re.sub(r'\n•\s*', '\n\n• ', formatted)
         
-        # Add spacing before Requirements/Notes sections
-        formatted = re.sub(r'\n(⚠️\s*\*\*Requirements)', r'\n\n\1', formatted)
-        formatted = re.sub(r'\n(💡\s*\*\*)', r'\n\n\1', formatted)
-        formatted = re.sub(r'\n(📝\s*\*\*)', r'\n\n\1', formatted)
+        # Add extra spacing before section headers
+        formatted = re.sub(r'\n\n(🔗|📝|⚠️|📋|✅|💡|🔍)\s*\*\*', r'\n\n\n\1 **', formatted)
         
-        # Clean up any triple+ line breaks
-        formatted = re.sub(r'\n{3,}', '\n\n', formatted)
+        # Clean up excessive line breaks (more than 3)
+        formatted = re.sub(r'\n{4,}', '\n\n\n', formatted)
         
         return formatted.strip()
 
@@ -386,9 +386,8 @@ I can analyze client requests and RFPs to:
                 status_text += "• AI Q&A service: Unavailable\n"
                 status_text += "• Teams integration: Active\n"
                 
-            status_message = MessageFactory.text(status_text)
-            status_message.text_format = "markdown"
-            await turn_context.send_activity(status_message)
+            # Use Teams formatting for proper line breaks
+            await self._send_teams_message(turn_context, status_text)
             
         except Exception as e:
             logger.error("Health check failed", error=str(e))
@@ -424,9 +423,8 @@ I can analyze client requests and RFPs to:
             else:
                 projects_text = "📋 No projects found in the document index."
                 
-            projects_message = MessageFactory.text(projects_text)
-            projects_message.text_format = "markdown"
-            await turn_context.send_activity(projects_message)
+            # Use Teams formatting for proper line breaks
+            await self._send_teams_message(turn_context, projects_text)
             
         except Exception as e:
             logger.error("Projects list failed", error=str(e))
@@ -461,7 +459,8 @@ I can analyze client requests and RFPs to:
                     response_text += f"Preview: {source['excerpt'][:100]}...\n"
                 response_text += "\n"
             
-            await turn_context.send_activity(MessageFactory.text(response_text))
+            # Use the Teams formatting function for proper line breaks
+            await self._send_teams_message(turn_context, response_text)
             
         except Exception as e:
             logger.error("Search failed", error=str(e), query=query)
