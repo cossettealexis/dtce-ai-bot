@@ -409,13 +409,28 @@ Just type your question, paste a client request, or upload documents and I'll se
             # Remove sources section if it exists in the answer
             import re
             answer = re.sub(r'📄\s*Sources:.*?(?=\n\n|\Z)', '', answer, flags=re.DOTALL | re.IGNORECASE)
-            answer = re.sub(r'\n\n+', '\n\n', answer)  # Clean up extra newlines
-            answer = answer.strip()
             
-            # Send the AI's answer naturally, like a human colleague would
-            # (Backend still provides full metadata: confidence, sources, processing_time, etc.)
-            # But Teams users only see the natural conversational answer
-            await turn_context.send_activity(MessageFactory.text(answer))
+            # Split into multiple messages if the response is too long or has many projects
+            # Teams has better formatting when messages are broken up
+            if len(answer) > 2000 or answer.count('• Project') > 3:
+                # Split by projects for better readability
+                parts = answer.split('• Project')
+                if len(parts) > 1:
+                    # Send header first
+                    header = parts[0].strip()
+                    await turn_context.send_activity(MessageFactory.text(header))
+                    
+                    # Send each project as separate message
+                    for i, part in enumerate(parts[1:], 1):
+                        project_text = '• Project' + part.strip()
+                        if i < len(parts) - 1:  # Not the last one
+                            project_text = project_text.rstrip('\n\nClick any link above to access the project folders in SuiteFiles.')
+                        await turn_context.send_activity(MessageFactory.text(project_text))
+                    return
+            
+            # Send as single message for shorter responses
+            answer_message = MessageFactory.text(answer)
+            await turn_context.send_activity(answer_message)
             
         except Exception as e:
             logger.error("Q&A failed", error=str(e), question=question)
