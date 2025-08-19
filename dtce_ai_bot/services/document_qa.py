@@ -4703,7 +4703,7 @@ Focus on practical regulatory guidance that can be applied to similar situations
             # Use the reusable method for proper Base64 decoding
             doc_info = self._extract_document_info(doc)
             filename = doc_info['filename']
-            project = doc_info['project_name'] or 'General Templates'
+            project = doc_info['project_id'] or 'General Templates'  # Fix: use project_id not project_name
             blob_url = (doc.get('blob_url') or '').strip()
             
             # Skip documents with missing filename
