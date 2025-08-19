@@ -4848,60 +4848,90 @@ Would you like me to search for specific templates or documents that might help?
             return 'UNKNOWN'
 
     async def _search_template_documents(self, question: str, template_type: str) -> List[Dict]:
-        """Search for template documents in SuiteFiles using targeted approach."""
+        """Search for template documents in SuiteFiles using comprehensive approach."""
         
-        # Special handling for PS1 template requests
-        if 'ps1' in question.lower() and 'template' in question.lower():
-            return await self._search_ps1_templates()
-        
-        # For other template types, use more targeted search
-        if template_type.startswith('PS'):
-            search_terms = [
-                f"producer statement {template_type.lower()} template",
-                f"{template_type.lower()} template",
-                f"{template_type.lower()} form"
-            ]
-        elif 'DESIGN' in template_type:
-            search_terms = [
-                "design template",
-                "design spreadsheet", 
-                "design calculator",
-                "calculation template"
-            ]
-        else:
-            # Generic template search
-            search_terms = [
-                f"{question} template",
-                f"{question} form",
-                "template document"
-            ]
-        
+        question_lower = question.lower()
         template_docs = []
         
-        for search_term in search_terms:
-            results = self.search_client.search(
-                search_text=search_term,
-                top=10,
-                select=["id", "filename", "content", "blob_url", "project_name", "folder"],
-                query_type="simple"  # Use simple search for more precise filename matching
-            )
-            
-            for result in results:
-                doc_dict = dict(result)
-                filename = (doc_dict.get('filename') or '').lower()
-                
-                # Very strict filtering for actual template files
-                is_actual_template = (
-                    ('.doc' in filename or '.pdf' in filename or '.xls' in filename) and
-                    ('template' in filename or 'form' in filename or 'blank' in filename) and
-                    not ('.msg' in filename or 'email' in filename or 're:' in filename) and
-                    not ('unknown' in filename or len(filename) < 5)
-                )
-                
-                if is_actual_template and doc_dict not in template_docs:
-                    template_docs.append(doc_dict)
+        # Build comprehensive search terms based on the question content
+        search_terms = []
         
-        return template_docs[:5]  # Limit to top 5 most relevant
+        # Specific template type searches
+        if any(word in question_lower for word in ['ps1', 'producer statement 1']):
+            search_terms.extend(['PS1', 'producer statement 1', 'producer statement', 'PS-1'])
+        elif any(word in question_lower for word in ['ps3', 'producer statement 3']):
+            search_terms.extend(['PS3', 'producer statement 3', 'producer statement', 'PS-3'])
+        elif any(word in question_lower for word in ['ps4', 'producer statement 4']):
+            search_terms.extend(['PS4', 'producer statement 4', 'producer statement', 'PS-4'])
+        elif any(word in question_lower for word in ['timber', 'beam', 'design']):
+            search_terms.extend(['timber beam', 'beam design', 'timber design', 'structural design', 'beam calculator'])
+        elif any(word in question_lower for word in ['calculation', 'calc']):
+            search_terms.extend(['calculation', 'design calc', 'structural calc', 'engineering calc'])
+        elif any(word in question_lower for word in ['report', 'assessment']):
+            search_terms.extend(['report template', 'assessment template', 'engineering report'])
+        
+        # Add generic template terms
+        if 'template' in question_lower:
+            search_terms.append('template')
+        if 'spreadsheet' in question_lower:
+            search_terms.extend(['spreadsheet', 'calculator', 'design tool'])
+        if 'form' in question_lower:
+            search_terms.append('form')
+        
+        # If no specific terms found, extract key words from question
+        if not search_terms:
+            # Extract meaningful words from the question
+            words = [word for word in question_lower.split() if len(word) > 3 and word not in ['the', 'for', 'that', 'with', 'have', 'uses', 'used']]
+            search_terms.extend(words[:3])  # Use top 3 meaningful words
+        
+        logger.info(f"Template search terms: {search_terms}")
+        
+        # Search with each term
+        for search_term in search_terms:
+            try:
+                # Try both simple and semantic search
+                for query_type in ["simple", "semantic"]:
+                    response = await self.client.search(
+                        search_text=search_term,
+                        search_fields=["title", "content", "filename"],
+                        top=15,
+                        query_type=query_type
+                    )
+                    
+                    async for result in response:
+                        doc_dict = dict(result)
+                        filename = (doc_dict.get('filename') or doc_dict.get('title', '')).lower()
+                        content = (doc_dict.get('content') or '').lower()
+                        
+                        # More flexible filtering for useful documents
+                        is_useful_doc = (
+                            # File type check - include more types
+                            any(ext in filename for ext in ['.doc', '.pdf', '.xls', '.xlsx', '.docx', '.ppt', '.pptx']) and
+                            # Exclude emails and irrelevant files
+                            not any(bad in filename for bad in ['.msg', 'email', 're:', 'fwd:', 'unknown']) and
+                            # Include if it has template-like content or relevant keywords
+                            (
+                                any(keyword in filename for keyword in ['template', 'form', 'blank', 'standard', 'example']) or
+                                any(keyword in content[:500] for keyword in search_terms[:2]) or  # Check if search terms appear in content
+                                (len(filename) > 5 and any(word in filename for word in search_terms[:2]))
+                            )
+                        )
+                        
+                        if is_useful_doc and doc_dict not in template_docs:
+                            # Add search relevance score
+                            doc_dict['search_relevance'] = result.get('@search.score', 0)
+                            template_docs.append(doc_dict)
+                            
+                    if len(template_docs) >= 10:  # Stop if we have enough results
+                        break
+                        
+            except Exception as e:
+                logger.warning(f"Search term '{search_term}' failed: {e}")
+                continue
+                
+        # Sort by relevance score and return top results
+        template_docs.sort(key=lambda x: x.get('search_relevance', 0), reverse=True)
+        return template_docs[:8]  # Return top 8 most relevant
     
     async def _search_ps1_templates(self) -> List[Dict]:
         """Specific search for PS1 templates with fallback guidance."""
@@ -5024,7 +5054,7 @@ While I couldn't find a specific PS1 template, here's comprehensive guidance:
 • **Your Project Manager**: They may have DTCE-specific PS1 templates
 • **Previous Projects**: Check similar completed projects for examples
 
-� **What to Include:**
+📝 **What to Include:**
 • Project details and consent numbers
 • Structural design compliance statement
 • Reference to relevant codes (NZS 3604, NZS 1170, etc.)
@@ -5037,7 +5067,66 @@ While I couldn't find a specific PS1 template, here's comprehensive guidance:
 
         elif any(word in question_lower for word in ['ps2', 'ps3', 'ps4', 'producer statement']):
             ps_type = 'PS2' if 'ps2' in question_lower else 'PS3' if 'ps3' in question_lower else 'PS4'
-            return f"""📋 **{ps_type} Producer Statement Template**
+            
+            # Check if user specifically asks for links or can't find in SuiteFiles
+            wants_external_link = any(phrase in question_lower for phrase in [
+                'link', 'url', 'download', 'legitimate', 'official', 'cannot find', 'can\'t find', 
+                'not in suitefiles', 'provide me with', 'give me', 'direct', 'external'
+            ])
+            
+            if wants_external_link and ps_type == 'PS3':
+                return """📋 **PS3 Producer Statement Template**
+
+🔗 **Direct Download Links:**
+• **MBIE Official PS3 Form**: https://www.building.govt.nz/assets/Uploads/building-code-compliance/producer-statements/ps3-construction-review-producer-statement.pdf
+• **Engineering NZ PS3 Resources**: https://www.engineeringnz.org/our-work/advocacy/building-system-reform/producer-statements/
+• **General Producer Statements Page**: https://www.building.govt.nz/building-code-compliance/producer-statements/
+
+📝 **PS3 Purpose:**
+• Construction review and verification  
+• Confirms work complies with consent documentation
+• Used for specific construction elements or stages
+
+⚠️ **Requirements:**
+• Must be signed by appropriately qualified professional
+• Specific to your project and council jurisdiction
+• Include detailed scope of construction review
+• **Accepted by all New Zealand councils when properly completed**"""
+            
+            elif wants_external_link and ps_type == 'PS4':
+                return """📋 **PS4 Producer Statement Template**
+
+🔗 **Direct Download Links:**
+• **MBIE Official PS4 Form**: https://www.building.govt.nz/assets/Uploads/building-code-compliance/producer-statements/ps4-construction-producer-statement.pdf
+• **Engineering NZ PS4 Resources**: https://www.engineeringnz.org/our-work/advocacy/building-system-reform/producer-statements/
+• **General Producer Statements Page**: https://www.building.govt.nz/building-code-compliance/producer-statements/
+
+📝 **PS4 Purpose:**
+• Construction completion certification
+• Confirms construction compliance with consent and design
+
+⚠️ **Requirements:**
+• Must be signed by appropriately qualified professional
+• **Accepted by all New Zealand councils when properly completed**"""
+            
+            elif wants_external_link and ps_type == 'PS2':
+                return """📋 **PS2 Producer Statement Template**
+
+🔗 **Direct Download Links:**
+• **MBIE Official PS2 Form**: https://www.building.govt.nz/assets/Uploads/building-code-compliance/producer-statements/ps2-design-review-producer-statement.pdf
+• **Engineering NZ PS2 Resources**: https://www.engineeringnz.org/our-work/advocacy/building-system-reform/producer-statements/
+• **General Producer Statements Page**: https://www.building.govt.nz/building-code-compliance/producer-statements/
+
+📝 **PS2 Purpose:**
+• Design review and verification
+• Independent review of structural design
+
+⚠️ **Requirements:**
+• Must be signed by appropriately qualified professional
+• Independent of original design engineer"""
+            
+            else:
+                return f"""📋 **{ps_type} Producer Statement Template**
 
 **Template Sources:**
 • Contact your project manager for DTCE-specific {ps_type} templates
@@ -5049,8 +5138,48 @@ While I couldn't find a specific PS1 template, here's comprehensive guidance:
 • Specific to your project and council jurisdiction
 • Include all relevant scope and compliance statements"""
 
-        elif any(word in question_lower for word in ['calculation', 'calc']):
-            return """📋 **Structural Calculation Template**
+        elif any(word in question_lower for word in ['calculation', 'calc', 'timber', 'beam', 'design', 'spreadsheet']):
+            # Check if user specifically asks for links or can't find in SuiteFiles
+            wants_external_link = any(phrase in question_lower for phrase in [
+                'link', 'url', 'download', 'legitimate', 'official', 'cannot find', 'can\'t find', 
+                'not in suitefiles', 'provide me with', 'give me', 'direct', 'external'
+            ])
+            
+            if 'timber' in question_lower and wants_external_link:
+                return """📋 **Timber Beam Design Spreadsheet**
+
+🔗 **Direct Download Links:**
+• **NZ Wood Timber Design Tools**: https://www.nzwood.co.nz/building-with-wood/design-tools/
+• **STIC Timber Design Spreadsheets**: https://www.stic.org.nz/structural-design-tools
+• **WoodSolutions Beam Calculator**: https://www.woodsolutions.com.au/design-tools
+• **Engineering NZ Timber Resources**: https://www.engineeringnz.org/resources/
+
+📝 **Alternative Options:**
+• **Commercial Software**: Microlam, TimberCalc Pro
+• **Free Tools**: Various university and industry calculators
+• **Previous DTCE Projects**: Check similar timber design projects
+
+⚠️ **Important Notes:**
+• Verify calculations comply with NZS 3603 (Timber Structures)
+• Check load combinations per NZS 1170.1
+• Consider deflection limits and serviceability requirements"""
+            
+            elif 'timber' in question_lower:
+                return """📋 **Timber Beam Design Spreadsheet**
+
+**What You Need:**
+• Check previous similar projects for DTCE calculation formats
+• Ask your senior engineer for preferred timber design tools
+• Review NZS 3603 for timber design requirements
+
+**Template Should Include:**
+• Load analysis and combinations per NZS 1170.1
+• Timber grade and material properties
+• Deflection and strength checks per NZS 3603
+• Clear design methodology and assumptions"""
+            
+            else:
+                return """📋 **Structural Calculation Template**
 
 **What You Need:**
 • Check previous similar projects for calculation formats
