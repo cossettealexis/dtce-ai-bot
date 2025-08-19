@@ -4848,129 +4848,153 @@ Would you like me to search for specific templates or documents that might help?
             return 'UNKNOWN'
 
     async def _search_template_documents(self, question: str, template_type: str) -> List[Dict]:
-        """Search for template documents in SuiteFiles using flexible approach."""
+        """Search for template documents in SuiteFiles using targeted approach."""
         
-        # Start with the original question as primary search term
-        primary_terms = [question]
+        # Special handling for PS1 template requests
+        if 'ps1' in question.lower() and 'template' in question.lower():
+            return await self._search_ps1_templates()
         
-        # Add contextual terms based on template type (but don't override the question)
-        contextual_terms = []
-        
+        # For other template types, use more targeted search
         if template_type.startswith('PS'):
-            contextual_terms.extend(['producer statement', 'template', 'form'])
+            search_terms = [
+                f"producer statement {template_type.lower()} template",
+                f"{template_type.lower()} template",
+                f"{template_type.lower()} form"
+            ]
         elif 'DESIGN' in template_type:
-            contextual_terms.extend(['design', 'spreadsheet', 'calculator', 'template'])
-        elif template_type in ['GENERAL_TEMPLATE', 'UNKNOWN']:
-            contextual_terms.extend(['template', 'form', 'document'])
-        
-        # Combine original question with contextual terms
-        search_query = question
-        if contextual_terms:
-            search_query += f" OR {' OR '.join(contextual_terms)}"
-        
-        # Search with focus on templates and forms
-        results = self.search_client.search(
-            search_text=search_query,
-            top=25,  # Increased to get more potential matches
-            select=["id", "filename", "content", "blob_url", "project_name", "folder"],
-            query_type="semantic",
-            semantic_configuration_name="default"
-        )
+            search_terms = [
+                "design template",
+                "design spreadsheet", 
+                "design calculator",
+                "calculation template"
+            ]
+        else:
+            # Generic template search
+            search_terms = [
+                f"{question} template",
+                f"{question} form",
+                "template document"
+            ]
         
         template_docs = []
-        for result in results:
-            doc_dict = dict(result)
-            filename = (doc_dict.get('filename') or '').lower()
-            content = (doc_dict.get('content') or '').lower()
-            
-            # More flexible template detection - look for various indicators
-            template_indicators = [
-                'template', 'form', 'ps1', 'ps3', 'ps4', 'producer statement',
-                'spreadsheet', 'calculator', 'design tool', '.xlsx', '.xls',
-                'beam design', 'concrete design', 'steel design', 'checklist',
-                'format', 'example', 'blank', 'fillable'
-            ]
-            
-            # Also check if the content seems template-like (has placeholders, instructions, etc.)
-            template_content_indicators = [
-                '[insert', '[fill', 'enter your', 'complete this', 'instructions:',
-                'step 1', 'step 2', 'procedure', 'guidelines'
-            ]
-            
-            is_template_like = (
-                any(indicator in filename for indicator in template_indicators) or
-                any(indicator in content for indicator in template_indicators) or
-                any(indicator in content for indicator in template_content_indicators)
+        
+        for search_term in search_terms:
+            results = self.search_client.search(
+                search_text=search_term,
+                top=10,
+                select=["id", "filename", "content", "blob_url", "project_name", "folder"],
+                query_type="simple"  # Use simple search for more precise filename matching
             )
             
-            if is_template_like:
-                template_docs.append(doc_dict)
+            for result in results:
+                doc_dict = dict(result)
+                filename = (doc_dict.get('filename') or '').lower()
+                
+                # Very strict filtering for actual template files
+                is_actual_template = (
+                    ('.doc' in filename or '.pdf' in filename or '.xls' in filename) and
+                    ('template' in filename or 'form' in filename or 'blank' in filename) and
+                    not ('.msg' in filename or 'email' in filename or 're:' in filename) and
+                    not ('unknown' in filename or len(filename) < 5)
+                )
+                
+                if is_actual_template and doc_dict not in template_docs:
+                    template_docs.append(doc_dict)
+        
+        return template_docs[:5]  # Limit to top 5 most relevant
+    
+    async def _search_ps1_templates(self) -> List[Dict]:
+        """Specific search for PS1 templates with fallback guidance."""
+        
+        # Search for actual PS1 template files
+        ps1_search_terms = [
+            "PS1 template",
+            "producer statement 1 template", 
+            "producer statement template",
+            "PS1 form"
+        ]
+        
+        template_docs = []
+        
+        for search_term in ps1_search_terms:
+            results = self.search_client.search(
+                search_text=search_term,
+                top=5,
+                select=["id", "filename", "content", "blob_url", "project_name", "folder"],
+                query_type="simple"
+            )
+            
+            for result in results:
+                doc_dict = dict(result)
+                filename = (doc_dict.get('filename') or '').lower()
+                
+                # Very strict filtering for PS1 templates only
+                is_ps1_template = (
+                    ('ps1' in filename or 'producer statement' in filename) and
+                    ('template' in filename or 'form' in filename) and
+                    ('.doc' in filename or '.pdf' in filename or '.xls' in filename) and
+                    not ('.msg' in filename or 'email' in filename or 're:' in filename)
+                )
+                
+                if is_ps1_template and doc_dict not in template_docs:
+                    template_docs.append(doc_dict)
         
         return template_docs
 
     async def _provide_external_template_links(self, question: str, template_type: str) -> Dict[str, Any]:
         """Provide intelligent guidance when templates are not found in SuiteFiles."""
         
-        # Use AI to understand what the user is really looking for
-        analysis_prompt = f"""
-        The user asked: "{question}"
+        # Special handling for PS1 template requests
+        if 'ps1' in question.lower() and 'template' in question.lower():
+            answer = """**PS1 Template Not Found in SuiteFiles**
+
+I couldn't locate a specific PS1 template in our document library. Here's how to proceed:
+
+📋 **PS1 Template Sources:**
+• **MBIE Website**: Download official Producer Statement forms from building.govt.nz
+• **Engineering NZ**: Access standardized templates through engineeringnz.org
+• **Your Project Manager**: They may have DTCE-specific PS1 templates
+• **Previous Projects**: Check similar completed projects for template examples
+
+🔍 **Next Steps:**
+1. Contact your project manager or senior engineer for DTCE's preferred PS1 format
+2. Check the MBIE Building website for the most current PS1 requirements
+3. Review council-specific requirements for your project location
+4. Ensure you're qualified to sign producer statements (CPEng registration required)
+
+⚠️ **Important**: PS1 templates vary by council and project type. Always verify you're using the correct format for your specific project and jurisdiction."""
+
+            return {
+                'answer': answer,
+                'sources': [],
+                'confidence': 'high',
+                'documents_searched': 0,
+                'search_type': 'template_guidance'
+            }
         
-        We couldn't find relevant templates in our internal documents. 
-        
-        Analyze this question and provide:
-        1. What specific type of document/template they likely need
-        2. Relevant external resources (professional engineering bodies, government sites, industry standards)
-        3. Alternative approaches they could take
-        4. Questions they should ask their team/supervisor
-        
-        Be specific and helpful. Don't make assumptions about what they need.
-        Focus on the actual intent behind their question.
-        """
-        
-        try:
-            # Get AI analysis of what the user really needs
-            ai_response = await self.openai_client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {
-                        "role": "system", 
-                        "content": "You are a helpful engineering assistant. Provide practical, specific guidance for finding engineering documents and templates. Be concise but thorough."
-                    },
-                    {"role": "user", "content": analysis_prompt}
-                ],
-                max_tokens=400,
-                temperature=0.3
-            )
-            
-            ai_guidance = ai_response.choices[0].message.content
-            
-            answer = f"I couldn't find specific templates for your request in our SuiteFiles documents.\n\n"
-            answer += f"**Based on your question about '{question}':**\n\n"
-            answer += ai_guidance
-            answer += "\n\n💡 **Next Steps:**\n"
-            answer += "• Try rephrasing your question with different keywords\n"
-            answer += "• Contact your team lead for DTCE-specific templates\n"
-            answer += "• Check if the document might be filed under a different name\n"
-            
-        except Exception as e:
-            logger.warning(f"Failed to get AI guidance for template request: {e}")
-            
-            # Fallback to basic response without hardcoded assumptions
-            answer = f"I couldn't find templates matching your request in our SuiteFiles documents.\n\n"
-            answer += f"**For your question: '{question}'**\n\n"
-            answer += "🔍 **Suggestions:**\n"
-            answer += "• Try using different keywords or terminology\n"
-            answer += "• Check with your team lead for available templates\n"
-            answer += "• Contact Engineering New Zealand for professional templates\n"
-            answer += "• Search the DTCE shared drive for relevant documents\n\n"
-            answer += "💭 **Alternative approach:** Try asking about the specific engineering task or calculation you need help with instead of looking for a template."
-        
+        # For other template types, provide general guidance
+        if template_type.startswith('PS'):
+            template_name = template_type
+            guidance = f"""**{template_name} Template Not Found**
+
+Check with your project manager for DTCE-specific {template_name} templates, or visit the MBIE Building website for official Producer Statement forms."""
+        else:
+            template_name = template_type.replace('_', ' ').title()
+            guidance = f"""**{template_name} Not Found**
+
+I couldn't find specific templates for your request in our SuiteFiles documents. 
+
+**Suggested Actions:**
+• Check with your project team for DTCE-specific templates
+• Search SuiteFiles directly using different keywords
+• Contact your supervisor for guidance on appropriate templates"""
+
         return {
-            'answer': answer,
+            'answer': guidance,
             'sources': [],
-            'confidence': 'low',
+            'confidence': 'medium',
             'documents_searched': 0,
-            'search_type': 'intelligent_guidance'
+            'search_type': 'template_guidance'
         }
 
     def _format_template_answer(self, template_docs: List[Dict], template_type: str, question: str) -> str:
