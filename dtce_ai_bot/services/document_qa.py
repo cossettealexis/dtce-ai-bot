@@ -386,17 +386,19 @@ Content: {content}
         info = {
             'filename': 'Unknown',
             'project_id': '',
+            'project_name': '',  # Add project_name back
             'folder_path': '',
             'full_path': ''
         }
         
-        # Start with existing fields
+        # Start with existing fields from search result
         if document.get('filename'):
             info['filename'] = document['filename']
         if document.get('project_name'):
-            info['project_id'] = document['project_name']
+            info['project_name'] = document['project_name']
+            info['project_id'] = document['project_name']  # Keep both for backward compatibility
         
-        # Try to get better info from decoded ID
+        # Try to get better info from decoded Base64 ID (this has the most accurate info)
         document_id = document.get('id', '')
         if document_id:
             decoded_info = self._decode_document_id(document_id)
@@ -405,24 +407,27 @@ Content: {content}
             if decoded_info['filename'] and (not info['filename'] or info['filename'] == 'Unknown'):
                 info['filename'] = decoded_info['filename']
             
-            # Use decoded project ID if we don't have one or it's better
-            if decoded_info['project_id'] and not info['project_id']:
+            # Use decoded project info - this is usually more accurate than search fields
+            if decoded_info['project_id']:
                 info['project_id'] = decoded_info['project_id']
+                if not info['project_name']:  # Only override if we don't have it from search
+                    info['project_name'] = decoded_info['project_id']
             
             # Always use the path info from decoded ID
             info['folder_path'] = decoded_info['folder_path']
             info['full_path'] = decoded_info['full_path']
         
-        # Fallback methods for project extraction
-        if not info['project_id']:
+        # Fallback methods for project extraction if still missing
+        if not info['project_id'] and not info['project_name']:
             # Try extracting from blob_url
             project_from_url = self._extract_project_from_url(document.get('blob_url', ''))
             if project_from_url:
                 info['project_id'] = project_from_url
+                info['project_name'] = project_from_url
             
             # Try extracting from content (look for project numbers)
             content = document.get('content', '')
-            if content and not info['project_id']:
+            if content:
                 try:
                     import re
                     # Look for patterns like "219324", "2BC221295", "221285" in content
@@ -436,6 +441,7 @@ Content: {content}
                         matches = re.findall(pattern, content)
                         if matches:
                             info['project_id'] = matches[0]
+                            info['project_name'] = matches[0]  # Keep both consistent
                             break
                 except:
                     pass
@@ -737,7 +743,7 @@ Content: {content}
                 
                 # Collect projects using proper Base64 decoding
                 doc_info = self._extract_document_info(doc)
-                project = doc_info['project_name']
+                project = doc_info['project_name'] or doc_info['project_id']  # Smart: use project_name for display
                 if project:
                     projects.add(project)
             
@@ -747,7 +753,7 @@ Content: {content}
                 doc_info = self._extract_document_info(doc)
                 latest_docs.append({
                     'filename': doc_info['filename'] or 'Unknown',
-                    'project': doc_info['project_name'] or 'Unknown',
+                    'project': doc_info['project_name'] or doc_info['project_id'] or 'Unknown',  # Smart: prefer project_name
                     'last_modified': doc.get('last_modified', '')
                 })
             
@@ -4703,7 +4709,8 @@ Focus on practical regulatory guidance that can be applied to similar situations
             # Use the reusable method for proper Base64 decoding
             doc_info = self._extract_document_info(doc)
             filename = doc_info['filename']
-            project = doc_info['project_id'] or 'General Templates'  # Fix: use project_id not project_name
+            # Use project_name for display, fallback to project_id for backward compatibility
+            project = doc_info['project_name'] or doc_info['project_id'] or 'General Templates'
             blob_url = (doc.get('blob_url') or '').strip()
             
             # Skip documents with missing filename
@@ -4759,7 +4766,7 @@ Focus on practical regulatory guidance that can be applied to similar situations
                 # Use the reusable method for proper Base64 decoding
                 doc_info = self._extract_document_info(doc)
                 filename = doc_info['filename']
-                project_id = doc_info['project_id']  # Fix: use project_id instead of project_name
+                project_name = doc_info['project_name'] or doc_info['project_id']  # Smart: prefer project_name for display
                 
                 # Skip sources with missing essential info
                 if not filename or filename == 'None':
@@ -4767,7 +4774,7 @@ Focus on practical regulatory guidance that can be applied to similar situations
                     
                 sources.append({
                     'filename': filename,
-                    'project_id': project_id or 'Template Library',
+                    'project_id': project_name or 'Template Library',  # Use the smart project_name variable
                     'relevance_score': doc.get('@search.score', 0.9),
                     'blob_url': doc.get('blob_url', ''),
                     'excerpt': f"Template document: {filename}"
