@@ -4548,8 +4548,8 @@ Focus on practical regulatory guidance that can be applied to similar situations
                 template_docs = await self._search_template_documents(question, template_type)
                 
                 if not template_docs:
-                    # If no templates found in SuiteFiles, provide external links
-                    return await self._provide_external_template_links(question, template_type)
+                    # If no specific templates found, try a broader search and provide helpful guidance
+                    return await self._provide_helpful_template_guidance(question, template_type)
                 
                 # Format the answer with direct SuiteFiles links
                 answer = self._format_template_answer(template_docs, template_type, question)
@@ -4941,60 +4941,117 @@ Would you like me to search for specific templates or documents that might help?
         
         return template_docs
 
-    async def _provide_external_template_links(self, question: str, template_type: str) -> Dict[str, Any]:
-        """Provide intelligent guidance when templates are not found in SuiteFiles."""
+    async def _provide_helpful_template_guidance(self, question: str, template_type: str) -> Dict[str, Any]:
+        """Provide comprehensive guidance and perform broader search when specific templates aren't found."""
+        
+        # First try a broader search with related terms
+        broader_results = []
+        if 'ps1' in question.lower():
+            search_terms = ['producer statement', 'PS1', 'structural', 'compliance', 'building consent']
+            for term in search_terms:
+                try:
+                    response = await self.client.search(
+                        search_text=term,
+                        search_fields=["title", "content"],
+                        top=5,
+                        query_type="semantic"
+                    )
+                    async for result in response:
+                        if result.get('@search.score', 0) > 0.7:  # Only high-relevance results
+                            broader_results.append({
+                                'title': result.get('title', 'Untitled'),
+                                'content': result.get('content', '')[:500] + '...',
+                                'metadata': result.get('metadata', {}),
+                                'score': result.get('@search.score', 0)
+                            })
+                    if len(broader_results) >= 3:  # Stop if we found enough relevant docs
+                        break
+                except Exception:
+                    continue
         
         # Special handling for PS1 template requests
         if 'ps1' in question.lower() and 'template' in question.lower():
-            answer = """**PS1 Template Not Found in SuiteFiles**
+            answer = """**PS1 Template Guidance**
 
-I couldn't locate a specific PS1 template in our document library. Here's how to proceed:
+While I couldn't find a specific PS1 template in SuiteFiles, here's comprehensive guidance:
 
 📋 **PS1 Template Sources:**
 • **MBIE Website**: Download official Producer Statement forms from building.govt.nz
-• **Engineering NZ**: Access standardized templates through engineeringnz.org
+• **Engineering NZ**: Access standardized templates through engineeringnz.org  
 • **Your Project Manager**: They may have DTCE-specific PS1 templates
 • **Previous Projects**: Check similar completed projects for template examples
 
-🔍 **Next Steps:**
-1. Contact your project manager or senior engineer for DTCE's preferred PS1 format
-2. Check the MBIE Building website for the most current PS1 requirements
-3. Review council-specific requirements for your project location
-4. Ensure you're qualified to sign producer statements (CPEng registration required)
+🔍 **What to Include in PS1:**
+- Project details and consent numbers
+- Structural design compliance statement
+- Reference to relevant building codes (NZS 3604, NZS 1170, etc.)
+- CPEng details and registration number
+- Clear scope of work covered
 
-⚠️ **Important**: PS1 templates vary by council and project type. Always verify you're using the correct format for your specific project and jurisdiction."""
+⚠️ **Important Requirements:**
+- Must be signed by a CPEng (Chartered Professional Engineer)
+- Specific to your project and council requirements  
+- Include all structural elements in scope
+- Reference design drawings and calculations"""
+
+            if broader_results:
+                answer += "\n\n🔍 **Related Documents Found:**\n"
+                for doc in broader_results[:3]:
+                    answer += f"• **{doc['title']}** (Relevance: {doc['score']:.1f})\n"
 
             return {
                 'answer': answer,
-                'sources': [],
+                'sources': broader_results,
                 'confidence': 'high',
-                'documents_searched': 0,
-                'search_type': 'template_guidance'
+                'documents_searched': len(broader_results),
+                'search_type': 'comprehensive_guidance'
             }
         
-        # For other template types, provide general guidance
+        # For other Producer Statement types
         if template_type.startswith('PS'):
             template_name = template_type
-            guidance = f"""**{template_name} Template Not Found**
+            guidance = f"""**{template_name} Template Guidance**
 
-Check with your project manager for DTCE-specific {template_name} templates, or visit the MBIE Building website for official Producer Statement forms."""
+I couldn't find a specific {template_name} template, but here's what you need to know:
+
+📋 **Sources:**
+• Contact your project manager for DTCE-specific {template_name} templates
+• Visit MBIE Building website for official Producer Statement forms
+• Check Engineering NZ resources for professional guidance
+
+⚠️ **Requirements:**
+• Must be signed by appropriately qualified professional
+• Specific to your project and council jurisdiction
+• Include all relevant scope and compliance statements"""
+            
+            if broader_results:
+                guidance += "\n\n🔍 **Related Documents Found:**\n"
+                for doc in broader_results[:3]:
+                    guidance += f"• **{doc['title']}** (Relevance: {doc['score']:.1f})\n"
         else:
+            # For general template requests, provide helpful guidance
             template_name = template_type.replace('_', ' ').title()
-            guidance = f"""**{template_name} Not Found**
+            guidance = f"""**{template_name} Template Guidance**
 
-I couldn't find specific templates for your request in our SuiteFiles documents. 
+While I couldn't find specific {template_name} templates in SuiteFiles, here's how to proceed:
 
-**Suggested Actions:**
-• Check with your project team for DTCE-specific templates
-• Search SuiteFiles directly using different keywords
-• Contact your supervisor for guidance on appropriate templates"""
+📋 **Recommended Actions:**
+• **Project Team**: Check with your project manager or senior engineer for DTCE-specific templates
+• **SuiteFiles Search**: Try searching with alternative keywords or browse relevant project folders
+• **Previous Projects**: Look for similar projects that may have used comparable templates
+• **Professional Resources**: Consult relevant professional bodies or industry standards"""
+
+            if broader_results:
+                guidance += "\n\n🔍 **Related Documents Found:**\n"
+                for doc in broader_results[:3]:
+                    guidance += f"• **{doc['title']}** (Relevance: {doc['score']:.1f})\n"
 
         return {
             'answer': guidance,
-            'sources': [],
-            'confidence': 'medium',
-            'documents_searched': 0,
-            'search_type': 'template_guidance'
+            'sources': broader_results,
+            'confidence': 'high' if broader_results else 'medium',
+            'documents_searched': len(broader_results),
+            'search_type': 'comprehensive_guidance'
         }
 
     def _format_template_answer(self, template_docs: List[Dict], template_type: str, question: str) -> str:
