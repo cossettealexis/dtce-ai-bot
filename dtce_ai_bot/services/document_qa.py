@@ -2965,6 +2965,23 @@ Format your response with clear headings and bullet points. Focus on practical e
 
     def _build_internal_knowledge_search_terms(self, question: str, components: Dict[str, Any]) -> str:
         """Build search terms for internal knowledge and expertise queries."""
+        # For specific technical terms, use them directly
+        specific_terms = self._extract_specific_technical_terms(question)
+        if specific_terms:
+            # Use specific technical terms with AND logic for precision
+            main_search = " AND ".join(f'"{term}"' for term in specific_terms)
+            
+            # Add engineer-related terms with OR logic
+            engineer_terms = []
+            for role in components.get('engineer_roles', []):
+                engineer_terms.append(f'"{role}"')
+            
+            if engineer_terms:
+                return f"({main_search}) AND ({' OR '.join(engineer_terms)})"
+            else:
+                return main_search
+        
+        # Fallback to original approach for general queries
         search_terms = []
         
         # Extract key terms from question
@@ -3106,9 +3123,19 @@ Format your response with clear headings and bullet points. Focus on practical e
     async def _search_internal_knowledge_documents(self, search_terms: str, components: Dict[str, Any]) -> List[Dict]:
         """Search for documents containing internal knowledge and expertise information."""
         try:
+            # For specific technical queries, use more targeted search
+            specific_technical_terms = self._extract_specific_technical_terms(search_terms)
+            
+            if specific_technical_terms:
+                # Use specific technical term search for better results
+                search_query = " ".join(specific_technical_terms)
+                logger.info("Using specific technical search", terms=specific_technical_terms)
+            else:
+                search_query = search_terms
+            
             # Search with internal knowledge focus
             results = self.search_client.search(
-                search_text=search_terms,
+                search_text=search_query,
                 top=30,
                 highlight_fields="filename,project_name,content",
                 select=["id", "filename", "content", "blob_url", "project_name", "folder"],
@@ -3124,6 +3151,14 @@ Format your response with clear headings and bullet points. Focus on practical e
                     if doc_id not in seen_docs:
                         # Calculate internal knowledge relevance
                         score = self._calculate_internal_knowledge_relevance(result, components)
+                        
+                        # Boost score for specific technical terms
+                        if specific_technical_terms:
+                            content = (result.get('content', '') + ' ' + result.get('filename', '')).lower()
+                            for term in specific_technical_terms:
+                                if term.lower() in content:
+                                    score += 0.3  # Significant boost for exact matches
+                        
                         if score >= 0.2:  # Threshold for internal knowledge relevance
                             result['internal_knowledge_score'] = score
                             relevant_docs.append(result)
@@ -3134,6 +3169,7 @@ Format your response with clear headings and bullet points. Focus on practical e
             
             logger.info("Internal knowledge document search completed", 
                        total_found=len(relevant_docs),
+                       specific_terms=specific_technical_terms,
                        components=components['summary'])
             
             return relevant_docs[:15]  # Top 15 most relevant
@@ -3141,6 +3177,31 @@ Format your response with clear headings and bullet points. Focus on practical e
         except Exception as e:
             logger.error("Internal knowledge document search failed", error=str(e))
             return []
+
+    def _extract_specific_technical_terms(self, search_terms: str) -> List[str]:
+        """Extract specific technical terms that should be searched exactly."""
+        search_lower = search_terms.lower()
+        
+        # List of specific technical terms that should be searched exactly
+        technical_terms = [
+            'seismic strengthening', 'seismic retrofit', 'earthquake strengthening',
+            'liquefaction', 'lateral loads', 'shear walls', 'base isolation',
+            'moment frame', 'steel bracing', 'concrete shear wall',
+            'foundation upgrade', 'pile foundation', 'deep foundation',
+            'wind load', 'snow load', 'live load', 'dead load',
+            'building consent', 'producer statement', 'ps1', 'ps3', 'ps4',
+            'structural engineer', 'geotechnical engineer', 'senior engineer',
+            'project notes', 'design notes', 'calculation notes',
+            'structural calculations', 'foundation design', 'steel design',
+            'concrete design', 'timber design', 'masonry design'
+        ]
+        
+        found_terms = []
+        for term in technical_terms:
+            if term in search_lower:
+                found_terms.append(term)
+        
+        return found_terms
 
     def _calculate_cost_time_relevance(self, document: Dict, components: Dict[str, Any]) -> float:
         """Calculate how well a document matches cost/time analysis criteria."""
@@ -4659,7 +4720,7 @@ Focus on practical regulatory guidance that can be applied to similar situations
             # Use the reusable method for proper Base64 decoding
             doc_info = self._extract_document_info(doc)
             filename = doc_info['filename']
-            project_name = doc_info['project_name']
+            project_id = doc_info['project_id']  # Fix: use project_id instead of project_name
             
             # Skip sources with missing essential info
             if not filename or filename == 'None':
@@ -4667,7 +4728,7 @@ Focus on practical regulatory guidance that can be applied to similar situations
                 
             sources.append({
                 'filename': filename,
-                'project_id': project_name or 'Template Library',
+                'project_id': project_id or 'Template Library',
                 'relevance_score': doc.get('@search.score', 0.9),
                 'blob_url': doc.get('blob_url', ''),
                 'excerpt': f"Template document: {filename}"
