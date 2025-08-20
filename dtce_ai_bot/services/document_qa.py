@@ -73,12 +73,122 @@ class DocumentQAService:
                     'search_type': 'clarification'
                 }
             
-            # For everything else, just search the index directly
-            logger.info("Searching documents for question", question=question)
+            # For everything else, understand the intent and search accordingly
+            logger.info("Analyzing query intent", question=question)
+            
+            # Detect if user wants a list of projects vs. document content
+            wants_project_list = self._wants_project_list(question)
+            search_terms = self._extract_search_terms(question)
+            
+            if wants_project_list:
+                logger.info("User wants project list", search_terms=search_terms)
+                return await self._handle_project_list_query(search_terms, project_filter)
+            else:
+                logger.info("User wants document content", search_terms=search_terms)
+                return await self._handle_document_content_query(question, project_filter)
+            
+        except Exception as e:
+            logger.error("Question answering failed", error=str(e), question=question)
+            return {
+                'answer': f'I encountered an error while processing your question: {str(e)}',
+                'sources': [],
+                'confidence': 'error',
+                'documents_searched': 0
+            }
+    
+    def _wants_project_list(self, question: str) -> bool:
+        """Detect if user wants a list of projects vs. document content."""
+        question_lower = question.lower()
+        project_list_indicators = [
+            'list of projects', 'projects that', 'which projects', 'what projects',
+            'projects with', 'projects that have', 'projects that contain',
+            'show me projects', 'find projects', 'projects related to'
+        ]
+        return any(indicator in question_lower for indicator in project_list_indicators)
+    
+    def _extract_search_terms(self, question: str) -> str:
+        """Extract the key search terms from a natural language question."""
+        # Remove common question words and focus on the technical terms
+        question_lower = question.lower()
+        
+        # Remove common question phrases
+        remove_phrases = [
+            'can you give me', 'give me', 'show me', 'find', 'list of projects that',
+            'projects that', 'which projects', 'what projects', 'projects with',
+            'projects that have', 'projects that contain', 'a list of'
+        ]
+        
+        clean_question = question_lower
+        for phrase in remove_phrases:
+            clean_question = clean_question.replace(phrase, ' ')
+        
+        # Clean up extra spaces and return the remaining technical terms
+        search_terms = ' '.join(clean_question.split())
+        return search_terms.strip()
+    
+    async def _handle_project_list_query(self, search_terms: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle queries that want a list of projects."""
+        try:
+            logger.info("Handling project list query", search_terms=search_terms)
+            
+            # Search for documents containing the search terms
+            documents = await self._search_relevant_documents(search_terms, project_filter)
+            
+            if documents and len(documents) > 0:
+                # Extract unique projects from the documents
+                projects = self._extract_projects_from_documents(documents)
+                
+                if projects:
+                    # Format as a project list
+                    answer = f"Here are the projects related to '{search_terms}':\n\n"
+                    for i, project in enumerate(projects[:20], 1):  # Limit to top 20
+                        answer += f"{i}. **{project['name']}** - {project['summary']}\n"
+                    
+                    if len(projects) > 20:
+                        answer += f"\n... and {len(projects) - 20} more projects found."
+                    
+                    return {
+                        'answer': answer,
+                        'sources': self._format_sources(documents[:10]),  # Show top 10 source docs
+                        'confidence': 'high' if len(projects) >= 3 else 'medium',
+                        'documents_searched': len(documents),
+                        'search_type': 'project_list'
+                    }
+                else:
+                    return {
+                        'answer': f"I found {len(documents)} documents related to '{search_terms}' but couldn't identify specific project names. The documents might contain relevant information but aren't clearly organized by project.",
+                        'sources': self._format_sources(documents[:5]),
+                        'confidence': 'low',
+                        'documents_searched': len(documents),
+                        'search_type': 'project_list_unclear'
+                    }
+            else:
+                return {
+                    'answer': f"I didn't find any projects specifically related to '{search_terms}'. Try using different terms or asking about a broader topic.",
+                    'sources': [],
+                    'confidence': 'low',
+                    'documents_searched': 0,
+                    'search_type': 'project_list_no_results'
+                }
+                
+        except Exception as e:
+            logger.error("Project list query failed", error=str(e), search_terms=search_terms)
+            return {
+                'answer': "I encountered an error while searching for projects. Please try rephrasing your question.",
+                'sources': [],
+                'confidence': 'error',
+                'documents_searched': 0
+            }
+    
+    async def _handle_document_content_query(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle queries that want document content and detailed answers."""
+        try:
+            logger.info("Handling document content query", question=question)
+            
             documents = await self._search_relevant_documents(question, project_filter)
             
             if documents and len(documents) > 0:
-                logger.info("Found documents, generating answer", docs_found=len(documents))
+                logger.info("Found documents, generating detailed answer", docs_found=len(documents))
                 answer = await self._generate_answer_from_documents(question, documents)
                 sources = self._format_sources(documents)
                 
@@ -87,7 +197,7 @@ class DocumentQAService:
                     'sources': sources,
                     'confidence': 'high' if len(documents) >= 5 else 'medium',
                     'documents_searched': len(documents),
-                    'search_type': 'direct_search'
+                    'search_type': 'document_content'
                 }
             else:
                 logger.info("No documents found, providing guidance")
@@ -107,16 +217,64 @@ Try rephrasing your question or asking about a specific topic. What would you li
                     'documents_searched': 0,
                     'search_type': 'no_results'
                 }
-            
+                
         except Exception as e:
-            logger.error("Question answering failed", error=str(e), question=question)
+            logger.error("Document content query failed", error=str(e), question=question)
             return {
-                'answer': f'I encountered an error while processing your question: {str(e)}',
+                'answer': "I encountered an error while searching. Please try rephrasing your question.",
                 'sources': [],
                 'confidence': 'error',
                 'documents_searched': 0
             }
     
+    def _extract_projects_from_documents(self, documents: List[Dict]) -> List[Dict]:
+        """Extract unique project information from search result documents."""
+        projects = {}
+        
+        for doc in documents:
+            # Extract project from URL path
+            blob_url = doc.get('blob_url', '')
+            project_id = self._extract_project_from_url(blob_url)
+            
+            if project_id and len(project_id) >= 6:  # Valid project IDs
+                if project_id not in projects:
+                    # Extract basic project info
+                    projects[project_id] = {
+                        'name': project_id,
+                        'summary': self._generate_project_summary(project_id, doc),
+                        'suitefiles_url': f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Projects/{project_id}",
+                        'document_count': 1
+                    }
+                else:
+                    projects[project_id]['document_count'] += 1
+        
+        # Convert to list and sort by relevance (document count)
+        project_list = list(projects.values())
+        project_list.sort(key=lambda x: x['document_count'], reverse=True)
+        
+        return project_list
+    
+    def _generate_project_summary(self, project_id: str, sample_doc: Dict) -> str:
+        """Generate a brief summary for a project based on document info."""
+        filename = sample_doc.get('filename', '')
+        content = sample_doc.get('content', '')[:200]  # First 200 chars
+        
+        # Try to extract meaningful description from filename or content
+        if 'hospital' in filename.lower() or 'hospital' in content.lower():
+            return "Healthcare/Hospital project"
+        elif 'school' in filename.lower() or 'education' in content.lower():
+            return "Educational facility project"
+        elif 'office' in filename.lower() or 'commercial' in content.lower():
+            return "Commercial/Office building project"
+        elif 'residential' in filename.lower() or 'apartment' in content.lower():
+            return "Residential development project"
+        elif 'bridge' in filename.lower() or 'bridge' in content.lower():
+            return "Bridge infrastructure project"
+        elif 'warehouse' in filename.lower() or 'industrial' in content.lower():
+            return "Industrial/Warehouse project"
+        else:
+            return "Engineering project"
+
     async def analyze_project_scoping_request(self, scoping_text: str, rfp_content: Optional[str] = None) -> Dict[str, Any]:
         """
         Analyze a project scoping request or RFP to find similar past projects,
