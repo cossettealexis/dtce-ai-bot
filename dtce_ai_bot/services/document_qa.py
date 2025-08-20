@@ -850,7 +850,71 @@ Content: {content}
             if self._is_scenario_based_project_query(question):
                 return await self._handle_scenario_project_query(question, project_filter)
             
-            # Extract keywords from the question
+            # USE ENHANCED INTENT DETECTION for better search precision
+            enhanced_search_query = self._enhance_search_query_with_intent(question)
+            
+            # Check if this is a specific document type request (like bridge drawings)
+            question_lower = question.lower()
+            specific_doc_requests = {
+                'bridge': 'bridge drawings, calculations, or project documents',
+                'building': 'building drawings, plans, or structural documents', 
+                'road': 'road design drawings, alignment plans, or pavement documents',
+                'retaining wall': 'retaining wall drawings, calculations, or structural details',
+                'foundation': 'foundation drawings, pile designs, or geotechnical documents',
+                'water': 'water system drawings, hydraulic calculations, or drainage plans',
+                'culvert': 'culvert drawings, hydraulic designs, or structural details'
+            }
+            
+            # Check if this is a specific document type request
+            doc_type_found = None
+            for doc_type, description in specific_doc_requests.items():
+                if doc_type in question_lower:
+                    doc_type_found = (doc_type, description)
+                    break
+            
+            # If enhanced query is different from original, use enhanced search approach
+            if enhanced_search_query != question:
+                logger.info("Using enhanced intent-based search", 
+                           original=question, enhanced=enhanced_search_query, doc_type=doc_type_found[0] if doc_type_found else None)
+                
+                # Use enhanced search query for more precise results
+                enhanced_docs = self._search_documents_with_enhanced_query(enhanced_search_query)
+                
+                if not enhanced_docs and doc_type_found:
+                    # No specific documents found - provide helpful response
+                    doc_type, description = doc_type_found
+                    return {
+                        'answer': f"""I couldn't find any {description} in our current document database.
+
+🔍 **What this means:**
+- We may not have {doc_type} projects currently indexed in our system
+- The documents might be stored in different folders or with different naming conventions
+- Our document indexing may still be in progress
+
+💡 **Suggestions:**
+1. **Check project-specific folders** - Try searching for a specific project number if you know it
+2. **Use broader terms** - Try searching for "structural drawings" or "engineering plans" instead
+3. **Contact the team** - Our engineering team can help locate specific {doc_type} documents
+4. **General guidance** - I can provide general engineering guidance about {doc_type} design and best practices
+
+Would you like me to provide general engineering guidance about {doc_type} projects, or would you prefer to search for a specific project?""",
+                        'sources': [],
+                        'confidence': 'medium',
+                        'documents_searched': 0,
+                        'search_type': 'enhanced_intent_no_results'
+                    }
+                elif enhanced_docs:
+                    # Found documents with enhanced search - format as project list
+                    projects_found = self._group_documents_by_project(enhanced_docs)
+                    return {
+                        'answer': self._format_keyword_project_answer(projects_found, [enhanced_search_query]),
+                        'sources': self._format_keyword_sources(projects_found, enhanced_docs),
+                        'confidence': 'high' if len(projects_found) >= 3 else 'medium',
+                        'documents_searched': len(enhanced_docs),
+                        'search_type': 'enhanced_intent_project_search'
+                    }
+            
+            # Fallback to original keyword extraction approach
             keywords = self._extract_keywords_from_question(question)
             
             # Search for keyword-related documents
@@ -6454,6 +6518,46 @@ Would you like me to provide general engineering guidance about {doc_type} proje
             })
             
         return sources
+
+    def _search_documents_with_enhanced_query(self, enhanced_query: str) -> List[Dict]:
+        """Search documents using the enhanced intent-based query."""
+        try:
+            logger.info("Enhanced intent search", enhanced_query=enhanced_query)
+            
+            # Try semantic search first
+            try:
+                results = self.search_client.search(
+                    search_text=enhanced_query,
+                    top=50,
+                    highlight_fields="filename,project_name,content",
+                    select=["id", "filename", "content", "blob_url", "project_name",
+                           "folder", "last_modified", "created_date", "size"],
+                    query_type="semantic",
+                    semantic_configuration_name="default"
+                )
+                search_type = "semantic"
+            except Exception as semantic_error:
+                logger.warning("Enhanced semantic search failed, using simple search", error=str(semantic_error))
+                results = self.search_client.search(
+                    search_text=enhanced_query,
+                    top=50,
+                    highlight_fields="filename,project_name,content",
+                    select=["id", "filename", "content", "blob_url", "project_name",
+                           "folder", "last_modified", "created_date", "size"],
+                    query_type="simple"
+                )
+                search_type = "simple"
+            
+            documents = []
+            for result in results:
+                documents.append(dict(result))
+                
+            logger.info("Enhanced search completed", search_type=search_type, found=len(documents))
+            return documents
+            
+        except Exception as e:
+            logger.error("Enhanced search failed", error=str(e), enhanced_query=enhanced_query)
+            return []
 
     def _enhance_search_query_with_intent(self, question: str) -> str:
         """Enhance search query based on detected intent for specific document types."""
