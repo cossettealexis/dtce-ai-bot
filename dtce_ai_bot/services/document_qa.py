@@ -165,8 +165,10 @@ class DocumentQAService:
             # then suggest being more specific
             is_date_question = self._is_date_only_question(question)
             
+            # Enhanced intent detection for specific document types
+            search_text = self._enhance_search_query_with_intent(question)
+            
             # For project-specific queries, broaden the search terms
-            search_text = question
             if project_filter and ("project" in question.lower() or project_filter in question):
                 # For project questions, search for common terms that might be in the files
                 search_text = f"email OR communication OR document OR file OR DMT OR brief OR proceeding"
@@ -6155,7 +6157,10 @@ What can I help you find?"""
         
         wants_internal_docs = any(indicator in question_lower for indicator in internal_document_indicators)
         
-        # Build intent-aware search terms
+        # Use enhanced intent-based search query instead of basic keyword matching
+        enhanced_search_query = self._enhance_search_query_with_intent(question)
+        
+        # Build intent-aware search terms for fallback if enhanced query fails
         search_terms = []
         search_terms.extend(key_concepts)
         
@@ -6172,14 +6177,14 @@ What can I help you find?"""
             elif intent_category == "seeking_contacts":
                 search_terms.extend(["contact", "vendor", "supplier", "contractor", "consultant"])
         
-        # For internal document requests, focus on document content search
-        if wants_internal_docs:
-            # Use broader search to find relevant internal content
-            search_query = " AND ".join(key_concepts[:3])  # Use top 3 concepts with AND
-            logger.info("Internal document search", query=search_query, intent=intent_category)
-        else:
-            # Use OR for general searches
-            search_query = " OR ".join(search_terms)
+        # Use enhanced search query first, with fallback to traditional approach
+        search_query = enhanced_search_query if enhanced_search_query != question else " AND ".join(key_concepts[:3])
+        
+        logger.info("Intent-aware search", 
+                   original_question=question,
+                   enhanced_query=enhanced_search_query,
+                   intent_category=intent_category,
+                   search_query=search_query)
         
         try:
             search_results = self.search_client.search(
@@ -6308,8 +6313,60 @@ What can I help you find?"""
         """Generate intelligent response even when no documents are found."""
         
         intent_category = intent_analysis.get('intent_category', 'seeking_guidance')
+        question_lower = question.lower()
         
-        # Provide professional guidance based on intent
+        # Check for specific document type requests that found no results
+        specific_doc_requests = {
+            'bridge': 'bridge drawings, calculations, or project documents',
+            'building': 'building drawings, plans, or structural documents', 
+            'road': 'road design drawings, alignment plans, or pavement documents',
+            'retaining wall': 'retaining wall drawings, calculations, or structural details',
+            'foundation': 'foundation drawings, pile designs, or geotechnical documents',
+            'water': 'water system drawings, hydraulic calculations, or drainage plans',
+            'culvert': 'culvert drawings, hydraulic designs, or structural details'
+        }
+        
+        # Check if this is a specific document type request with no results
+        doc_type_found = None
+        for doc_type, description in specific_doc_requests.items():
+            if doc_type in question_lower:
+                doc_type_found = (doc_type, description)
+                break
+        
+        if doc_type_found:
+            doc_type, description = doc_type_found
+            specific_response = f"""I couldn't find any {description} in our current document database.
+
+🔍 **What this means:**
+- We may not have {doc_type} projects currently indexed in our system
+- The documents might be stored in different folders or with different naming conventions
+- Our document indexing may still be in progress
+
+💡 **Suggestions:**
+1. **Check project-specific folders** - Try searching for a specific project number if you know it
+2. **Use broader terms** - Try searching for "structural drawings" or "engineering plans" instead
+3. **Contact the team** - Our engineering team can help locate specific {doc_type} documents
+4. **General guidance** - I can provide general engineering guidance about {doc_type} design and best practices
+
+Would you like me to provide general engineering guidance about {doc_type} projects, or would you prefer to search for a specific project?"""
+            
+            return {
+                'answer': specific_response,
+                'sources': [],
+                'confidence': 'medium',
+                'documents_searched': 0,
+                'search_type': 'specific_doc_type_not_found',
+                'source_breakdown': {
+                    'primary_source': 'helpful_guidance',
+                    'has_internal_documents': False,
+                    'document_indicators_found': 0,
+                    'ai_knowledge_indicators_found': 0,
+                    'source_clarity': 'clear',
+                    'specific_doc_type': doc_type
+                }
+            }
+        
+        # Provide professional guidance based on intent for general queries
         guidance_prompts = {
             "seeking_guidance": "provide professional engineering guidance and best practices",
             "seeking_examples": "suggest where to find examples and recommend typical approaches",  
@@ -6397,6 +6454,72 @@ What can I help you find?"""
             })
             
         return sources
+
+    def _enhance_search_query_with_intent(self, question: str) -> str:
+        """Enhance search query based on detected intent for specific document types."""
+        question_lower = question.lower()
+        
+        # Bridge-specific intent detection
+        if any(term in question_lower for term in ['bridge', 'bridges']):
+            if any(term in question_lower for term in ['drawing', 'drawings', 'plan', 'plans', 'design']):
+                # User wants bridge drawings/plans specifically
+                return "bridge AND (drawing OR plan OR design OR structural OR span OR deck OR abutment OR pier)"
+            elif any(term in question_lower for term in ['calculation', 'calculations', 'analysis']):
+                # User wants bridge calculations
+                return "bridge AND (calculation OR analysis OR load OR stress OR moment OR design)"
+            else:
+                # General bridge query
+                return "bridge OR bridges"
+        
+        # Building-specific intent detection
+        elif any(term in question_lower for term in ['building', 'buildings']):
+            if any(term in question_lower for term in ['drawing', 'drawings', 'plan', 'plans']):
+                return "building AND (drawing OR plan OR architectural OR structural OR floor)"
+            else:
+                return "building OR buildings"
+        
+        # Road/highway intent detection
+        elif any(term in question_lower for term in ['road', 'highway', 'pavement']):
+            if any(term in question_lower for term in ['drawing', 'drawings', 'plan', 'plans']):
+                return "road OR highway OR pavement AND (drawing OR plan OR alignment OR profile)"
+            else:
+                return "road OR highway OR pavement"
+        
+        # Water/drainage intent detection
+        elif any(term in question_lower for term in ['water', 'drainage', 'culvert', 'pipe']):
+            if any(term in question_lower for term in ['drawing', 'drawings', 'plan', 'plans']):
+                return "water OR drainage OR culvert OR pipe AND (drawing OR plan OR hydraulic OR flow)"
+            else:
+                return "water OR drainage OR culvert OR pipe"
+        
+        # Retaining wall intent detection
+        elif any(term in question_lower for term in ['retaining wall', 'retaining', 'wall']):
+            if any(term in question_lower for term in ['drawing', 'drawings', 'plan', 'plans']):
+                return "retaining AND wall AND (drawing OR plan OR structural OR reinforcement)"
+            else:
+                return "retaining AND wall"
+        
+        # Foundation intent detection
+        elif any(term in question_lower for term in ['foundation', 'pile', 'footing']):
+            if any(term in question_lower for term in ['drawing', 'drawings', 'plan', 'plans']):
+                return "foundation OR pile OR footing AND (drawing OR plan OR structural OR detail)"
+            else:
+                return "foundation OR pile OR footing"
+        
+        # General drawing/plan intent
+        elif any(term in question_lower for term in ['drawing', 'drawings', 'plan', 'plans', 'dwg', 'pdf']):
+            return f"{question} AND (drawing OR plan OR dwg OR pdf)"
+        
+        # Calculation intent
+        elif any(term in question_lower for term in ['calculation', 'calculations', 'analysis']):
+            return f"{question} AND (calculation OR analysis OR compute OR design)"
+        
+        # Report intent
+        elif any(term in question_lower for term in ['report', 'specification', 'spec']):
+            return f"{question} AND (report OR specification OR document)"
+        
+        # If no specific intent detected, return original question
+        return question
 
     def _analyze_answer_sources(self, answer: str, document_count: int) -> Dict[str, Any]:
         """Analyze what sources the answer is drawing from."""
