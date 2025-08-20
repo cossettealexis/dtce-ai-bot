@@ -1025,6 +1025,30 @@ What would you like to know?""",
                 'similar_projects_found': 0
             }
 
+    async def _generate_answer_from_documents(self, question: str, documents: List[Dict]) -> str:
+        """Generate a comprehensive answer using the provided documents."""
+        try:
+            # Prepare context from documents
+            context_parts = []
+            for doc in documents[:10]:  # Limit to top 10 documents
+                content = doc.get('content', '')
+                filename = doc.get('filename', 'Unknown')
+                if content:
+                    context_parts.append(f"**Document: {filename}**\n{content[:1000]}...")
+            
+            if not context_parts:
+                return f"I couldn't find specific information about '{question}' in our project database."
+            
+            context = "\n\n".join(context_parts)
+            
+            # Generate answer using the context
+            result = await self._generate_answer(question, context)
+            return result.get('answer', f"I found relevant documents but couldn't generate a specific answer for '{question}'.")
+            
+        except Exception as e:
+            logger.error("Failed to generate answer from documents", error=str(e))
+            return f"I encountered an error while processing your question about '{question}'. Please try rephrasing."
+
     def _search_relevant_documents(self, question: str, project_filter: Optional[str] = None) -> List[Dict]:
         """Search for documents relevant to the question."""
         try:
