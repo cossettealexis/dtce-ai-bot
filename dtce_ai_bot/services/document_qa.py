@@ -154,7 +154,7 @@ class DocumentQAService:
                 'similar_projects_found': 0
             }
 
-    async def _search_relevant_documents(self, question: str, project_filter: Optional[str] = None) -> List[Dict]:
+    def _search_relevant_documents(self, question: str, project_filter: Optional[str] = None) -> List[Dict]:
         """Search for documents relevant to the question."""
         try:
             # Auto-detect project from question if not provided
@@ -835,7 +835,7 @@ Content: {content}
             keywords = self._extract_keywords_from_question(question)
             
             # Search for keyword-related documents
-            keyword_docs = await self._search_keyword_documents(keywords)
+            keyword_docs = self._search_keyword_documents(keywords)
             
             if not keyword_docs:
                 return {
@@ -1348,7 +1348,7 @@ Content: {content}
         
         return None
 
-    async def _search_keyword_documents(self, keywords: List[str]) -> List[Dict]:
+    def _search_keyword_documents(self, keywords: List[str]) -> List[Dict]:
         """Search for documents related to the specified keywords using semantic search."""
         try:
             # Create a comprehensive search query from keywords
@@ -5599,14 +5599,14 @@ While I couldn't find a specific PS1 template, here's comprehensive guidance:
             
             # Strategy 2: Search by keywords
             for keyword in search_keywords[:5]:  # Top 5 keywords
-                keyword_docs = await self._search_relevant_documents(keyword)
+                keyword_docs = self._search_relevant_documents(keyword)
                 all_similar_docs.extend(keyword_docs[:3])  # Top 3 per keyword
             
             # Strategy 3: Search by engineering terms combined with characteristics
             for term in engineering_terms[:3]:
                 if search_keywords:
                     combined_query = f"{term} {search_keywords[0]}"
-                    eng_docs = await self._search_relevant_documents(combined_query)
+                    eng_docs = self._search_relevant_documents(combined_query)
                     all_similar_docs.extend(eng_docs[:2])
             
             # Remove duplicates and rank by relevance
@@ -5789,7 +5789,7 @@ While I couldn't find a specific PS1 template, here's comprehensive guidance:
             # Search using combined terms
             all_docs = []
             for term in search_terms[:5]:  # Limit to prevent too many queries
-                docs = await self._search_relevant_documents(term)
+                docs = self._search_relevant_documents(term)
                 all_docs.extend(docs[:3])  # Top 3 per term
             
             return self._remove_duplicate_documents(all_docs)
