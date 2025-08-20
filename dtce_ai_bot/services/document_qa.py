@@ -1660,10 +1660,14 @@ Content: {content}
         """Format document sources for API response."""
         sources = []
         for doc in documents:
+            blob_url = doc.get('blob_url', '')
+            # Convert blob URL to SuiteFiles URL for direct access
+            suitefiles_url = self._convert_to_suitefiles_url(blob_url) if blob_url else blob_url
+            
             source = {
                 'filename': doc.get('filename', 'Unknown'),
-                'url': doc.get('blob_url', ''),
-                'project': self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_name', 'Unknown'),
+                'url': suitefiles_url,  # Use converted SuiteFiles URL
+                'project': self._extract_project_from_url(blob_url) or doc.get('project_name', 'Unknown'),
                 'content_preview': doc.get('content', '')[:200] + "..." if doc.get('content', '') else "",
                 'last_modified': doc.get('last_modified', ''),
                 'folder': doc.get('folder', '')
@@ -2387,16 +2391,29 @@ Would you like me to provide general engineering guidance about {doc_type} proje
         
         try:
             # Extract the file path from blob URL
-            # Example: /Projects/225/225000/documents/file.pdf
-            if '/Projects/' in blob_url:
-                # Get the path after '/Projects/'
-                path_part = blob_url.split('/Projects/')[-1]
+            # Example blob URL: https://dtceaistorage.blob.core.windows.net/dtce-documents/Engineering/00_Admin/01_Pricing/file.pdf
+            # Should become: https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/file/Engineering/00_Admin/01_Pricing/file.pdf
+            
+            # Extract everything after "/dtce-documents/"
+            if '/dtce-documents/' in blob_url:
+                path_part = blob_url.split('/dtce-documents/')[-1]
                 
-                # URL encode the path for SuiteFiles
+                # URL decode first (in case it's already encoded)
+                import urllib.parse
+                decoded_path = urllib.parse.unquote(path_part)
+                
+                # Then encode properly for SuiteFiles URL
+                encoded_path = urllib.parse.quote(decoded_path, safe='/')
+                
+                # Build SuiteFiles URL - use /file/ for direct file access
+                suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/file/{encoded_path}"
+                return suite_files_url
+                
+            # Fallback for old logic (Projects specific)
+            elif '/Projects/' in blob_url:
+                path_part = blob_url.split('/Projects/')[-1]
                 import urllib.parse
                 encoded_path = urllib.parse.quote(path_part, safe='/')
-                
-                # Build SuiteFiles URL
                 suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/file/Projects/{encoded_path}"
                 return suite_files_url
         except Exception as e:
@@ -8055,9 +8072,13 @@ Answer:"""
         """Format sources with intelligent ranking."""
         sources = []
         for doc in documents[:5]:  # Limit to top 5 sources
+            blob_url = doc.get('blob_url', '')
+            # Convert blob URL to SuiteFiles URL for direct access
+            suitefiles_url = self._convert_to_suitefiles_url(blob_url) if blob_url else blob_url
+            
             sources.append({
                 'filename': doc.get('filename', 'Unknown'),
-                'url': doc.get('blob_url', ''),
+                'url': suitefiles_url,  # Use converted SuiteFiles URL
                 'folder': doc.get('folder', 'Unknown'),
                 'project': doc.get('project_name', 'Unknown'),
                 'relevance': 'high' if len(doc.get('content', '')) > 500 else 'medium'

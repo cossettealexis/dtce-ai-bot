@@ -436,7 +436,7 @@ Focus on:
         for doc in documents[:5]:  # Limit to top 5 sources
             sources.append({
                 'filename': doc.get('filename', 'Unknown'),
-                'url': doc.get('blob_url', ''),
+                'url': self._convert_to_suitefiles_url(doc.get('blob_url', '')) or doc.get('blob_url', ''),
                 'folder': doc.get('folder', 'Unknown'),
                 'relevance': 'high'
             })
@@ -448,7 +448,7 @@ Focus on:
         for doc in documents[:5]:
             source = {
                 'filename': doc.get('filename', 'Unknown'),
-                'url': doc.get('blob_url', ''),
+                'url': self._convert_to_suitefiles_url(doc.get('blob_url', '')) or doc.get('blob_url', ''),
                 'folder': doc.get('folder', 'Unknown'),
                 'relevance': 'high'
             }
@@ -479,7 +479,7 @@ Focus on:
                     'name': filename.replace('.pdf', '').replace('.docx', ''),
                     'description': content[:200] + '...' if len(content) > 200 else content,
                     'scope': self._extract_scope_from_content(content),
-                    'suitefiles_url': doc.get('blob_url', '')
+                    'suitefiles_url': self._convert_to_suitefiles_url(doc.get('blob_url', '')) or doc.get('blob_url', '')
                 })
         
         return projects
@@ -511,7 +511,8 @@ Focus on:
                 if content:
                     context_part = f"**Document: {filename}**\n{content[:1000]}..."
                     if blob_url:
-                        context_part += f"\nURL: {blob_url}"
+                        suitefiles_url = self._convert_to_suitefiles_url(blob_url) or blob_url
+                        context_part += f"\nURL: {suitefiles_url}"
                     context_parts.append(context_part)
             
             if not context_parts:
@@ -561,7 +562,8 @@ Answer:"""
         # Prioritize SuiteFiles documents
         for i, doc in enumerate(suitefiles_docs[:5], 1):
             response += f"{i}. **{doc.get('filename', 'Unknown')}**\n"
-            response += f"   📄 [View in SuiteFiles]({doc.get('blob_url', '')})\n"
+            suitefiles_url = self._convert_to_suitefiles_url(doc.get('blob_url', '')) or doc.get('blob_url', '')
+            response += f"   📄 [View in SuiteFiles]({suitefiles_url})\n"
             content = doc.get('content', '')[:200]
             if content:
                 response += f"   Summary: {content}...\n\n"
@@ -571,7 +573,8 @@ Answer:"""
             for i, doc in enumerate(other_docs[:3], 1):
                 response += f"{i}. **{doc.get('filename', 'Unknown')}**\n"
                 if doc.get('blob_url'):
-                    response += f"   🔗 [Product link]({doc.get('blob_url', '')})\n\n"
+                    suitefiles_url = self._convert_to_suitefiles_url(doc.get('blob_url', '')) or doc.get('blob_url', '')
+                    response += f"   🔗 [Product link]({suitefiles_url})\n\n"
         
         return response
     
@@ -581,7 +584,7 @@ Answer:"""
         
         for i, doc in enumerate(documents[:5], 1):
             filename = doc.get('filename', 'Unknown')
-            url = doc.get('blob_url', '')
+            url = self._convert_to_suitefiles_url(doc.get('blob_url', '')) or doc.get('blob_url', '')
             content = doc.get('content', '')[:150]
             
             response += f"{i}. **{filename}**\n"
@@ -777,7 +780,7 @@ Answer:"""
                     'name': filename.replace('.pdf', '').replace('.docx', ''),
                     'scenario_match': scenario_match or 'Keywords found in document',
                     'details': content[:150] + '...' if content else 'Details in linked document',
-                    'suitefiles_url': doc.get('blob_url', '')
+                    'suitefiles_url': self._convert_to_suitefiles_url(doc.get('blob_url', '')) or doc.get('blob_url', '')
                 })
         
         return projects[:10]
@@ -1010,7 +1013,7 @@ Answer:"""
                     'name': filename.replace('.pdf', '').replace('.docx', ''),
                     'description': content[:200] + '...' if len(content) > 200 else content,
                     'scope': self._extract_scope_from_content(content),
-                    'suitefiles_url': blob_url,
+                    'suitefiles_url': self._convert_to_suitefiles_url(blob_url) or blob_url,
                     'keywords_found': ', '.join(keywords_found)
                 })
         
@@ -1703,3 +1706,40 @@ Focus on:
     def _format_sources_with_products(self, documents: List[Dict]) -> List[Dict]:
         """Format sources with product information."""
         return self._format_sources(documents)
+
+    def _convert_to_suitefiles_url(self, blob_url: str) -> Optional[str]:
+        """Convert Azure blob URL to SuiteFiles URL for direct file access."""
+        if not blob_url:
+            return None
+        
+        try:
+            # Extract the file path from blob URL
+            # Example blob URL: https://dtceaistorage.blob.core.windows.net/dtce-documents/Engineering/00_Admin/01_Pricing/file.pdf
+            # Should become: https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/file/Engineering/00_Admin/01_Pricing/file.pdf
+            
+            # Extract everything after "/dtce-documents/"
+            if "/dtce-documents/" in blob_url:
+                path_part = blob_url.split("/dtce-documents/")[-1]
+                
+                # URL decode first (in case it's already encoded)
+                import urllib.parse
+                decoded_path = urllib.parse.unquote(path_part)
+                
+                # Then encode properly for SuiteFiles URL
+                encoded_path = urllib.parse.quote(decoded_path, safe="/")
+                
+                # Build SuiteFiles URL - use /file/ for direct file access
+                suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/file/{encoded_path}"
+                return suite_files_url
+                
+            # Fallback for old logic (Projects specific)
+            elif "/Projects/" in blob_url:
+                path_part = blob_url.split("/Projects/")[-1]
+                import urllib.parse
+                encoded_path = urllib.parse.quote(path_part, safe="/")
+                suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/file/Projects/{encoded_path}"
+                return suite_files_url
+        except Exception as e:
+            logger.warning("Failed to convert to SuiteFiles URL", blob_url=blob_url, error=str(e))
+        
+        return None
