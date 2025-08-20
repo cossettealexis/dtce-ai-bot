@@ -174,7 +174,8 @@ INTENT CATEGORIES:
 10. **PRODUCT_LOOKUP**: User wants product specs, suppliers, or material information
 11. **TEMPLATE_REQUEST**: User wants calculation templates, design spreadsheets, or forms (PS1, PS3, etc.)
 12. **CONTACT_LOOKUP**: User wants contact info for builders, contractors, clients we've worked with
-13. **GENERAL_SEARCH**: Basic document search that doesn't fit other categories
+13. **EXTERNAL_REFERENCE**: User wants online resources, external references, forums, papers, or discussions from outside DTCE
+14. **GENERAL_SEARCH**: Basic document search that doesn't fit other categories
 
 Examples of advanced queries:
 - "Show me mid-rise timber buildings in high wind zones" → SCENARIO_TECHNICAL
@@ -183,12 +184,14 @@ Examples of advanced queries:
 - "How long does PS1 take for small commercial?" → COST_TIME_INSIGHTS
 - "Compare precast vs in-situ concrete decisions" → MATERIALS_METHODS
 - "Which engineers have tilt-slab experience?" → INTERNAL_KNOWLEDGE
+- "Find online references about tapered composite beams" → EXTERNAL_REFERENCE
+- "Looking for forum discussions on seismic retrofitting" → EXTERNAL_REFERENCE
 
 User Question: "{question}"
 
 Respond with ONLY a JSON object:
 {{
-    "intent": "NZS_CODE_LOOKUP|PROJECT_REFERENCE|SCENARIO_TECHNICAL|LESSONS_LEARNED|REGULATORY_PRECEDENT|COST_TIME_INSIGHTS|BEST_PRACTICES_TEMPLATES|MATERIALS_METHODS|INTERNAL_KNOWLEDGE|PRODUCT_LOOKUP|TEMPLATE_REQUEST|CONTACT_LOOKUP|GENERAL_SEARCH",
+    "intent": "NZS_CODE_LOOKUP|PROJECT_REFERENCE|SCENARIO_TECHNICAL|LESSONS_LEARNED|REGULATORY_PRECEDENT|COST_TIME_INSIGHTS|BEST_PRACTICES_TEMPLATES|MATERIALS_METHODS|INTERNAL_KNOWLEDGE|PRODUCT_LOOKUP|TEMPLATE_REQUEST|CONTACT_LOOKUP|EXTERNAL_REFERENCE|GENERAL_SEARCH",
     "topic": "extracted technical topic",
     "building_type": "mid-rise|commercial|residential|industrial|etc (if applicable)",
     "conditions": ["high wind", "soft soil", "coastal", "seismic", "etc"],
@@ -196,7 +199,7 @@ Respond with ONLY a JSON object:
     "comparison_type": "materials|methods|costs|timeline (if comparing)",
     "expertise_area": "tilt-slab|pile design|seismic (if seeking expertise)",
     "standard_reference": "NZS 3101|AS/NZS 1170|etc (if applicable)",
-    "output_type": "clause|project_list|comparison|lessons|precedent|expertise|timeline",
+    "output_type": "clause|project_list|comparison|lessons|precedent|expertise|timeline|external_reference",
     "confidence": 0.0-1.0,
     "reasoning": "brief explanation"
 }}
@@ -335,6 +338,16 @@ Respond with ONLY a JSON object:
                 "reasoning": "Contains contact keywords"
             }
         
+        # External reference patterns
+        elif any(pattern in question_lower for pattern in ['online', 'reference', 'forum', 'thread', 'external', 'anonymous', 'internet', 'research paper', 'publication', 'literature']):
+            return {
+                "intent": "EXTERNAL_REFERENCE",
+                "topic": question,
+                "output_type": "external_reference",
+                "confidence": 0.8,
+                "reasoning": "User wants external/online references"
+            }
+        
         else:
             return {
                 "intent": "GENERAL_SEARCH",
@@ -374,6 +387,8 @@ Respond with ONLY a JSON object:
                 return await self._handle_template_request(intent, project_filter)
             elif intent_type == "CONTACT_LOOKUP":
                 return await self._handle_contact_lookup(intent, project_filter)
+            elif intent_type == "EXTERNAL_REFERENCE":
+                return await self._handle_external_reference(intent, project_filter)
             else:  # GENERAL_SEARCH
                 return await self._handle_general_engineering_search(intent, project_filter)
                 
@@ -600,6 +615,43 @@ What would you like to know?""",
                 'documents_searched': 0,
                 'search_type': 'contact_lookup_no_results'
             }
+    
+    async def _handle_external_reference(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle requests for external references, online resources, and research papers."""
+        topic = intent.get('topic', '')
+        logger.info("Handling external reference request", topic=topic)
+        
+        # This is a request for external resources, not internal DTCE documents
+        return {
+            'answer': f"""I understand you're looking for external references and online resources about '{topic}'. 
+
+As a DTCE AI assistant, I primarily search our internal engineering database and project files. For external references, online forums, and research papers, I'd recommend:
+
+**🌐 Online Resources:**
+• **Eng-Tips Forums** (eng-tips.com) - Excellent discussions by structural engineers
+• **Structural Engineering Forums** (structuralengineering.info)
+• **Reddit r/StructuralEngineering** - Active community discussions
+• **Civil Engineering Forum** (civilengineering.com)
+
+**📚 Research & Academic Sources:**
+• **ResearchGate** - Academic papers and discussions
+• **Google Scholar** - Academic literature search
+• **AISC Steel Construction** - Technical articles and papers
+• **Concrete International Magazine**
+
+**🔍 Professional Resources:**
+• **SEI (Structural Engineering Institute)** publications
+• **NZCS (New Zealand Concrete Society)** resources
+• **SESOC (Structural Engineering Society of New Zealand)**
+
+For your specific topic about '{topic}', try searching these platforms with relevant keywords. You'll likely find valuable discussions from anonymous structural engineers and detailed technical papers.
+
+Would you like me to help you find any related information from our internal DTCE database instead?""",
+            'sources': [],
+            'confidence': 'high',
+            'documents_searched': 0,
+            'search_type': 'external_reference'
+        }
     
     async def _handle_scope_similarity(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
         """Handle scope similarity queries for fee estimation."""
