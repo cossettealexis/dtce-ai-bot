@@ -906,7 +906,7 @@ Content: {content}
             
             # Use scenario search logic
             search_terms = self._build_scenario_search_terms(question, scenario_components)
-            relevant_docs = await self._search_scenario_documents(search_terms, scenario_components)
+            relevant_docs = self._search_scenario_documents(search_terms, scenario_components)
             
             if not relevant_docs:
                 return {
@@ -2445,7 +2445,7 @@ Be specific and practical - provide resources that directly address their questi
             search_terms = self._build_scenario_search_terms(question, scenario_components)
             
             # Search with scenario-optimized terms
-            relevant_docs = await self._search_scenario_documents(search_terms, scenario_components)
+            relevant_docs = self._search_scenario_documents(search_terms, scenario_components)
             
             if not relevant_docs:
                 return {
@@ -2586,7 +2586,7 @@ Be specific and practical - provide resources that directly address their questi
         
         return " OR ".join(f'"{term}"' for term in search_terms[:15])  # Limit to prevent too long query
 
-    async def _search_scenario_documents(self, search_terms: str, components: Dict[str, Any]) -> List[Dict]:
+    def _search_scenario_documents(self, search_terms: str, components: Dict[str, Any]) -> List[Dict]:
         """Search for documents matching scenario criteria."""
         try:
             # Search with broader terms first
