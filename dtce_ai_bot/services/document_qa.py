@@ -4893,14 +4893,14 @@ Would you like me to search for specific templates or documents that might help?
                 for query_type in ["simple", "semantic"]:
                     response = self.search_client.search(
                         search_text=search_term,
-                        search_fields=["title", "content", "filename"],
+                        search_fields=["filename", "content"],
                         top=15,
                         query_type=query_type
                     )
                     
                     for result in response:
                         doc_dict = dict(result)
-                        filename = (doc_dict.get('filename') or doc_dict.get('title', '')).lower()
+                        filename = (doc_dict.get('filename') or '').lower()
                         content = (doc_dict.get('content') or '').lower()
                         
                         # More flexible filtering for useful documents
@@ -5007,14 +5007,14 @@ Would you like me to search for specific templates or documents that might help?
             try:
                 response = self.search_client.search(
                     search_text=term,
-                    search_fields=["title", "content"],
+                    search_fields=["filename", "content"],
                     top=5,
                     query_type="semantic"
                 )
                 for result in response:
                     if result.get('@search.score', 0) > 0.6:  # Lower threshold for more results
                         broader_results.append({
-                            'title': result.get('title', 'Untitled'),
+                            'title': result.get('filename', 'Untitled'),
                             'content': result.get('content', '')[:300] + '...',
                             'metadata': result.get('metadata', {}),
                             'score': result.get('@search.score', 0)
