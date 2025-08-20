@@ -73,19 +73,14 @@ class DocumentQAService:
                     'search_type': 'clarification'
                 }
             
-            # For everything else, understand the intent and search accordingly
-            logger.info("Analyzing query intent", question=question)
+            # Use domain-specific intent classification for engineering queries
+            logger.info("Classifying engineering intent", question=question)
             
-            # Detect if user wants a list of projects vs. document content
-            wants_project_list = self._wants_project_list(question)
-            search_terms = self._extract_search_terms(question)
+            intent = await self._classify_engineering_intent(question)
+            logger.info("Engineering intent classified", intent=intent)
             
-            if wants_project_list:
-                logger.info("User wants project list", search_terms=search_terms)
-                return await self._handle_project_list_query(search_terms, project_filter)
-            else:
-                logger.info("User wants document content", search_terms=search_terms)
-                return await self._handle_document_content_query(question, project_filter)
+            # Route to specialized handlers based on engineering domain
+            return await self._route_to_domain_handler(intent, project_filter)
             
         except Exception as e:
             logger.error("Question answering failed", error=str(e), question=question)
@@ -96,135 +91,468 @@ class DocumentQAService:
                 'documents_searched': 0
             }
     
-    def _wants_project_list(self, question: str) -> bool:
-        """Detect if user wants a list of projects vs. document content."""
-        question_lower = question.lower()
-        project_list_indicators = [
-            'list of projects', 'projects that', 'which projects', 'what projects',
-            'projects with', 'projects that have', 'projects that contain',
-            'show me projects', 'find projects', 'projects related to'
-        ]
-        return any(indicator in question_lower for indicator in project_list_indicators)
-    
-    def _extract_search_terms(self, question: str) -> str:
-        """Extract the key search terms from a natural language question."""
-        # Remove common question words and focus on the technical terms
-        question_lower = question.lower()
+    async def _classify_engineering_intent(self, question: str) -> Dict[str, Any]:
+        """Use AI to classify engineering-specific intent and extract domain information."""
         
-        # Remove common question phrases
-        remove_phrases = [
-            'can you give me', 'give me', 'show me', 'find', 'list of projects that',
-            'projects that', 'which projects', 'what projects', 'projects with',
-            'projects that have', 'projects that contain', 'a list of'
-        ]
-        
-        clean_question = question_lower
-        for phrase in remove_phrases:
-            clean_question = clean_question.replace(phrase, ' ')
-        
-        # Clean up extra spaces and return the remaining technical terms
-        search_terms = ' '.join(clean_question.split())
-        return search_terms.strip()
-    
-    async def _handle_project_list_query(self, search_terms: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
-        """Handle queries that want a list of projects."""
+        classification_prompt = f"""
+You are an expert AI assistant for a structural engineering consultancy (DTCE). 
+Analyze this user query and classify the engineering intent.
+
+INTENT CATEGORIES:
+1. **NZS_CODE_LOOKUP**: User wants specific clause, section, or information from NZ Standards (NZS 3101, AS/NZS, etc.)
+2. **PROJECT_REFERENCE**: User wants past DTCE projects with specific characteristics or scope
+3. **PRODUCT_LOOKUP**: User wants product specs, suppliers, or material information
+4. **TEMPLATE_REQUEST**: User wants calculation templates, design spreadsheets, or forms (PS1, PS3, etc.)
+5. **CONTACT_LOOKUP**: User wants contact info for builders, contractors, clients we've worked with
+6. **SCOPE_SIMILARITY**: User wants projects similar to their current scope for fee estimation
+7. **TECHNICAL_GUIDANCE**: User wants engineering design guidance or best practices
+8. **REGULATORY_PRECEDENT**: User wants examples of council approvals, consents, or regulatory issues
+9. **GENERAL_SEARCH**: Basic document search that doesn't fit other categories
+
+User Question: "{question}"
+
+Respond with ONLY a JSON object:
+{{
+    "intent": "NZS_CODE_LOOKUP|PROJECT_REFERENCE|PRODUCT_LOOKUP|TEMPLATE_REQUEST|CONTACT_LOOKUP|SCOPE_SIMILARITY|TECHNICAL_GUIDANCE|REGULATORY_PRECEDENT|GENERAL_SEARCH",
+    "topic": "extracted technical topic",
+    "standard_reference": "NZS 3101|AS/NZS 1170|etc (if applicable)",
+    "project_characteristics": ["building type", "conditions", "materials"],
+    "output_type": "clause|project_list|contact_info|template|guidance|precedent",
+    "confidence": 0.0-1.0,
+    "reasoning": "brief explanation"
+}}
+"""
+
         try:
-            logger.info("Handling project list query", search_terms=search_terms)
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "You are an expert engineering query classifier. Respond only with valid JSON."},
+                    {"role": "user", "content": classification_prompt}
+                ],
+                temperature=0.1,
+                max_tokens=300
+            )
             
-            # Search for documents containing the search terms
-            documents = await self._search_relevant_documents(search_terms, project_filter)
+            import json
+            intent = json.loads(response.choices[0].message.content.strip())
             
-            if documents and len(documents) > 0:
-                # Extract unique projects from the documents
-                projects = self._extract_projects_from_documents(documents)
-                
-                if projects:
-                    # Format as a project list
-                    answer = f"Here are the projects related to '{search_terms}':\n\n"
-                    for i, project in enumerate(projects[:20], 1):  # Limit to top 20
-                        answer += f"{i}. **{project['name']}** - {project['summary']}\n"
-                    
-                    if len(projects) > 20:
-                        answer += f"\n... and {len(projects) - 20} more projects found."
-                    
-                    return {
-                        'answer': answer,
-                        'sources': self._format_sources(documents[:10]),  # Show top 10 source docs
-                        'confidence': 'high' if len(projects) >= 3 else 'medium',
-                        'documents_searched': len(documents),
-                        'search_type': 'project_list'
-                    }
-                else:
-                    return {
-                        'answer': f"I found {len(documents)} documents related to '{search_terms}' but couldn't identify specific project names. The documents might contain relevant information but aren't clearly organized by project.",
-                        'sources': self._format_sources(documents[:5]),
-                        'confidence': 'low',
-                        'documents_searched': len(documents),
-                        'search_type': 'project_list_unclear'
-                    }
-            else:
-                return {
-                    'answer': f"I didn't find any projects specifically related to '{search_terms}'. Try using different terms or asking about a broader topic.",
-                    'sources': [],
-                    'confidence': 'low',
-                    'documents_searched': 0,
-                    'search_type': 'project_list_no_results'
-                }
+            logger.info("Engineering intent classified",
+                       intent=intent.get('intent'),
+                       topic=intent.get('topic'),
+                       confidence=intent.get('confidence'))
+            
+            return intent
+            
+        except Exception as e:
+            logger.error("Intent classification failed", error=str(e))
+            # Fallback to simple pattern matching
+            return self._fallback_intent_classification(question)
+    
+    def _fallback_intent_classification(self, question: str) -> Dict[str, Any]:
+        """Fallback pattern-based intent classification if AI fails."""
+        question_lower = question.lower()
+        
+        # NZS/Standards patterns
+        if any(pattern in question_lower for pattern in ['nzs', 'clause', 'standard', 'code', 'as/nzs']):
+            return {
+                "intent": "NZS_CODE_LOOKUP",
+                "topic": question,
+                "standard_reference": "NZS",
+                "output_type": "clause",
+                "confidence": 0.8,
+                "reasoning": "Contains standards keywords"
+            }
+        
+        # Project patterns
+        elif any(pattern in question_lower for pattern in ['project', 'past', 'similar', 'worked on', 'done before']):
+            return {
+                "intent": "PROJECT_REFERENCE", 
+                "topic": question,
+                "output_type": "project_list",
+                "confidence": 0.8,
+                "reasoning": "Contains project keywords"
+            }
+        
+        # Template patterns
+        elif any(pattern in question_lower for pattern in ['template', 'ps1', 'ps3', 'form', 'spreadsheet', 'calculation']):
+            return {
+                "intent": "TEMPLATE_REQUEST",
+                "topic": question,
+                "output_type": "template",
+                "confidence": 0.8,
+                "reasoning": "Contains template keywords"
+            }
+        
+        # Contact patterns
+        elif any(pattern in question_lower for pattern in ['builder', 'contractor', 'contact', 'client', 'worked with']):
+            return {
+                "intent": "CONTACT_LOOKUP",
+                "topic": question,
+                "output_type": "contact_info",
+                "confidence": 0.8,
+                "reasoning": "Contains contact keywords"
+            }
+        
+        else:
+            return {
+                "intent": "GENERAL_SEARCH",
+                "topic": question,
+                "output_type": "guidance",
+                "confidence": 0.6,
+                "reasoning": "General engineering query"
+            }
+    
+    async def _route_to_domain_handler(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Route to specialized handler based on engineering domain intent."""
+        
+        intent_type = intent.get('intent', 'GENERAL_SEARCH')
+        
+        try:
+            if intent_type == "NZS_CODE_LOOKUP":
+                return await self._handle_nzs_code_lookup(intent, project_filter)
+            elif intent_type == "PROJECT_REFERENCE":
+                return await self._handle_project_reference(intent, project_filter)
+            elif intent_type == "PRODUCT_LOOKUP":
+                return await self._handle_product_lookup(intent, project_filter)
+            elif intent_type == "TEMPLATE_REQUEST":
+                return await self._handle_template_request(intent, project_filter)
+            elif intent_type == "CONTACT_LOOKUP":
+                return await self._handle_contact_lookup(intent, project_filter)
+            elif intent_type == "SCOPE_SIMILARITY":
+                return await self._handle_scope_similarity(intent, project_filter)
+            elif intent_type == "TECHNICAL_GUIDANCE":
+                return await self._handle_technical_guidance(intent, project_filter)
+            elif intent_type == "REGULATORY_PRECEDENT":
+                return await self._handle_regulatory_precedent(intent, project_filter)
+            else:  # GENERAL_SEARCH
+                return await self._handle_general_engineering_search(intent, project_filter)
                 
         except Exception as e:
-            logger.error("Project list query failed", error=str(e), search_terms=search_terms)
+            logger.error("Domain handler failed", error=str(e), intent=intent_type)
             return {
-                'answer': "I encountered an error while searching for projects. Please try rephrasing your question.",
+                'answer': "I encountered an error processing your engineering query. Please try rephrasing your question.",
                 'sources': [],
                 'confidence': 'error',
                 'documents_searched': 0
             }
     
-    async def _handle_document_content_query(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
-        """Handle queries that want document content and detailed answers."""
-        try:
-            logger.info("Handling document content query", question=question)
+    async def _handle_nzs_code_lookup(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle NZ Standards and code lookup queries."""
+        topic = intent.get('topic', '')
+        logger.info("Handling NZS code lookup", topic=topic)
+        
+        # Search for standards documents
+        documents = await self._search_relevant_documents(f"NZS {topic}", project_filter)
+        
+        if documents:
+            # Generate clause-focused answer
+            answer = await self._generate_answer_from_documents(
+                f"What clause or section in NZ Standards covers {topic}? Please provide the specific clause number and explanation.",
+                documents
+            )
             
-            documents = await self._search_relevant_documents(question, project_filter)
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high' if len(documents) >= 2 else 'medium',
+                'documents_searched': len(documents),
+                'search_type': 'nzs_code_lookup'
+            }
+        else:
+            return {
+                'answer': f"I couldn't find specific NZ Standards information for '{topic}'. You might need to check the physical standards documents or contact Standards New Zealand.",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'search_type': 'nzs_no_results'
+            }
+    
+    async def _handle_project_reference(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle past project reference queries."""
+        topic = intent.get('topic', '')
+        logger.info("Handling project reference", topic=topic)
+        
+        # Search for project documents
+        documents = await self._search_relevant_documents(topic, project_filter)
+        
+        if documents:
+            # Extract unique projects
+            projects = self._extract_projects_from_documents(documents)
             
-            if documents and len(documents) > 0:
-                logger.info("Found documents, generating detailed answer", docs_found=len(documents))
-                answer = await self._generate_answer_from_documents(question, documents)
-                sources = self._format_sources(documents)
+            if projects:
+                answer = f"Here are past DTCE projects related to '{topic}':\n\n"
+                for i, project in enumerate(projects[:10], 1):
+                    answer += f"{i}. **{project['name']}** - {project['summary']}\n"
+                    answer += f"   📁 [View in SuiteFiles]({project['suitefiles_url']})\n\n"
+                
+                if len(projects) > 10:
+                    answer += f"... and {len(projects) - 10} more projects found."
+                    
+                return {
+                    'answer': answer,
+                    'sources': self._format_sources(documents[:5]),
+                    'confidence': 'high' if len(projects) >= 3 else 'medium',
+                    'documents_searched': len(documents),
+                    'search_type': 'project_reference'
+                }
+            else:
+                return {
+                    'answer': f"I found {len(documents)} documents related to '{topic}' but couldn't identify specific project names. The documents might contain relevant examples.",
+                    'sources': self._format_sources(documents[:5]),
+                    'confidence': 'medium',
+                    'documents_searched': len(documents),
+                    'search_type': 'project_reference_unclear'
+                }
+        else:
+            return {
+                'answer': f"I couldn't find past DTCE projects specifically related to '{topic}'. Try using different keywords or ask about a broader topic.",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'search_type': 'project_reference_no_results'
+            }
+    
+    async def _handle_template_request(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle design template and form requests."""
+        topic = intent.get('topic', '')
+        logger.info("Handling template request", topic=topic)
+        
+        # Search for templates, spreadsheets, forms
+        search_query = f"template calculation spreadsheet form PS1 PS3 {topic}"
+        documents = await self._search_relevant_documents(search_query, project_filter)
+        
+        if documents:
+            # Filter for likely templates (Excel files, forms, etc.)
+            template_docs = [doc for doc in documents if any(ext in doc.get('filename', '').lower() 
+                           for ext in ['.xlsx', '.xls', '.pdf', 'template', 'form', 'ps1', 'ps3'])]
+            
+            if template_docs:
+                answer = f"Here are the design templates and forms related to '{topic}':\n\n"
+                for i, doc in enumerate(template_docs[:8], 1):
+                    filename = doc.get('filename', 'Unknown')
+                    answer += f"{i}. **{filename}**\n"
+                    if doc.get('blob_url'):
+                        answer += f"   📄 [Download]({doc['blob_url']})\n\n"
                 
                 return {
                     'answer': answer,
-                    'sources': sources,
-                    'confidence': 'high' if len(documents) >= 5 else 'medium',
+                    'sources': self._format_sources(template_docs),
+                    'confidence': 'high',
                     'documents_searched': len(documents),
-                    'search_type': 'document_content'
+                    'search_type': 'template_request'
                 }
             else:
-                logger.info("No documents found, providing guidance")
                 return {
-                    'answer': f"""I searched for documents related to '{question}' but didn't find specific matches in our project database.
-
-I can help you find information about:
-• Past DTCE projects and case studies  
-• Design templates and calculation sheets
-• Building codes and standards (NZS, AS/NZS)
-• Technical design guidance
-• Project timelines and methodologies
-
-Try rephrasing your question or asking about a specific topic. What would you like to know?""",
-                    'sources': [],
-                    'confidence': 'low',
-                    'documents_searched': 0,
-                    'search_type': 'no_results'
+                    'answer': f"I found documents related to '{topic}' but no specific templates or forms. You might need to check the Templates folder in SuiteFiles directly.",
+                    'sources': self._format_sources(documents[:3]),
+                    'confidence': 'medium',
+                    'documents_searched': len(documents),
+                    'search_type': 'template_request_no_templates'
                 }
-                
-        except Exception as e:
-            logger.error("Document content query failed", error=str(e), question=question)
+        else:
             return {
-                'answer': "I encountered an error while searching. Please try rephrasing your question.",
+                'answer': f"I couldn't find templates or forms for '{topic}'. Check the Templates and Resources folders in SuiteFiles, or contact the team for custom templates.",
                 'sources': [],
-                'confidence': 'error',
-                'documents_searched': 0
+                'confidence': 'low',
+                'documents_searched': 0,
+                'search_type': 'template_request_no_results'
+            }
+    
+    async def _handle_general_engineering_search(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle general engineering searches."""
+        topic = intent.get('topic', '')
+        logger.info("Handling general engineering search", topic=topic)
+        
+        documents = await self._search_relevant_documents(topic, project_filter)
+        
+        if documents:
+            answer = await self._generate_answer_from_documents(topic, documents)
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high' if len(documents) >= 5 else 'medium',
+                'documents_searched': len(documents),
+                'search_type': 'general_engineering'
+            }
+        else:
+            return {
+                'answer': f"""I couldn't find specific information about '{topic}' in our project database.
+
+I can help you with:
+• **Standards & Codes**: "What clause in NZS 3101 covers..."
+• **Past Projects**: "Show me projects with precast connections"
+• **Templates**: "Find PS1 forms for steel design"
+• **Technical Guidance**: "Best practice for foundation design"
+
+What would you like to know?""",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'search_type': 'general_no_results'
+            }
+    
+    async def _handle_product_lookup(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle product specification and supplier lookup queries."""
+        topic = intent.get('topic', '')
+        logger.info("Handling product lookup", topic=topic)
+        
+        # Search for product specs, material info
+        search_query = f"product specification material supplier {topic}"
+        documents = await self._search_relevant_documents(search_query, project_filter)
+        
+        if documents:
+            answer = await self._generate_answer_from_documents(
+                f"What products, specifications, or suppliers are available for {topic}?",
+                documents
+            )
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'medium',
+                'documents_searched': len(documents),
+                'search_type': 'product_lookup'
+            }
+        else:
+            return {
+                'answer': f"I couldn't find specific product information for '{topic}'. You might need to check SuiteFiles product catalogs or contact suppliers directly.",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'search_type': 'product_lookup_no_results'
+            }
+    
+    async def _handle_contact_lookup(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle contact and contractor lookup queries."""
+        topic = intent.get('topic', '')
+        logger.info("Handling contact lookup", topic=topic)
+        
+        # Search for contractor/contact information
+        search_query = f"contractor builder client contact {topic}"
+        documents = await self._search_relevant_documents(search_query, project_filter)
+        
+        if documents:
+            answer = await self._generate_answer_from_documents(
+                f"What contractors, builders, or contacts are associated with {topic}?",
+                documents
+            )
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'medium',
+                'documents_searched': len(documents),
+                'search_type': 'contact_lookup'
+            }
+        else:
+            return {
+                'answer': f"I couldn't find contact information related to '{topic}'. Check the project folders in SuiteFiles or contact the project manager directly.",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'search_type': 'contact_lookup_no_results'
+            }
+    
+    async def _handle_scope_similarity(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle scope similarity queries for fee estimation."""
+        topic = intent.get('topic', '')
+        logger.info("Handling scope similarity", topic=topic)
+        
+        # Search for similar project scopes
+        documents = await self._search_relevant_documents(topic, project_filter)
+        
+        if documents:
+            projects = self._extract_projects_from_documents(documents)
+            
+            if projects:
+                answer = f"Here are past projects with similar scope to '{topic}':\n\n"
+                for i, project in enumerate(projects[:8], 1):
+                    answer += f"{i}. **{project['name']}** - {project['summary']}\n"
+                    answer += f"   📁 [View in SuiteFiles]({project['suitefiles_url']})\n\n"
+                
+                answer += "\n💡 **For fee estimation**: Review these projects' scope, timeline, and billing records in SuiteFiles."
+                
+                return {
+                    'answer': answer,
+                    'sources': self._format_sources(documents[:5]),
+                    'confidence': 'high' if len(projects) >= 3 else 'medium',
+                    'documents_searched': len(documents),
+                    'search_type': 'scope_similarity'
+                }
+            else:
+                return {
+                    'answer': f"I found documents related to '{topic}' but couldn't identify specific comparable projects. You might need to manually review project scopes.",
+                    'sources': self._format_sources(documents[:3]),
+                    'confidence': 'low',
+                    'documents_searched': len(documents),
+                    'search_type': 'scope_similarity_unclear'
+                }
+        else:
+            return {
+                'answer': f"I couldn't find projects with similar scope to '{topic}'. Try broadening your search terms or contact senior engineers for comparable project examples.",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'search_type': 'scope_similarity_no_results'
+            }
+    
+    async def _handle_technical_guidance(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle technical engineering guidance queries."""
+        topic = intent.get('topic', '')
+        logger.info("Handling technical guidance", topic=topic)
+        
+        # Search for technical guidance, best practices
+        search_query = f"design guidance best practice methodology {topic}"
+        documents = await self._search_relevant_documents(search_query, project_filter)
+        
+        if documents:
+            answer = await self._generate_answer_from_documents(
+                f"What is the best practice or design guidance for {topic}?",
+                documents
+            )
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high',
+                'documents_searched': len(documents),
+                'search_type': 'technical_guidance'
+            }
+        else:
+            return {
+                'answer': f"I couldn't find specific technical guidance for '{topic}' in our documents. You might want to consult relevant standards or contact senior engineers.",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'search_type': 'technical_guidance_no_results'
+            }
+    
+    async def _handle_regulatory_precedent(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle regulatory precedent and consent queries."""
+        topic = intent.get('topic', '')
+        logger.info("Handling regulatory precedent", topic=topic)
+        
+        # Search for council approvals, consents, regulatory issues
+        search_query = f"council consent approval regulatory precedent {topic}"
+        documents = await self._search_relevant_documents(search_query, project_filter)
+        
+        if documents:
+            answer = await self._generate_answer_from_documents(
+                f"What regulatory precedents, council approvals, or consent examples exist for {topic}?",
+                documents
+            )
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'medium',
+                'documents_searched': len(documents),
+                'search_type': 'regulatory_precedent'
+            }
+        else:
+            return {
+                'answer': f"I couldn't find regulatory precedents for '{topic}'. Check with the regulatory team or review past consent applications in SuiteFiles.",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'search_type': 'regulatory_precedent_no_results'
             }
     
     def _extract_projects_from_documents(self, documents: List[Dict]) -> List[Dict]:
