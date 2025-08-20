@@ -1,49 +1,15 @@
-1. Scenario-Based Technical Queries
-"Show me examples of mid-rise timber frame buildings in high wind zones that we’ve designed."
-"What foundation systems have we used for houses on steep slopes in Wellington?"
-"Find projects where we designed concrete shear walls for seismic strengthening."
-"What connection details have we used for balconies on coastal apartment buildings?"
-
-2. Problem-Solving & Lessons Learned
-"What issues have we run into when using screw piles in soft soils?"
-"Summarise any lessons learned from projects where retaining walls failed during construction."
-"What waterproofing methods have worked best for basement walls in high water table areas?"
-
-3. Regulatory & Consent Precedents
-"Give me examples of projects where council questioned our wind load calculations."
-"How have we approached alternative solution applications for non-standard stair designs?"
-"Show me precedent for using non-standard bracing in heritage building retrofits."
-
-4. Cost & Time Insights
-"How long does it typically take from concept to PS1 for small commercial alterations?"
-"What’s the typical cost range for structural design of multi-unit residential projects?"
-"Find projects where the structural scope expanded significantly after concept design."
-
-5. Best Practices & Templates
-"What’s our standard approach to designing steel portal frames for industrial buildings?"
-"Show me our best example drawings for timber diaphragm design."
-"What calculation templates do we have for multi-storey timber buildings?"
-
-6. Materials & Methods Comparisons
-"When have we chosen precast concrete over in-situ concrete for floor slabs, and why?"
-"What timber treatment levels have we specified for exterior beams in coastal conditions?"
-"Compare different seismic retrofit methods we’ve used for unreinforced masonry buildings."
-
-7. Internal Knowledge Mapping
-"Which engineers have experience with tilt-slab construction?"
-"Who has documented expertise in pile design for soft coastal soils?"
-"Show me project notes authored by our senior engineer on seismic strengthening."
-
-
-FAQ’s (2025 08 12)
 Objective: Knowledge-based AI for DTCE
 If the user wants to:
+
 INPUT: Ask about a specific clause/code that talks about a particular “term” and its requirement that can be found on NZ standard.
+
 “Please tell me that minimum clear cover requirements as per NZS code in designing a concrete element”.
 “Tell me what particular clause that talks about the detailing requirements in designing a beam”
 “Tell me the strength reduction factors used when I’m designing a beam or when considering seismic actions.
 “Tell me what particular NZS structural code to refer with if I’m designing a composite slab to make it as floor diaphragm?”
+
 OUTPUT: AI to give an accurate response that was directly obtained from the NZ Standard (if uploaded to the AI database)
+
 INPUT: Look for past projects as references using “keywords” or structural detailing
 
 “I am designing a precast panel, please tell me all past project that has a scope about the following keywords or description:
@@ -57,6 +23,7 @@ Unispans
 “Please advise me on what DTCE has done in the past for a 2 storey concrete precast panel building maybe with a timber framed structure on top?
 
 OUTPUT: AI is expected to provide job numbers that have the keywords from the user. AI also may directly provide links that will lead the user to the specific folder in Suite files 
+
 INPUT: I’m looking for a specific proprietary product that’s suitable to provide a waterproofing layer to a concrete block wall that DTCE has used in the past. 
 
  “I need timber connection details for joining a timber beam to a column. Please provide specifications for the proprietary products DTCE usually refers to, as well as other options to consider.”
@@ -104,12 +71,39 @@ This would be supported by concrete wall structure (and a concrete beam below).
 WIP preliminary drawings below, along with a couple of screenshots illustrating what we’re after.
 If you have capacity for this could you send us through a proposal that we can forward on to client”
 
-theres also some non engineering queries that can be made. such as:
-I'm trying to enter a quote into workflowmax but the engineer hasn't given me any times to enter, just the overall cost. What should I do?
- 
-in a case like this, AI should be able to find the How to Handbook that explains the process, and tells the admin what to do and references the H2H to the admin
- 
- actually can you add more value to any word file thats named H2H_XXXXXXXXXX
- 
-like the staff member asks heres my scenario, what do I do?, the AI will first look through any H2H document to find an answer and value that information more strongly than anything else.
- 
+
+1. Scenario-Based Technical Queries
+"Show me examples of mid-rise timber frame buildings in high wind zones that we’ve designed."
+"What foundation systems have we used for houses on steep slopes in Wellington?"
+"Find projects where we designed concrete shear walls for seismic strengthening."
+"What connection details have we used for balconies on coastal apartment buildings?"
+
+2. Problem-Solving & Lessons Learned
+"What issues have we run into when using screw piles in soft soils?"
+"Summarise any lessons learned from projects where retaining walls failed during construction."
+"What waterproofing methods have worked best for basement walls in high water table areas?"
+
+3. Regulatory & Consent Precedents
+"Give me examples of projects where council questioned our wind load calculations."
+"How have we approached alternative solution applications for non-standard stair designs?"
+"Show me precedent for using non-standard bracing in heritage building retrofits."
+
+4. Cost & Time Insights
+"How long does it typically take from concept to PS1 for small commercial alterations?"
+"What’s the typical cost range for structural design of multi-unit residential projects?"
+"Find projects where the structural scope expanded significantly after concept design."
+
+5. Best Practices & Templates
+"What’s our standard approach to designing steel portal frames for industrial buildings?"
+"Show me our best example drawings for timber diaphragm design."
+"What calculation templates do we have for multi-storey timber buildings?"
+
+6. Materials & Methods Comparisons
+"When have we chosen precast concrete over in-situ concrete for floor slabs, and why?"
+"What timber treatment levels have we specified for exterior beams in coastal conditions?"
+"Compare different seismic retrofit methods we’ve used for unreinforced masonry buildings."
+
+7. Internal Knowledge Mapping
+"Which engineers have experience with tilt-slab construction?"
+"Who has documented expertise in pile design for soft coastal soils?"
+"Show me project notes authored by our senior engineer on seismic strengthening."

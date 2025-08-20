@@ -37,6 +37,10 @@ class DocumentQAService:
         self.classification_service = QueryClassificationService(self.openai_client, self.model_name)
         self.smart_router = SmartQueryRouter(self.classification_service)
         
+        # Initialize RAG handler for specification-compliant responses
+        from .rag_handler import RAGHandler
+        self.rag_handler = RAGHandler(self.search_client, self.openai_client, self.model_name)
+        
         # Project scoping and analysis configuration
         self.project_analysis_enabled = True
         
@@ -54,7 +58,7 @@ class DocumentQAService:
         try:
             logger.info("Processing question", question=question, project_filter=project_filter)
             
-            # Handle only basic greetings, everything else gets searched
+            # Handle basic greetings and help requests
             question_lower = question.lower().strip()
             if question_lower in ["hey", "hi", "hello"]:
                 return {
@@ -63,6 +67,41 @@ class DocumentQAService:
                     'confidence': 'high',
                     'documents_searched': 0,
                     'search_type': 'greeting'
+                }
+            elif question_lower in ["help", "how do i use this system?", "what can you help me with?"]:
+                return {
+                    'answer': """I'm the DTCE AI Assistant! Here's how I can help you:
+
+🏗️ **Engineering Questions:**
+- "What's our standard approach to designing steel portal frames?"
+- "Show me structural calculations for timber buildings"
+- "Find examples of seismic strengthening projects"
+
+📋 **Project References:**
+- "Find projects with precast panels"
+- "Show me past work on steep slope foundations"
+- "What projects used screw piles in soft soils?"
+
+📖 **Standards & Codes:**
+- "What are the NZS clear cover requirements for concrete?"
+- "Tell me about strength reduction factors for beams"
+- "Find clauses about composite slab design"
+
+🔧 **Templates & Tools:**
+- "Show me PS1 templates"
+- "Find calculation spreadsheets for portal frames"
+- "What design templates do we have?"
+
+💡 **Lessons & Problems:**
+- "What issues have we had with retaining walls?"
+- "Summarize lessons learned from timber projects"
+- "What waterproofing methods work best?"
+
+Just ask me specific questions about DTCE's engineering work, and I'll search through our 84,000+ documents to help you!""",
+                    'sources': [],
+                    'confidence': 'high',
+                    'documents_searched': 0,
+                    'search_type': 'help'
                 }
             elif question_lower in ["what", "what?"] or len(question.strip()) < 3:
                 return {
@@ -73,12 +112,21 @@ class DocumentQAService:
                     'search_type': 'clarification'
                 }
             
-            # Use domain-specific intent classification for engineering queries
-            logger.info("Classifying engineering intent", question=question)
+            # First try RAG pattern matching for specification-compliant responses
+            logger.info("Checking RAG patterns", question=question)
+            rag_response = await self.rag_handler.process_rag_query(question, project_filter)
+            
+            # If RAG handler found a specific pattern, use its response
+            if rag_response.get('rag_type') != 'general_query' and rag_response.get('confidence') != 'low':
+                logger.info("RAG pattern matched", rag_type=rag_response.get('rag_type'))
+                return rag_response
+            
+            # Fallback to existing classification system for other queries
+            logger.info("No specific RAG pattern, using classification system", question=question)
             
             intent = await self._classify_engineering_intent(question)
             logger.info("Engineering intent classified", intent=intent)
-            
+
             # Route to specialized handlers based on engineering domain
             return await self._route_to_domain_handler(intent, project_filter)
             
