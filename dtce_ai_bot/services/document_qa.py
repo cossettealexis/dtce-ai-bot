@@ -2385,14 +2385,14 @@ Would you like me to provide general engineering guidance about {doc_type} proje
         return sources
 
     def _convert_to_suitefiles_url(self, blob_url: str) -> Optional[str]:
-        """Convert Azure blob URL to SuiteFiles URL for direct file access."""
+        """Convert Azure blob URL to SuiteFiles URL for folder navigation."""
         if not blob_url:
             return None
         
         try:
             # Extract the file path from blob URL
-            # Example blob URL: https://dtceaistorage.blob.core.windows.net/dtce-documents/Engineering/00_Admin/01_Pricing/file.pdf
-            # Should become: https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/file/Engineering/00_Admin/01_Pricing/file.pdf
+            # Example blob URL: https://dtceaistorage.blob.core.windows.net/dtce-documents/Engineering/04_Design(Structural)/05_Timber/11%20Proprietary%20Products/Lumberworx/Lumberworx-Laminated-Veneer-Lumber-Glulam-Beams2013.pdf
+            # Should become: https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Engineering/04_Design%28Structural%29/05_Timber/11%20Proprietary%20Products/Lumberworx
             
             # Extract everything after "/dtce-documents/"
             if '/dtce-documents/' in blob_url:
@@ -2402,19 +2402,36 @@ Would you like me to provide general engineering guidance about {doc_type} proje
                 import urllib.parse
                 decoded_path = urllib.parse.unquote(path_part)
                 
-                # Then encode properly for SuiteFiles URL
-                encoded_path = urllib.parse.quote(decoded_path, safe='/')
+                # Check if this is a file (has extension) or folder
+                if '.' in decoded_path.split('/')[-1]:
+                    # This is a file - extract folder path and use /folder/ instead of /file/
+                    folder_path = '/'.join(decoded_path.split('/')[:-1])
+                    # Encode for SharePoint URLs with proper encoding
+                    encoded_path = urllib.parse.quote(folder_path, safe='/')
+                    # Build SuiteFiles URL - use /folder/ for folder navigation
+                    suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/{encoded_path}"
+                else:
+                    # This is already a folder path
+                    encoded_path = urllib.parse.quote(decoded_path, safe='/')
+                    suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/{encoded_path}"
                 
-                # Build SuiteFiles URL - use /file/ for direct file access
-                suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/file/{encoded_path}"
                 return suite_files_url
                 
             # Fallback for old logic (Projects specific)
             elif '/Projects/' in blob_url:
                 path_part = blob_url.split('/Projects/')[-1]
                 import urllib.parse
-                encoded_path = urllib.parse.quote(path_part, safe='/')
-                suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/file/Projects/{encoded_path}"
+                decoded_path = urllib.parse.unquote(path_part)
+                
+                # Extract folder path for Projects
+                if '.' in decoded_path.split('/')[-1]:
+                    folder_path = '/'.join(decoded_path.split('/')[:-1])
+                    encoded_path = urllib.parse.quote(folder_path, safe='/')
+                    suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Projects/{encoded_path}"
+                else:
+                    encoded_path = urllib.parse.quote(decoded_path, safe='/')
+                    suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Projects/{encoded_path}"
+                
                 return suite_files_url
         except Exception as e:
             logger.warning("Failed to convert to SuiteFiles URL", blob_url=blob_url, error=str(e))
