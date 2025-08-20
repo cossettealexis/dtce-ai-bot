@@ -70,6 +70,8 @@ class RAGHandler:
                 'patterns': [
                     r'template.*preparing.*PS1.*direct link.*SuiteFiles',
                     r'PS3 template.*SuiteFiles.*legitimate link.*council.*New Zealand',
+                    r'cannot find.*PS3.*SuiteFiles.*alternative.*link',
+                    r'PS3.*template.*alternative.*source',
                     r'timber beam design spreadsheet.*DTCE.*uses',
                     r'template.*PS[1-4]',
                     r'calculation.*spreadsheet.*DTCE',
@@ -320,23 +322,69 @@ Focus on:
             template_docs = [doc for doc in documents if self._is_template_document(doc)]
             
             if template_docs:
-                # Use GPT to generate natural language answer about templates
-                prompt = f"""Based on the templates and forms found, please answer: {question}
+                # Check if this is a PS3 request specifically
+                if 'ps3' in question.lower() and ('legitimate link' in question.lower() or 'alternative' in question.lower() or 'cannot find' in question.lower()):
+                    # Provide alternative sources for PS3 templates
+                    answer = """I understand you're having trouble accessing the PS3 template in SuiteFiles. Here are legitimate alternative sources for PS3 templates:
+
+**Official Sources:**
+1. **Engineering New Zealand (ENZ)**: 
+   - Website: https://www.engineeringnz.org/
+   - They provide official Producer Statement templates including PS3
+   - Look under "Professional Development" → "Producer Statements"
+
+2. **Ministry of Business, Innovation and Employment (MBIE)**:
+   - Website: https://www.building.govt.nz/
+   - Search for "Producer Statement PS3"
+   - Official government templates for building compliance
+
+3. **Local Council Websites**:
+   - Most New Zealand councils provide PS3 templates on their websites
+   - Examples: Auckland Council, Wellington City Council, Christchurch City Council
+   - Search "[Council Name] PS3 template" or "Producer Statement"
+
+**What to Include in PS3:**
+- Building work compliance certification
+- Engineer details and registration number
+- Building Code clause compliance confirmation
+- Specific project details and location
+
+**SuiteFiles Templates Found:**
+"""
+                    # Add any SuiteFiles templates we found
+                    for i, doc in enumerate(template_docs[:3], 1):
+                        suitefiles_url = self._convert_to_suitefiles_url(doc.get('blob_url', '')) or doc.get('blob_url', '')
+                        answer += f"{i}. **{doc.get('filename', 'Unknown')}**\n"
+                        answer += f"   📄 [SuiteFiles Link]({suitefiles_url})\n"
+                        answer += f"   Location: {doc.get('folder', 'Unknown folder')}\n\n"
+                    
+                    answer += "\n💡 **Recommendation**: If SuiteFiles links aren't working, use the official Engineering New Zealand or MBIE templates as they are universally accepted by all councils."
+                    
+                    return {
+                        'answer': answer,
+                        'sources': self._format_sources(template_docs),
+                        'confidence': 'high',
+                        'documents_searched': len(documents),
+                        'rag_type': 'template_request_with_alternatives'
+                    }
+                else:
+                    # Use GPT to generate natural language answer about templates
+                    prompt = f"""Based on the templates and forms found, please answer: {question}
 
 Focus on:
 - Providing direct links to templates
 - Explaining what each template is for
 - Mentioning the location in SuiteFiles"""
-                
-                answer = await self._generate_natural_answer(prompt, template_docs, "templates and forms")
-                
-                return {
-                    'answer': answer,
-                    'sources': self._format_sources(template_docs),
-                    'confidence': 'high',
-                    'documents_searched': len(documents),
-                    'rag_type': 'template_request'
-                }
+                    
+                    answer = await self._generate_natural_answer(prompt, template_docs, "templates and forms")
+                    
+                    return {
+                        'answer': answer,
+                        'sources': self._format_sources(template_docs),
+                        'confidence': 'high',
+                        'documents_searched': len(documents),
+                        'rag_type': 'template_request'
+                    }
             else:
                 return {
                     'answer': "I found documents but couldn't identify specific templates/forms matching your request in our SuiteFiles.",
@@ -346,8 +394,39 @@ Focus on:
                     'rag_type': 'template_request'
                 }
         else:
-            return {
-                'answer': "I couldn't find the specific templates you're looking for in our SuiteFiles database.",
+            # Check if this is a PS3 request and provide alternative sources
+            if 'ps3' in question.lower():
+                return {
+                    'answer': """I couldn't find PS3 templates in our SuiteFiles database, but here are legitimate alternative sources:
+
+**Official Sources for PS3 Templates:**
+
+1. **Engineering New Zealand (ENZ)**:
+   - Website: https://www.engineeringnz.org/
+   - Official Producer Statement templates including PS3
+   - Look under "Professional Development" → "Producer Statements"
+
+2. **Ministry of Business, Innovation and Employment (MBIE)**:
+   - Website: https://www.building.govt.nz/
+   - Search for "Producer Statement PS3"
+   - Government-approved templates for building compliance
+
+3. **Your Local Council**:
+   - Most NZ councils provide PS3 templates on their websites
+   - Search "[Council Name] PS3 template"
+   - Council-specific formats may be required
+
+**PS3 Purpose**: Certifies that building work complies with the New Zealand Building Code as per the plans and specifications.
+
+💡 These official sources provide templates that are universally accepted by all New Zealand councils.""",
+                    'sources': [],
+                    'confidence': 'high',
+                    'documents_searched': len(documents),
+                    'rag_type': 'template_request_external_sources'
+                }
+            else:
+                return {
+                    'answer': "I couldn't find the specific templates you're looking for in our SuiteFiles database.",
                 'sources': [],
                 'confidence': 'low',
                 'documents_searched': 0,
@@ -1713,6 +1792,10 @@ Focus on:
             return None
         
         try:
+            from ..config.settings import get_settings
+            settings = get_settings()
+            sharepoint_base_url = settings.SHAREPOINT_SITE_URL
+            
             # Extract the file path from blob URL
             # Example blob URL: https://dtceaistorage.blob.core.windows.net/dtce-documents/Engineering/04_Design(Structural)/05_Timber/11%20Proprietary%20Products/Lumberworx/Lumberworx-Laminated-Veneer-Lumber-Glulam-Beams2013.pdf
             # Should become: https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Engineering/04_Design%28Structural%29/05_Timber/11%20Proprietary%20Products/Lumberworx
@@ -1732,11 +1815,11 @@ Focus on:
                     # Encode for SharePoint URLs with proper encoding
                     encoded_path = urllib.parse.quote(folder_path, safe="/")
                     # Build SuiteFiles URL - use /folder/ for folder navigation
-                    suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/{encoded_path}"
+                    suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/folder/{encoded_path}"
                 else:
                     # This is already a folder path
                     encoded_path = urllib.parse.quote(decoded_path, safe="/")
-                    suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/{encoded_path}"
+                    suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/folder/{encoded_path}"
                 
                 return suite_files_url
                 
@@ -1750,10 +1833,10 @@ Focus on:
                 if '.' in decoded_path.split('/')[-1]:
                     folder_path = '/'.join(decoded_path.split('/')[:-1])
                     encoded_path = urllib.parse.quote(folder_path, safe="/")
-                    suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Projects/{encoded_path}"
+                    suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/folder/Projects/{encoded_path}"
                 else:
                     encoded_path = urllib.parse.quote(decoded_path, safe="/")
-                    suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Projects/{encoded_path}"
+                    suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/folder/Projects/{encoded_path}"
                 
                 return suite_files_url
         except Exception as e:

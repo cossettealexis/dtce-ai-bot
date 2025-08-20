@@ -62,6 +62,7 @@ class Settings(BaseSettings):
     microsoft_tenant_id: str = ""
     microsoft_client_secret: str = ""
     sharepoint_site_id: str = ""
+    sharepoint_site_url: str = "https://donthomson.sharepoint.com/sites/suitefiles"
     sharepoint_scopes: str = "Sites.Read.All,Files.Read.All"
     
     @property
@@ -79,6 +80,10 @@ class Settings(BaseSettings):
     @property
     def SHAREPOINT_SITE_ID(self) -> str:
         return self.sharepoint_site_id
+    
+    @property
+    def SHAREPOINT_SITE_URL(self) -> str:
+        return self.sharepoint_site_url
     
     @property
     def OPENAI_API_KEY(self) -> str:

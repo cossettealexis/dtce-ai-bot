@@ -2390,6 +2390,10 @@ Would you like me to provide general engineering guidance about {doc_type} proje
             return None
         
         try:
+            from ..config.settings import get_settings
+            settings = get_settings()
+            sharepoint_base_url = settings.SHAREPOINT_SITE_URL
+            
             # Extract the file path from blob URL
             # Example blob URL: https://dtceaistorage.blob.core.windows.net/dtce-documents/Engineering/04_Design(Structural)/05_Timber/11%20Proprietary%20Products/Lumberworx/Lumberworx-Laminated-Veneer-Lumber-Glulam-Beams2013.pdf
             # Should become: https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Engineering/04_Design%28Structural%29/05_Timber/11%20Proprietary%20Products/Lumberworx
@@ -2409,11 +2413,11 @@ Would you like me to provide general engineering guidance about {doc_type} proje
                     # Encode for SharePoint URLs with proper encoding
                     encoded_path = urllib.parse.quote(folder_path, safe='/')
                     # Build SuiteFiles URL - use /folder/ for folder navigation
-                    suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/{encoded_path}"
+                    suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/folder/{encoded_path}"
                 else:
                     # This is already a folder path
                     encoded_path = urllib.parse.quote(decoded_path, safe='/')
-                    suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/{encoded_path}"
+                    suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/folder/{encoded_path}"
                 
                 return suite_files_url
                 
@@ -2427,10 +2431,10 @@ Would you like me to provide general engineering guidance about {doc_type} proje
                 if '.' in decoded_path.split('/')[-1]:
                     folder_path = '/'.join(decoded_path.split('/')[:-1])
                     encoded_path = urllib.parse.quote(folder_path, safe='/')
-                    suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Projects/{encoded_path}"
+                    suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/folder/Projects/{encoded_path}"
                 else:
                     encoded_path = urllib.parse.quote(decoded_path, safe='/')
-                    suite_files_url = f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Projects/{encoded_path}"
+                    suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/folder/Projects/{encoded_path}"
                 
                 return suite_files_url
         except Exception as e:
