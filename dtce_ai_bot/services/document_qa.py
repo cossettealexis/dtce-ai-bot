@@ -101,23 +101,39 @@ Analyze this user query and classify the engineering intent.
 INTENT CATEGORIES:
 1. **NZS_CODE_LOOKUP**: User wants specific clause, section, or information from NZ Standards (NZS 3101, AS/NZS, etc.)
 2. **PROJECT_REFERENCE**: User wants past DTCE projects with specific characteristics or scope
-3. **PRODUCT_LOOKUP**: User wants product specs, suppliers, or material information
-4. **TEMPLATE_REQUEST**: User wants calculation templates, design spreadsheets, or forms (PS1, PS3, etc.)
-5. **CONTACT_LOOKUP**: User wants contact info for builders, contractors, clients we've worked with
-6. **SCOPE_SIMILARITY**: User wants projects similar to their current scope for fee estimation
-7. **TECHNICAL_GUIDANCE**: User wants engineering design guidance or best practices
-8. **REGULATORY_PRECEDENT**: User wants examples of council approvals, consents, or regulatory issues
-9. **GENERAL_SEARCH**: Basic document search that doesn't fit other categories
+3. **SCENARIO_TECHNICAL**: User wants projects matching specific building type + conditions + location scenarios
+4. **LESSONS_LEARNED**: User wants issues, failures, problems, or lessons from past projects
+5. **REGULATORY_PRECEDENT**: User wants examples of council approvals, consents, or regulatory challenges
+6. **COST_TIME_INSIGHTS**: User wants project timeline analysis, cost information, scope expansion examples
+7. **BEST_PRACTICES_TEMPLATES**: User wants standard approaches, best practice examples, or calculation templates
+8. **MATERIALS_METHODS**: User wants comparisons of materials, construction methods, or technical specifications
+9. **INTERNAL_KNOWLEDGE**: User wants to find engineers with specific expertise or work by team members
+10. **PRODUCT_LOOKUP**: User wants product specs, suppliers, or material information
+11. **TEMPLATE_REQUEST**: User wants calculation templates, design spreadsheets, or forms (PS1, PS3, etc.)
+12. **CONTACT_LOOKUP**: User wants contact info for builders, contractors, clients we've worked with
+13. **GENERAL_SEARCH**: Basic document search that doesn't fit other categories
+
+Examples of advanced queries:
+- "Show me mid-rise timber buildings in high wind zones" → SCENARIO_TECHNICAL
+- "What issues have we had with screw piles in soft soils?" → LESSONS_LEARNED  
+- "How have we approached alternative solutions for stairs?" → REGULATORY_PRECEDENT
+- "How long does PS1 take for small commercial?" → COST_TIME_INSIGHTS
+- "Compare precast vs in-situ concrete decisions" → MATERIALS_METHODS
+- "Which engineers have tilt-slab experience?" → INTERNAL_KNOWLEDGE
 
 User Question: "{question}"
 
 Respond with ONLY a JSON object:
 {{
-    "intent": "NZS_CODE_LOOKUP|PROJECT_REFERENCE|PRODUCT_LOOKUP|TEMPLATE_REQUEST|CONTACT_LOOKUP|SCOPE_SIMILARITY|TECHNICAL_GUIDANCE|REGULATORY_PRECEDENT|GENERAL_SEARCH",
+    "intent": "NZS_CODE_LOOKUP|PROJECT_REFERENCE|SCENARIO_TECHNICAL|LESSONS_LEARNED|REGULATORY_PRECEDENT|COST_TIME_INSIGHTS|BEST_PRACTICES_TEMPLATES|MATERIALS_METHODS|INTERNAL_KNOWLEDGE|PRODUCT_LOOKUP|TEMPLATE_REQUEST|CONTACT_LOOKUP|GENERAL_SEARCH",
     "topic": "extracted technical topic",
+    "building_type": "mid-rise|commercial|residential|industrial|etc (if applicable)",
+    "conditions": ["high wind", "soft soil", "coastal", "seismic", "etc"],
+    "location": "Wellington|Auckland|etc (if mentioned)",
+    "comparison_type": "materials|methods|costs|timeline (if comparing)",
+    "expertise_area": "tilt-slab|pile design|seismic (if seeking expertise)",
     "standard_reference": "NZS 3101|AS/NZS 1170|etc (if applicable)",
-    "project_characteristics": ["building type", "conditions", "materials"],
-    "output_type": "clause|project_list|contact_info|template|guidance|precedent",
+    "output_type": "clause|project_list|comparison|lessons|precedent|expertise|timeline",
     "confidence": 0.0-1.0,
     "reasoning": "brief explanation"
 }}
@@ -152,6 +168,68 @@ Respond with ONLY a JSON object:
     def _fallback_intent_classification(self, question: str) -> Dict[str, Any]:
         """Fallback pattern-based intent classification if AI fails."""
         question_lower = question.lower()
+        
+        # Scenario-based patterns
+        if any(pattern in question_lower for pattern in ['examples of', 'show me', 'find projects']) and \
+           any(condition in question_lower for condition in ['wind', 'seismic', 'coastal', 'steep', 'soft soil']):
+            return {
+                "intent": "SCENARIO_TECHNICAL",
+                "topic": question,
+                "output_type": "project_list",
+                "confidence": 0.8,
+                "reasoning": "Contains scenario-based project search keywords"
+            }
+        
+        # Lessons learned patterns
+        elif any(pattern in question_lower for pattern in ['issues', 'problems', 'lessons learned', 'failed', 'difficulties']):
+            return {
+                "intent": "LESSONS_LEARNED",
+                "topic": question,
+                "output_type": "lessons",
+                "confidence": 0.8,
+                "reasoning": "Contains lessons learned keywords"
+            }
+        
+        # Cost/time patterns
+        elif any(pattern in question_lower for pattern in ['how long', 'cost', 'timeline', 'duration', 'expanded']):
+            return {
+                "intent": "COST_TIME_INSIGHTS",
+                "topic": question,
+                "output_type": "timeline",
+                "confidence": 0.8,
+                "reasoning": "Contains cost/time keywords"
+            }
+        
+        # Best practices patterns
+        elif any(pattern in question_lower for pattern in ['standard approach', 'best practice', 'how do we', 'our approach']):
+            return {
+                "intent": "BEST_PRACTICES_TEMPLATES",
+                "topic": question,
+                "output_type": "guidance",
+                "confidence": 0.8,
+                "reasoning": "Contains best practices keywords"
+            }
+        
+        # Comparison patterns
+        elif any(pattern in question_lower for pattern in ['compare', 'vs', 'versus', 'difference', 'when do we choose']):
+            return {
+                "intent": "MATERIALS_METHODS",
+                "topic": question,
+                "comparison_type": "methods",
+                "output_type": "comparison",
+                "confidence": 0.8,
+                "reasoning": "Contains comparison keywords"
+            }
+        
+        # Internal knowledge patterns
+        elif any(pattern in question_lower for pattern in ['which engineer', 'who has experience', 'who worked on']):
+            return {
+                "intent": "INTERNAL_KNOWLEDGE",
+                "topic": question,
+                "output_type": "expertise",
+                "confidence": 0.8,
+                "reasoning": "Contains internal expertise keywords"
+            }
         
         # NZS/Standards patterns
         if any(pattern in question_lower for pattern in ['nzs', 'clause', 'standard', 'code', 'as/nzs']):
@@ -213,18 +291,26 @@ Respond with ONLY a JSON object:
                 return await self._handle_nzs_code_lookup(intent, project_filter)
             elif intent_type == "PROJECT_REFERENCE":
                 return await self._handle_project_reference(intent, project_filter)
+            elif intent_type == "SCENARIO_TECHNICAL":
+                return await self._handle_scenario_technical(intent, project_filter)
+            elif intent_type == "LESSONS_LEARNED":
+                return await self._handle_lessons_learned(intent, project_filter)
+            elif intent_type == "REGULATORY_PRECEDENT":
+                return await self._handle_regulatory_precedent(intent, project_filter)
+            elif intent_type == "COST_TIME_INSIGHTS":
+                return await self._handle_cost_time_insights(intent, project_filter)
+            elif intent_type == "BEST_PRACTICES_TEMPLATES":
+                return await self._handle_best_practices_templates(intent, project_filter)
+            elif intent_type == "MATERIALS_METHODS":
+                return await self._handle_materials_methods(intent, project_filter)
+            elif intent_type == "INTERNAL_KNOWLEDGE":
+                return await self._handle_internal_knowledge(intent, project_filter)
             elif intent_type == "PRODUCT_LOOKUP":
                 return await self._handle_product_lookup(intent, project_filter)
             elif intent_type == "TEMPLATE_REQUEST":
                 return await self._handle_template_request(intent, project_filter)
             elif intent_type == "CONTACT_LOOKUP":
                 return await self._handle_contact_lookup(intent, project_filter)
-            elif intent_type == "SCOPE_SIMILARITY":
-                return await self._handle_scope_similarity(intent, project_filter)
-            elif intent_type == "TECHNICAL_GUIDANCE":
-                return await self._handle_technical_guidance(intent, project_filter)
-            elif intent_type == "REGULATORY_PRECEDENT":
-                return await self._handle_regulatory_precedent(intent, project_filter)
             else:  # GENERAL_SEARCH
                 return await self._handle_general_engineering_search(intent, project_filter)
                 
@@ -553,6 +639,288 @@ What would you like to know?""",
                 'confidence': 'low',
                 'documents_searched': 0,
                 'search_type': 'regulatory_precedent_no_results'
+            }
+    
+    async def _handle_scenario_technical(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle scenario-based technical queries with building type + conditions."""
+        topic = intent.get('topic', '')
+        building_type = intent.get('building_type', '')
+        conditions = intent.get('conditions', [])
+        location = intent.get('location', '')
+        
+        logger.info("Handling scenario technical query", 
+                   topic=topic, building_type=building_type, conditions=conditions, location=location)
+        
+        # Build enhanced search query with scenario attributes
+        search_terms = [topic]
+        if building_type: search_terms.append(building_type)
+        if conditions: search_terms.extend(conditions)
+        if location: search_terms.append(location)
+        
+        search_query = ' '.join(search_terms)
+        documents = await self._search_relevant_documents(search_query, project_filter)
+        
+        if documents:
+            projects = self._extract_projects_from_documents(documents)
+            
+            if projects:
+                scenario_desc = f"{building_type} buildings" if building_type else "projects"
+                if conditions:
+                    scenario_desc += f" in {' and '.join(conditions)} conditions"
+                if location:
+                    scenario_desc += f" in {location}"
+                
+                answer = f"Here are examples of {scenario_desc} that DTCE has designed:\n\n"
+                
+                for i, project in enumerate(projects[:8], 1):
+                    answer += f"{i}. **{project['name']}** - {project['summary']}\n"
+                    answer += f"   📁 [View in SuiteFiles]({project['suitefiles_url']})\n\n"
+                
+                if len(projects) > 8:
+                    answer += f"... and {len(projects) - 8} more similar projects found."
+                
+                return {
+                    'answer': answer,
+                    'sources': self._format_sources(documents[:5]),
+                    'confidence': 'high' if len(projects) >= 3 else 'medium',
+                    'documents_searched': len(documents),
+                    'search_type': 'scenario_technical'
+                }
+            else:
+                return {
+                    'answer': f"I found documents related to your scenario but couldn't identify specific project examples. The search returned {len(documents)} relevant documents.",
+                    'sources': self._format_sources(documents[:3]),
+                    'confidence': 'medium',
+                    'documents_searched': len(documents),
+                    'search_type': 'scenario_technical_unclear'
+                }
+        else:
+            return {
+                'answer': f"I couldn't find specific examples of {building_type} projects with {', '.join(conditions) if conditions else 'those conditions'}. Try broadening your search criteria.",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'search_type': 'scenario_technical_no_results'
+            }
+    
+    async def _handle_lessons_learned(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle lessons learned and problem analysis queries."""
+        topic = intent.get('topic', '')
+        logger.info("Handling lessons learned query", topic=topic)
+        
+        # Search for issues, problems, lessons learned
+        search_query = f"lessons learned issues problems failure construction {topic}"
+        documents = await self._search_relevant_documents(search_query, project_filter)
+        
+        if documents:
+            # Filter for documents likely to contain lessons learned
+            lessons_docs = [doc for doc in documents if any(keyword in doc.get('content', '').lower() 
+                          for keyword in ['lesson', 'issue', 'problem', 'failure', 'avoid', 'difficulty'])]
+            
+            if lessons_docs:
+                answer = await self._generate_answer_from_documents(
+                    f"What lessons have been learned or issues encountered with {topic}? Summarize the problems and solutions.",
+                    lessons_docs
+                )
+                
+                return {
+                    'answer': answer,
+                    'sources': self._format_sources(lessons_docs),
+                    'confidence': 'high',
+                    'documents_searched': len(documents),
+                    'search_type': 'lessons_learned'
+                }
+            else:
+                return {
+                    'answer': f"I found {len(documents)} documents related to '{topic}' but no specific lessons learned or problem reports. You might need to check project meeting minutes or post-construction reviews.",
+                    'sources': self._format_sources(documents[:3]),
+                    'confidence': 'low',
+                    'documents_searched': len(documents),
+                    'search_type': 'lessons_learned_no_issues'
+                }
+        else:
+            return {
+                'answer': f"I couldn't find documented lessons learned for '{topic}'. Check project folders for meeting minutes, construction issues, or post-project reviews.",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'search_type': 'lessons_learned_no_results'
+            }
+    
+    async def _handle_cost_time_insights(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle cost and timeline analysis queries."""
+        topic = intent.get('topic', '')
+        logger.info("Handling cost time insights query", topic=topic)
+        
+        # Search for timeline, cost, scope information
+        search_query = f"timeline cost duration PS1 scope expansion fee variation {topic}"
+        documents = await self._search_relevant_documents(search_query, project_filter)
+        
+        if documents:
+            answer = await self._generate_answer_from_documents(
+                f"What are the typical costs, timelines, or scope considerations for {topic}?",
+                documents
+            )
+            
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'medium',
+                'documents_searched': len(documents),
+                'search_type': 'cost_time_insights'
+            }
+        else:
+            return {
+                'answer': f"I couldn't find specific cost or timeline data for '{topic}'. Check project proposals, fee records, or contact project managers for historical data.",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'search_type': 'cost_time_insights_no_results'
+            }
+    
+    async def _handle_best_practices_templates(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle best practices and template requests."""
+        topic = intent.get('topic', '')
+        logger.info("Handling best practices templates query", topic=topic)
+        
+        # Search for best practices, standard approaches, reference examples
+        search_query = f"best practice standard approach reference example template {topic}"
+        documents = await self._search_relevant_documents(search_query, project_filter)
+        
+        if documents:
+            # Filter for template-like documents
+            template_docs = [doc for doc in documents if any(keyword in doc.get('filename', '').lower() 
+                           for keyword in ['template', 'reference', 'standard', 'example', '.xlsx', '.xls'])]
+            
+            answer = f"Here are the best practices and templates for {topic}:\n\n"
+            
+            if template_docs:
+                for i, doc in enumerate(template_docs[:6], 1):
+                    filename = doc.get('filename', 'Unknown')
+                    answer += f"{i}. **{filename}**\n"
+                    if doc.get('blob_url'):
+                        answer += f"   📄 [Download]({doc['blob_url']})\n\n"
+                
+                # Add additional guidance from other documents
+                if len(documents) > len(template_docs):
+                    guidance = await self._generate_answer_from_documents(
+                        f"What is the standard DTCE approach for {topic}?",
+                        documents[:5]
+                    )
+                    answer += f"\n**Standard Approach:**\n{guidance}"
+            else:
+                answer = await self._generate_answer_from_documents(
+                    f"What is the standard DTCE approach or best practice for {topic}?",
+                    documents
+                )
+            
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high',
+                'documents_searched': len(documents),
+                'search_type': 'best_practices_templates'
+            }
+        else:
+            return {
+                'answer': f"I couldn't find documented best practices for '{topic}'. Check the Templates folder in SuiteFiles or consult with senior engineers.",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'search_type': 'best_practices_templates_no_results'
+            }
+    
+    async def _handle_materials_methods(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle materials and methods comparison queries."""
+        topic = intent.get('topic', '')
+        comparison_type = intent.get('comparison_type', '')
+        logger.info("Handling materials methods comparison", topic=topic, comparison_type=comparison_type)
+        
+        # Search for comparative information
+        search_query = f"compare comparison vs versus {topic}"
+        documents = await self._search_relevant_documents(search_query, project_filter)
+        
+        if documents:
+            answer = await self._generate_answer_from_documents(
+                f"Compare and contrast the different {comparison_type or 'approaches'} DTCE has used for {topic}. What are the pros and cons of each method?",
+                documents
+            )
+            
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high',
+                'documents_searched': len(documents),
+                'search_type': 'materials_methods_comparison'
+            }
+        else:
+            return {
+                'answer': f"I couldn't find comparative information about {topic}. You might need to review multiple project examples manually or consult with experienced engineers.",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'search_type': 'materials_methods_no_results'
+            }
+    
+    async def _handle_internal_knowledge(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle internal knowledge and expertise mapping queries."""
+        topic = intent.get('topic', '')
+        expertise_area = intent.get('expertise_area', '')
+        logger.info("Handling internal knowledge query", topic=topic, expertise_area=expertise_area)
+        
+        # Search for documents to identify authorship and expertise
+        documents = await self._search_relevant_documents(topic, project_filter)
+        
+        if documents:
+            # Extract authorship information where possible
+            expertise_info = {}
+            for doc in documents:
+                # Try to extract project info and infer expertise
+                project_id = self._extract_project_from_url(doc.get('blob_url', ''))
+                filename = doc.get('filename', '')
+                
+                # This is a simplified approach - in a real system you'd have author metadata
+                if project_id:
+                    if project_id not in expertise_info:
+                        expertise_info[project_id] = {
+                            'project': project_id,
+                            'documents': [],
+                            'suitefiles_url': f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Projects/{project_id}"
+                        }
+                    expertise_info[project_id]['documents'].append(filename)
+            
+            if expertise_info:
+                answer = f"Based on project documents, here's where DTCE has experience with {expertise_area or topic}:\n\n"
+                
+                for project_info in list(expertise_info.values())[:8]:
+                    answer += f"**Project {project_info['project']}**:\n"
+                    answer += f"  📁 [View in SuiteFiles]({project_info['suitefiles_url']})\n"
+                    answer += f"  Documents: {', '.join(project_info['documents'][:3])}\n\n"
+                
+                answer += f"\n💡 **Recommendation**: Contact the project managers or check the team directory in SuiteFiles to identify specific engineers who worked on these projects."
+                
+                return {
+                    'answer': answer,
+                    'sources': self._format_sources(documents[:5]),
+                    'confidence': 'medium',
+                    'documents_searched': len(documents),
+                    'search_type': 'internal_knowledge'
+                }
+            else:
+                return {
+                    'answer': f"I found documents related to {topic} but couldn't identify specific engineer expertise. Check the team directory or contact project managers directly.",
+                    'sources': self._format_sources(documents[:3]),
+                    'confidence': 'low',
+                    'documents_searched': len(documents),
+                    'search_type': 'internal_knowledge_unclear'
+                }
+        else:
+            return {
+                'answer': f"I couldn't find projects related to {expertise_area or topic}. Try checking the team directory in SuiteFiles or asking colleagues directly.",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'search_type': 'internal_knowledge_no_results'
             }
     
     def _extract_projects_from_documents(self, documents: List[Dict]) -> List[Dict]:
