@@ -60,28 +60,65 @@ class DocumentQAService:
             
             # Handle basic greetings and help requests
             question_lower = question.lower().strip()
-            if question_lower in ["hey", "hi", "hello"]:
+            if question_lower in ["hey", "hi", "hello", "hi there", "good morning", "good afternoon"]:
                 return {
-                    'answer': "Hello! I'm the DTCE AI Assistant. I can help you find information from DTCE's project documents, templates, standards, and provide engineering guidance. What would you like to know?",
+                    'answer': """Hi there! 👋 
+
+I'm your DTCE AI assistant. I can help you find engineering documents, reports, and project files.
+
+Just ask me in plain English about what you're looking for:
+• "Find structural calculations"
+• "Show me bridge drawings" 
+• "What reports do we have for the project?"
+
+What can I help you find today?""",
                     'sources': [],
                     'confidence': 'high',
                     'documents_searched': 0,
                     'search_type': 'greeting'
                 }
-            elif question_lower in ["help", "how do i use this system?", "what can you help me with?"]:
+            elif question_lower in ["help", "help me", "how do i use this system?", "what can you help me with?", "what can you do"]:
                 return {
-                    'answer': """I'm the DTCE AI Assistant! I can help you with:
+                    'answer': """🔧 **DTCE AI Assistant - Here's what I can help you with:**
 
-🏗️ Engineering questions and standards
-📋 Past project references  
-🔧 Templates and calculation tools
-💡 Lessons learned and best practices
+**Document Search:**
+• Find engineering reports, calculations, and drawings
+• Search project files and specifications
+• Locate building consent documents
+
+**Engineering Guidance:**
+• NZS building codes and standards
+• Structural engineering questions
+• Seismic design requirements
+• Material specifications
+
+**Project Information:**
+• Past project references and examples
+• Client work history
+• Template forms and calculations
 
 Just ask me specific questions about DTCE's work!""",
                     'sources': [],
                     'confidence': 'high',
                     'documents_searched': 0,
                     'search_type': 'help'
+                }
+            # Handle basic conversational responses that should NOT trigger document search
+            elif question_lower in ["ok", "okay", "thanks", "thank you", "yes", "no", "sure", "really", "really?", "wow", "nice", "cool", "es", "yep", "yeah", "nah", "hmm", "ah", "oh", "alright", "got it"]:
+                return {
+                    'answer': """I'm here when you need help with engineering questions! 
+
+Ask me about:
+• Finding specific documents or reports
+• Engineering standards and codes
+• Project information
+• Technical calculations
+
+What would you like to know?""",
+                    'sources': [],
+                    'confidence': 'high',
+                    'documents_searched': 0,
+                    'search_type': 'conversational'
                 }
             elif question_lower in ["what", "what?"] or len(question.strip()) < 3:
                 return {
