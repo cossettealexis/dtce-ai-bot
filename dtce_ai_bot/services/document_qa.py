@@ -1484,6 +1484,33 @@ Would you like me to provide general engineering guidance about {doc_type} proje
             logger.error("Keyword search failed completely", error=str(e), keywords=keywords)
             return []
 
+    def _group_documents_by_project(self, documents: List[Dict]) -> Dict[str, Dict]:
+        """Group documents by project number for enhanced search results."""
+        projects = {}
+        
+        logger.info(f"Grouping {len(documents)} documents by project")
+        
+        for doc in documents:
+            blob_url = doc.get('blob_url', '')
+            project_id = self._extract_project_from_url(blob_url)
+            
+            if project_id and len(project_id) >= 6:  # Valid project numbers
+                if project_id not in projects:
+                    projects[project_id] = {
+                        'project_id': project_id,
+                        'suitefiles_url': f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Projects/{project_id}",
+                        'document_count': 0,
+                        'sample_documents': [],
+                        'keywords_found': []
+                    }
+                
+                projects[project_id]['document_count'] += 1
+                if len(projects[project_id]['sample_documents']) < 3:
+                    projects[project_id]['sample_documents'].append(doc.get('filename', 'Unknown'))
+        
+        logger.info(f"Grouped documents into {len(projects)} projects")
+        return projects
+
     def _extract_keyword_projects(self, keyword_docs: List[Dict], keywords: List[str]) -> Dict[str, Dict]:
         """Extract unique project numbers from keyword-related documents."""
         projects = {}
