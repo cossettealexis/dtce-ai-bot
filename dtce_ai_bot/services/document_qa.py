@@ -4891,14 +4891,14 @@ Would you like me to search for specific templates or documents that might help?
             try:
                 # Try both simple and semantic search
                 for query_type in ["simple", "semantic"]:
-                    response = await self.search_client.search(
+                    response = self.search_client.search(
                         search_text=search_term,
                         search_fields=["title", "content", "filename"],
                         top=15,
                         query_type=query_type
                     )
                     
-                    async for result in response:
+                    for result in response:
                         doc_dict = dict(result)
                         filename = (doc_dict.get('filename') or doc_dict.get('title', '')).lower()
                         content = (doc_dict.get('content') or '').lower()
@@ -5005,13 +5005,13 @@ Would you like me to search for specific templates or documents that might help?
         # Perform broader search
         for term in search_terms[:3]:  # Limit to top 3 search terms
             try:
-                response = await self.search_client.search(
+                response = self.search_client.search(
                     search_text=term,
                     search_fields=["title", "content"],
                     top=5,
                     query_type="semantic"
                 )
-                async for result in response:
+                for result in response:
                     if result.get('@search.score', 0) > 0.6:  # Lower threshold for more results
                         broader_results.append({
                             'title': result.get('title', 'Untitled'),
