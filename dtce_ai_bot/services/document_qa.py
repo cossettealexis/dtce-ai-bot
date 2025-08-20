@@ -1593,6 +1593,21 @@ Content: {content}
         else:
             return 'low'
 
+    def _format_sources(self, documents: List[Dict]) -> List[Dict[str, Any]]:
+        """Format document sources for API response."""
+        sources = []
+        for doc in documents:
+            source = {
+                'filename': doc.get('filename', 'Unknown'),
+                'url': doc.get('blob_url', ''),
+                'project': self._extract_project_from_url(doc.get('blob_url', '')) or doc.get('project_name', 'Unknown'),
+                'content_preview': doc.get('content', '')[:200] + "..." if doc.get('content', '') else "",
+                'last_modified': doc.get('last_modified', ''),
+                'folder': doc.get('folder', '')
+            }
+            sources.append(source)
+        return sources
+
     async def get_document_summary(self, project_id: Optional[str] = None) -> Dict[str, Any]:
         """Get a summary of available documents for a project or all projects."""
         try:
