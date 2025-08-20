@@ -322,115 +322,74 @@ Focus on:
             template_docs = [doc for doc in documents if self._is_template_document(doc)]
             
             if template_docs:
-                # Check if this is a PS3 request specifically
-                if 'ps3' in question.lower() and ('legitimate link' in question.lower() or 'alternative' in question.lower() or 'cannot find' in question.lower()):
-                    # Provide alternative sources for PS3 templates
-                    answer = """I understand you're having trouble accessing the PS3 template in SuiteFiles. Here are legitimate alternative sources for PS3 templates:
+                # Use GPT to generate natural language answer about templates
+                # Include guidance for alternative sources when SuiteFiles isn't accessible
+                prompt = f"""Based on the templates and forms found, please answer: {question}
 
-**Official Sources:**
-1. **Engineering New Zealand (ENZ)**: 
-   - Website: https://www.engineeringnz.org/
-   - They provide official Producer Statement templates including PS3
-   - Look under "Professional Development" → "Producer Statements"
+Context: The user is asking about templates/forms, and we found relevant documents in SuiteFiles.
 
-2. **Ministry of Business, Innovation and Employment (MBIE)**:
-   - Website: https://www.building.govt.nz/
-   - Search for "Producer Statement PS3"
-   - Official government templates for building compliance
+Instructions for your response:
+- Provide direct links to templates found in SuiteFiles
+- Explain what each template is for and its location
+- If the user mentions they cannot access SuiteFiles or need alternatives, also suggest:
+  * Engineering New Zealand (ENZ) website for official PS templates
+  * MBIE website for government-approved templates  
+  * Local council websites for council-specific formats
+- Focus primarily on the SuiteFiles documents found, but mention alternatives if accessibility is an issue
 
-3. **Local Council Websites**:
-   - Most New Zealand councils provide PS3 templates on their websites
-   - Examples: Auckland Council, Wellington City Council, Christchurch City Council
-   - Search "[Council Name] PS3 template" or "Producer Statement"
-
-**What to Include in PS3:**
-- Building work compliance certification
-- Engineer details and registration number
-- Building Code clause compliance confirmation
-- Specific project details and location
-
-**SuiteFiles Templates Found:**
-"""
-                    # Add any SuiteFiles templates we found
-                    for i, doc in enumerate(template_docs[:3], 1):
-                        suitefiles_url = self._convert_to_suitefiles_url(doc.get('blob_url', '')) or doc.get('blob_url', '')
-                        answer += f"{i}. **{doc.get('filename', 'Unknown')}**\n"
-                        answer += f"   📄 [SuiteFiles Link]({suitefiles_url})\n"
-                        answer += f"   Location: {doc.get('folder', 'Unknown folder')}\n\n"
-                    
-                    answer += "\n💡 **Recommendation**: If SuiteFiles links aren't working, use the official Engineering New Zealand or MBIE templates as they are universally accepted by all councils."
-                    
-                    return {
-                        'answer': answer,
-                        'sources': self._format_sources(template_docs),
-                        'confidence': 'high',
-                        'documents_searched': len(documents),
-                        'rag_type': 'template_request_with_alternatives'
-                    }
-                else:
-                    # Use GPT to generate natural language answer about templates
-                    prompt = f"""Based on the templates and forms found, please answer: {question}
-
-Focus on:
-- Providing direct links to templates
-- Explaining what each template is for
-- Mentioning the location in SuiteFiles"""
-                    
-                    answer = await self._generate_natural_answer(prompt, template_docs, "templates and forms")
-                    
-                    return {
-                        'answer': answer,
-                        'sources': self._format_sources(template_docs),
-                        'confidence': 'high',
-                        'documents_searched': len(documents),
-                        'rag_type': 'template_request'
-                    }
-            else:
+Documents found: {len(template_docs)} templates"""
+                
+                answer = await self._generate_natural_answer(prompt, template_docs, "templates and forms")
+                
                 return {
-                    'answer': "I found documents but couldn't identify specific templates/forms matching your request in our SuiteFiles.",
+                    'answer': answer,
+                    'sources': self._format_sources(template_docs),
+                    'confidence': 'high',
+                    'documents_searched': len(documents),
+                    'rag_type': 'template_request'
+                }
+            else:
+                # GPT generates response about found documents even if not templates
+                prompt = f"""The user asked: {question}
+
+We found {len(documents)} documents but they don't appear to be templates/forms. Please provide a helpful response suggesting:
+1. What we found instead
+2. Alternative sources for templates like Engineering New Zealand or MBIE
+3. Suggestions for finding the specific templates they need"""
+                
+                answer = await self._generate_natural_answer(prompt, documents[:3], "related documents")
+                
+                return {
+                    'answer': answer,
                     'sources': self._format_sources(documents[:3]),
                     'confidence': 'medium',
                     'documents_searched': len(documents),
                     'rag_type': 'template_request'
                 }
         else:
-            # Check if this is a PS3 request and provide alternative sources
-            if 'ps3' in question.lower():
-                return {
-                    'answer': """I couldn't find PS3 templates in our SuiteFiles database, but here are legitimate alternative sources:
+            # GPT generates helpful response even when no documents found
+            prompt = f"""The user asked: {question}
 
-**Official Sources for PS3 Templates:**
+No relevant documents were found in our SuiteFiles database. Please provide a helpful response that:
+1. Acknowledges we couldn't find the templates in SuiteFiles
+2. Suggests official alternative sources:
+   - Engineering New Zealand (ENZ) for official Producer Statement templates
+   - MBIE website for government-approved building templates
+   - Local council websites for council-specific formats
+3. Explains what the template is typically used for (if it's a PS1, PS3, etc.)
+4. Maintains a helpful, professional tone
 
-1. **Engineering New Zealand (ENZ)**:
-   - Website: https://www.engineeringnz.org/
-   - Official Producer Statement templates including PS3
-   - Look under "Professional Development" → "Producer Statements"
-
-2. **Ministry of Business, Innovation and Employment (MBIE)**:
-   - Website: https://www.building.govt.nz/
-   - Search for "Producer Statement PS3"
-   - Government-approved templates for building compliance
-
-3. **Your Local Council**:
-   - Most NZ councils provide PS3 templates on their websites
-   - Search "[Council Name] PS3 template"
-   - Council-specific formats may be required
-
-**PS3 Purpose**: Certifies that building work complies with the New Zealand Building Code as per the plans and specifications.
-
-💡 These official sources provide templates that are universally accepted by all New Zealand councils.""",
-                    'sources': [],
-                    'confidence': 'high',
-                    'documents_searched': len(documents),
-                    'rag_type': 'template_request_external_sources'
-                }
-            else:
-                return {
-                    'answer': "I couldn't find the specific templates you're looking for in our SuiteFiles database.",
+Focus on providing genuine value even without internal documents."""
+            
+            # Use GPT even with no documents - it can still provide valuable guidance
+            answer = await self._generate_natural_answer(prompt, [], "external sources")
+            
+            return {
+                'answer': answer,
                 'sources': [],
-                'confidence': 'low',
+                'confidence': 'medium',
                 'documents_searched': 0,
-                'rag_type': 'template_request'
+                'rag_type': 'template_request_external_guidance'
             }
     
     # Helper methods for RAG processing
