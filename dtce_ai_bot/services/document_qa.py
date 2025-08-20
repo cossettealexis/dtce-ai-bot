@@ -175,15 +175,32 @@ class DocumentQAService:
             search_text = self._convert_date_formats(search_text)
             
             # Search without project filter initially since project_id field might be empty
-            results = self.search_client.search(
-                search_text=search_text,
-                top=50,  # Get more results for filtering
-                highlight_fields="filename,project_name,content",  # Use existing field names
-                select=["id", "filename", "content", "blob_url", "project_name",  # Use existing field names
-                       "folder", "last_modified", "created_date", "size"],  # Use existing field names
-                query_type="semantic",  # Always use semantic search for better results
-                semantic_configuration_name="default"  # Use the semantic configuration we defined
-            )
+            # Try semantic search first, with fallback to simple search
+            try:
+                results = self.search_client.search(
+                    search_text=search_text,
+                    top=50,  # Get more results for filtering
+                    highlight_fields="filename,project_name,content",  # Use existing field names
+                    select=["id", "filename", "content", "blob_url", "project_name",  # Use existing field names
+                           "folder", "last_modified", "created_date", "size"],  # Use existing field names
+                    query_type="semantic",  # Always use semantic search for better results
+                    semantic_configuration_name="default"  # Use the semantic configuration we defined
+                )
+                search_type = "semantic"
+            except Exception as semantic_error:
+                logger.warning("Semantic search failed, falling back to simple search", error=str(semantic_error))
+                # Fallback to simple search
+                results = self.search_client.search(
+                    search_text=search_text,
+                    top=50,  # Get more results for filtering
+                    highlight_fields="filename,project_name,content",  # Use existing field names
+                    select=["id", "filename", "content", "blob_url", "project_name",  # Use existing field names
+                           "folder", "last_modified", "created_date", "size"],  # Use existing field names
+                    query_type="simple"  # Use simple search as fallback
+                )
+                search_type = "simple"
+            
+            logger.info("Document search completed", search_type=search_type, query=search_text)
             
             # Convert to list and filter by project if needed
             documents = []
@@ -1349,24 +1366,37 @@ Content: {content}
         return None
 
     def _search_keyword_documents(self, keywords: List[str]) -> List[Dict]:
-        """Search for documents related to the specified keywords using semantic search."""
+        """Search for documents related to the specified keywords using semantic search with fallback."""
         try:
             # Create a comprehensive search query from keywords
             search_text = " ".join(keywords) + " engineering structural design construction"
             
-            results = self.search_client.search(
-                search_text=search_text,
-                top=500,  # Get many more results to find all projects
-                select=["id", "filename", "content", "blob_url", "project_name", "folder"],
-                query_type="semantic",  # Semantic search will find similar concepts
-                semantic_configuration_name="default"  # Use the semantic configuration we defined
-            )
+            # Try semantic search first
+            try:
+                results = self.search_client.search(
+                    search_text=search_text,
+                    top=500,  # Get many more results to find all projects
+                    select=["id", "filename", "content", "blob_url", "project_name", "folder"],
+                    query_type="semantic",  # Semantic search will find similar concepts
+                    semantic_configuration_name="default"  # Use the semantic configuration we defined
+                )
+                search_type = "semantic"
+            except Exception as semantic_error:
+                logger.warning("Semantic search failed, falling back to regular search", error=str(semantic_error))
+                # Fallback to regular search
+                results = self.search_client.search(
+                    search_text=search_text,
+                    top=500,  # Get many more results to find all projects
+                    select=["id", "filename", "content", "blob_url", "project_name", "folder"],
+                    query_type="simple"  # Use simple search as fallback
+                )
+                search_type = "simple"
             
             documents = []
             for result in results:
                 doc_dict = dict(result)
                 
-                # More flexible content matching with semantic search
+                # More flexible content matching
                 content = (doc_dict.get('content') or '').lower()
                 filename = (doc_dict.get('filename') or '').lower()
                 
@@ -1376,16 +1406,16 @@ Content: {content}
                     'concrete', 'steel', 'timber', 'precast', 'retaining', 'wall'
                 ]
                 
-                # Include if semantic search found it OR if it contains obvious keyword terms
-                if (result.get('@search.score', 0) > 0.1 or  # Lower threshold for semantic match
+                # Include if search found it OR if it contains obvious keyword terms
+                if (result.get('@search.score', 0) > 0.1 or  # Lower threshold for match
                     any(term in content or term in filename for term in keyword_terms)):
                     documents.append(doc_dict)
             
-            logger.info("Found keyword documents via semantic search", keywords=keywords, count=len(documents))
+            logger.info("Found keyword documents", search_type=search_type, keywords=keywords, count=len(documents))
             return documents
             
         except Exception as e:
-            logger.error("Keyword semantic search failed", error=str(e), keywords=keywords)
+            logger.error("Keyword search failed completely", error=str(e), keywords=keywords)
             return []
 
     def _extract_keyword_projects(self, keyword_docs: List[Dict], keywords: List[str]) -> Dict[str, Dict]:
@@ -1532,18 +1562,31 @@ Content: {content}
             }
 
     async def _search_precast_documents(self) -> List[Dict]:
-        """Search for documents related to precast panels using semantic search."""
+        """Search for documents related to precast panels using semantic search with fallback."""
         try:
             # Use natural language query for semantic search
             search_text = "precast panels precast concrete connections unispans prefabricated elements construction"
             
-            results = self.search_client.search(
-                search_text=search_text,
-                top=100,  # Get many results to find all projects
-                select=["id", "filename", "content", "blob_url", "project_name", "folder"],
-                query_type="semantic",  # Semantic search will find similar concepts
-                semantic_configuration_name="default"  # Use the semantic configuration we defined
-            )
+            # Try semantic search first
+            try:
+                results = self.search_client.search(
+                    search_text=search_text,
+                    top=100,  # Get many results to find all projects
+                    select=["id", "filename", "content", "blob_url", "project_name", "folder"],
+                    query_type="semantic",  # Semantic search will find similar concepts
+                    semantic_configuration_name="default"  # Use the semantic configuration we defined
+                )
+                search_type = "semantic"
+            except Exception as semantic_error:
+                logger.warning("Precast semantic search failed, falling back to simple search", error=str(semantic_error))
+                # Fallback to simple search
+                results = self.search_client.search(
+                    search_text=search_text,
+                    top=100,  # Get many results to find all projects
+                    select=["id", "filename", "content", "blob_url", "project_name", "folder"],
+                    query_type="simple"  # Use simple search as fallback
+                )
+                search_type = "simple"
             
             documents = []
             for result in results:

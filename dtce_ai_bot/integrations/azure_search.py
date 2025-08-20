@@ -37,16 +37,30 @@ def get_search_index_client() -> SearchIndexClient:
 
 
 async def create_search_index_if_not_exists():
-    """Create the search index if it doesn't exist."""
+    """Create the search index if it doesn't exist, or update it with proper semantic configuration."""
     try:
         settings = get_settings()
         index_client = get_search_index_client()
         
-        # Check if index exists
+        # Check if index exists and has proper semantic configuration
+        index_needs_update = False
         try:
-            index_client.get_index(settings.azure_search_index_name)
+            existing_index = index_client.get_index(settings.azure_search_index_name)
             logger.info(f"Search index '{settings.azure_search_index_name}' already exists")
-            return
+            
+            # Check if semantic search is properly configured
+            if not existing_index.semantic_search or not existing_index.semantic_search.configurations:
+                logger.warning("Index exists but semantic search configuration is missing - will update")
+                index_needs_update = True
+            else:
+                # Check if 'default' configuration exists
+                config_names = [config.name for config in existing_index.semantic_search.configurations]
+                if 'default' not in config_names:
+                    logger.warning("Index exists but 'default' semantic configuration is missing - will update")
+                    index_needs_update = True
+                else:
+                    logger.info("Index exists with proper semantic configuration")
+                    return
         except Exception:
             logger.info(f"Creating search index '{settings.azure_search_index_name}'")
         
@@ -83,15 +97,22 @@ async def create_search_index_if_not_exists():
         
         semantic_search = SemanticSearch(configurations=[semantic_config])
         
-        # Create the index with semantic search
+        
+        # Create the index with semantic search (will create or update)
         index = SearchIndex(
             name=settings.azure_search_index_name, 
             fields=fields,
             semantic_search=semantic_search
         )
-        index_client.create_index(index)
         
-        logger.info(f"Search index '{settings.azure_search_index_name}' created successfully")
+        if index_needs_update:
+            logger.info(f"Updating search index '{settings.azure_search_index_name}' with semantic configuration")
+            index_client.create_or_update_index(index)
+        else:
+            logger.info(f"Creating search index '{settings.azure_search_index_name}'")
+            index_client.create_index(index)
+        
+        logger.info(f"Search index '{settings.azure_search_index_name}' configured successfully with semantic search")
         
     except Exception as e:
         logger.error(f"Failed to create search index: {str(e)}")
