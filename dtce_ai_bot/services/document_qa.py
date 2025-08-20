@@ -70,34 +70,14 @@ class DocumentQAService:
                 }
             elif question_lower in ["help", "how do i use this system?", "what can you help me with?"]:
                 return {
-                    'answer': """I'm the DTCE AI Assistant! Here's how I can help you:
+                    'answer': """I'm the DTCE AI Assistant! I can help you with:
 
-🏗️ **Engineering Questions:**
-- "What's our standard approach to designing steel portal frames?"
-- "Show me structural calculations for timber buildings"
-- "Find examples of seismic strengthening projects"
+🏗️ Engineering questions and standards
+📋 Past project references  
+🔧 Templates and calculation tools
+💡 Lessons learned and best practices
 
-📋 **Project References:**
-- "Find projects with precast panels"
-- "Show me past work on steep slope foundations"
-- "What projects used screw piles in soft soils?"
-
-📖 **Standards & Codes:**
-- "What are the NZS clear cover requirements for concrete?"
-- "Tell me about strength reduction factors for beams"
-- "Find clauses about composite slab design"
-
-🔧 **Templates & Tools:**
-- "Show me PS1 templates"
-- "Find calculation spreadsheets for portal frames"
-- "What design templates do we have?"
-
-💡 **Lessons & Problems:**
-- "What issues have we had with retaining walls?"
-- "Summarize lessons learned from timber projects"
-- "What waterproofing methods work best?"
-
-Just ask me specific questions about DTCE's engineering work, and I'll search through our 84,000+ documents to help you!""",
+Just ask me specific questions about DTCE's work!""",
                     'sources': [],
                     'confidence': 'high',
                     'documents_searched': 0,
@@ -117,18 +97,16 @@ Just ask me specific questions about DTCE's engineering work, and I'll search th
             rag_response = await self.rag_handler.process_rag_query(question, project_filter)
             
             # If RAG handler found a specific pattern, use its response
-            if rag_response.get('rag_type') != 'general_query' and rag_response.get('confidence') != 'low':
+            if rag_response.get('rag_type') != 'general_query':
                 logger.info("RAG pattern matched", rag_type=rag_response.get('rag_type'))
                 return rag_response
             
-            # Fallback to existing classification system for other queries
-            logger.info("No specific RAG pattern, using classification system", question=question)
+            # If no specific RAG pattern found, use intelligent intent understanding
+            logger.info("No RAG pattern matched, using intelligent intent understanding", question=question)
             
-            intent = await self._classify_engineering_intent(question)
-            logger.info("Engineering intent classified", intent=intent)
-
-            # Route to specialized handlers based on engineering domain
-            return await self._route_to_domain_handler(intent, project_filter)
+            # Use GPT to understand intent and search intelligently
+            intent_response = await self._handle_intelligent_fallback(question, project_filter)
+            return intent_response
             
         except Exception as e:
             logger.error("Question answering failed", error=str(e), question=question)
@@ -7679,3 +7657,388 @@ Would you like me to provide general engineering guidance about {doc_type} proje
             'ai_knowledge_indicators_found': ai_indicators_found,
             'source_clarity': 'clear' if (doc_indicators_found > 0 or ai_indicators_found > 0) else 'unclear'
         }
+    
+    async def _handle_intelligent_fallback(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Intelligent fallback when no RAG pattern matches.
+        Uses GPT to understand intent and search documents intelligently.
+        """
+        try:
+            logger.info("Using intelligent fallback for question", question=question)
+            
+            # Step 1: Use GPT to classify engineering intent
+            intent_classification = await self._classify_engineering_intent(question)
+            
+            # Step 2: Extract intelligent search terms based on intent
+            search_terms = await self._extract_intelligent_search_terms(question, intent_classification)
+            
+            # Step 3: Search documents with intelligent terms
+            documents = await self._intelligent_document_search(search_terms, project_filter)
+            
+            # Step 4: Generate natural answer using GPT
+            if documents:
+                answer = await self._generate_intelligent_natural_answer(question, documents, intent_classification)
+                
+                return {
+                    'answer': answer,
+                    'sources': self._format_sources_intelligent(documents),
+                    'confidence': self._calculate_intelligent_confidence(documents, intent_classification),
+                    'documents_searched': len(documents),
+                    'search_type': 'intelligent_fallback',
+                    'intent': intent_classification.get('intent', 'GENERAL_SEARCH'),
+                    'topic': intent_classification.get('topic', question)
+                }
+            else:
+                # No documents found, but still provide helpful response
+                return {
+                    'answer': await self._generate_no_documents_response(question, intent_classification),
+                    'sources': [],
+                    'confidence': 'low',
+                    'documents_searched': 0,
+                    'search_type': 'intelligent_fallback_no_docs',
+                    'intent': intent_classification.get('intent', 'GENERAL_SEARCH')
+                }
+                
+        except Exception as e:
+            logger.error("Intelligent fallback failed", error=str(e), question=question)
+            
+            # Final fallback - basic document search
+            return await self._basic_fallback_search(question, project_filter)
+    
+    async def _classify_engineering_intent(self, question: str) -> Dict[str, Any]:
+        """Use GPT to classify engineering-specific intent and extract domain information."""
+        
+        classification_prompt = f"""You are an expert AI assistant for a structural engineering consultancy (DTCE). 
+Analyze this user query and classify the engineering intent.
+
+INTENT CATEGORIES:
+1. **NZS_CODE_LOOKUP**: User wants specific clause, section, or information from NZ Standards (NZS 3101, AS/NZS, etc.)
+2. **PROJECT_REFERENCE**: User wants past DTCE projects with specific characteristics or scope
+3. **SCENARIO_TECHNICAL**: User wants projects matching specific building type + conditions + location scenarios
+4. **LESSONS_LEARNED**: User wants issues, failures, problems, or lessons from past projects
+5. **REGULATORY_PRECEDENT**: User wants examples of council approvals, consents, or regulatory challenges
+6. **COST_TIME_INSIGHTS**: User wants project timeline analysis, cost information, scope expansion examples
+7. **BEST_PRACTICES_TEMPLATES**: User wants standard approaches, best practice examples, or calculation templates
+8. **MATERIALS_METHODS**: User wants comparisons of materials, construction methods, or technical specifications
+9. **INTERNAL_KNOWLEDGE**: User wants to find engineers with specific expertise or work by team members
+10. **PRODUCT_LOOKUP**: User wants product specs, suppliers, or material information
+11. **TEMPLATE_REQUEST**: User wants calculation templates, design spreadsheets, or forms (PS1, PS3, etc.)
+12. **CONTACT_LOOKUP**: User wants contact info for builders, contractors, clients we've worked with
+13. **GENERAL_ENGINEERING**: General engineering questions that don't fit specific categories
+14. **DESIGN_GUIDANCE**: User wants design advice, calculations, or technical guidance
+
+Examples:
+- "How do I design a timber beam for 6m span?" → DESIGN_GUIDANCE
+- "What's the deflection limit for residential floors?" → NZS_CODE_LOOKUP
+- "Show me buildings we've done in Wellington" → PROJECT_REFERENCE
+- "How do we typically detail steel connections?" → BEST_PRACTICES_TEMPLATES
+- "What foundation type for soft clay?" → DESIGN_GUIDANCE
+
+User Question: "{question}"
+
+Respond with ONLY a JSON object:
+{{
+    "intent": "NZS_CODE_LOOKUP|PROJECT_REFERENCE|SCENARIO_TECHNICAL|LESSONS_LEARNED|REGULATORY_PRECEDENT|COST_TIME_INSIGHTS|BEST_PRACTICES_TEMPLATES|MATERIALS_METHODS|INTERNAL_KNOWLEDGE|PRODUCT_LOOKUP|TEMPLATE_REQUEST|CONTACT_LOOKUP|GENERAL_ENGINEERING|DESIGN_GUIDANCE",
+    "topic": "main technical topic",
+    "building_type": "residential|commercial|industrial|etc",
+    "structural_element": "beam|column|foundation|slab|wall|connection|etc",
+    "material": "timber|concrete|steel|masonry|etc",
+    "conditions": ["seismic", "wind", "coastal", "soft soil", "etc"],
+    "location": "Wellington|Auckland|etc",
+    "search_keywords": ["keyword1", "keyword2", "keyword3"],
+    "confidence": 0.0-1.0,
+    "reasoning": "brief explanation"
+}}"""
+
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "You are an expert engineering query classifier. Respond only with valid JSON."},
+                    {"role": "user", "content": classification_prompt}
+                ],
+                temperature=0.1,
+                max_tokens=400
+            )
+            
+            import json
+            intent = json.loads(response.choices[0].message.content.strip())
+            
+            logger.info("Engineering intent classified",
+                       intent=intent.get('intent'),
+                       topic=intent.get('topic'),
+                       confidence=intent.get('confidence'))
+            
+            return intent
+            
+        except Exception as e:
+            logger.error("Intent classification failed", error=str(e))
+            # Fallback intent
+            return {
+                "intent": "GENERAL_ENGINEERING",
+                "topic": question,
+                "search_keywords": question.split()[:5],
+                "confidence": 0.5,
+                "reasoning": "Classification failed, using fallback"
+            }
+    
+    async def _extract_intelligent_search_terms(self, question: str, intent: Dict[str, Any]) -> List[str]:
+        """Extract intelligent search terms based on question and intent."""
+        search_terms = []
+        
+        # Add keywords from intent classification
+        if intent.get('search_keywords'):
+            search_terms.extend(intent['search_keywords'])
+        
+        # Add topic
+        if intent.get('topic'):
+            search_terms.append(intent['topic'])
+            
+        # Add specific terms based on intent type
+        intent_type = intent.get('intent', 'GENERAL_ENGINEERING')
+        
+        if intent_type == 'NZS_CODE_LOOKUP':
+            search_terms.extend(['NZS', 'standard', 'code', 'clause'])
+        elif intent_type == 'PROJECT_REFERENCE':
+            search_terms.extend(['project', 'job', 'DTCE'])
+        elif intent_type == 'DESIGN_GUIDANCE':
+            search_terms.extend(['design', 'calculation', 'structural'])
+        elif intent_type == 'BEST_PRACTICES_TEMPLATES':
+            search_terms.extend(['template', 'standard', 'approach', 'practice'])
+        elif intent_type == 'MATERIALS_METHODS':
+            search_terms.extend(['material', 'construction', 'method'])
+        
+        # Add building context
+        if intent.get('building_type'):
+            search_terms.append(intent['building_type'])
+        if intent.get('structural_element'):
+            search_terms.append(intent['structural_element'])
+        if intent.get('material'):
+            search_terms.append(intent['material'])
+        if intent.get('location'):
+            search_terms.append(intent['location'])
+        
+        # Add conditions
+        if intent.get('conditions'):
+            search_terms.extend(intent['conditions'])
+        
+        # Clean and deduplicate
+        search_terms = list(set([term.lower().strip() for term in search_terms if term and len(term) > 2]))
+        
+        return search_terms[:10]  # Limit to 10 terms
+    
+    async def _intelligent_document_search(self, search_terms: List[str], project_filter: Optional[str] = None) -> List[Dict]:
+        """Search documents using intelligent terms."""
+        try:
+            # Create search query
+            search_query = ' OR '.join(search_terms)
+            
+            # Build search parameters
+            search_params = {
+                'search_text': search_query,
+                'top': 20,
+                'select': ["id", "filename", "content", "blob_url", "project_name", "folder"]
+            }
+            
+            # Add project filter if specified
+            if project_filter:
+                search_params['filter'] = f"project_name eq '{project_filter}'"
+            
+            results = self.search_client.search(**search_params)
+            documents = [dict(result) for result in results]
+            
+            logger.info("Intelligent search completed", 
+                       search_terms=search_terms,
+                       documents_found=len(documents))
+            
+            return documents
+            
+        except Exception as e:
+            logger.error("Intelligent document search failed", error=str(e))
+            return []
+    
+    async def _generate_intelligent_natural_answer(self, question: str, documents: List[Dict], intent: Dict[str, Any]) -> str:
+        """Generate natural answer using GPT with intent context."""
+        try:
+            # Prepare context from documents
+            context_parts = []
+            for doc in documents[:10]:  # Limit to top 10 documents
+                content = doc.get('content', '')
+                filename = doc.get('filename', 'Unknown')
+                blob_url = doc.get('blob_url', '')
+                
+                if content:
+                    context_part = f"**Document: {filename}**\n{content[:1200]}..."
+                    if blob_url:
+                        context_part += f"\nURL: {blob_url}"
+                    context_parts.append(context_part)
+            
+            if not context_parts:
+                return f"I searched our database but couldn't find specific information about: {question}"
+            
+            context = "\n\n".join(context_parts)
+            intent_type = intent.get('intent', 'GENERAL_ENGINEERING')
+            topic = intent.get('topic', 'engineering question')
+            
+            # Create specialized prompt based on intent
+            if intent_type == 'DESIGN_GUIDANCE':
+                system_prompt = "You are a senior structural engineer at DTCE. Provide practical design guidance based on the documents provided."
+                focus_instructions = """
+- Provide step-by-step design guidance
+- Include relevant calculations or approaches
+- Reference specific standards or codes when mentioned
+- Give practical engineering advice
+- Mention safety factors and considerations"""
+                
+            elif intent_type == 'NZS_CODE_LOOKUP':
+                system_prompt = "You are an expert in New Zealand building standards. Provide accurate code information."
+                focus_instructions = """
+- Quote specific clauses or sections when available
+- Explain the requirements clearly
+- Provide context for when these apply
+- Mention related standards if relevant"""
+                
+            elif intent_type == 'PROJECT_REFERENCE':
+                system_prompt = "You are a DTCE project manager with access to past project information."
+                focus_instructions = """
+- Describe relevant past projects
+- Include job numbers when available
+- Explain project scope and outcomes
+- Provide SuiteFiles links when mentioned"""
+                
+            else:
+                system_prompt = "You are a senior engineer at DTCE. Provide clear, practical engineering guidance."
+                focus_instructions = """
+- Provide clear, technical explanations
+- Include practical considerations
+- Reference specific projects or examples when available
+- Give actionable engineering advice"""
+            
+            prompt = f"""Based on the following documents from DTCE's engineering database, please answer this {topic} question: {question}
+
+{focus_instructions}
+
+Context from DTCE documents:
+{context}
+
+Instructions:
+- Provide a natural, conversational answer
+- Include specific details from the documents
+- Mention job numbers, file names, or URLs when relevant
+- If information is partial, be honest about limitations
+- Focus on practical engineering guidance
+- Keep response professional but approachable
+
+Answer:"""
+
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=1000
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            logger.error("Failed to generate intelligent natural answer", error=str(e))
+            return f"I found relevant documents but encountered an error generating a response. Please try rephrasing your question."
+    
+    async def _generate_no_documents_response(self, question: str, intent: Dict[str, Any]) -> str:
+        """Generate helpful response when no documents found."""
+        intent_type = intent.get('intent', 'GENERAL_ENGINEERING')
+        topic = intent.get('topic', 'your question')
+        
+        if intent_type == 'NZS_CODE_LOOKUP':
+            return f"I couldn't find specific information about {topic} in our uploaded NZ Standards documents. You may need to refer to the physical NZ Standards or check if this information has been uploaded to our system."
+            
+        elif intent_type == 'PROJECT_REFERENCE':
+            return f"I couldn't find past DTCE projects specifically matching {topic} in our database. This might be because:\n• The project details aren't indexed yet\n• Different keywords were used in the project documentation\n• The projects might be in a different format or location"
+            
+        elif intent_type == 'DESIGN_GUIDANCE':
+            return f"I couldn't find specific design guidance for {topic} in our current database. For detailed design advice, you might want to:\n• Check if relevant standards are uploaded\n• Look for similar projects in SuiteFiles\n• Consult with senior engineers directly"
+            
+        else:
+            return f"I searched our engineering database but couldn't find specific information about {topic}. This might be because the information uses different terminology or hasn't been uploaded to our system yet. Try rephrasing your question or checking SuiteFiles directly."
+    
+    async def _basic_fallback_search(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Basic fallback search when all else fails."""
+        try:
+            # Simple keyword search
+            keywords = [word for word in question.split() if len(word) > 3][:5]
+            search_query = ' OR '.join(keywords)
+            
+            search_params = {
+                'search_text': search_query,
+                'top': 10,
+                'select': ["id", "filename", "content", "blob_url", "project_name", "folder"]
+            }
+            
+            results = self.search_client.search(**search_params)
+            documents = [dict(result) for result in results]
+            
+            if documents:
+                # Simple answer generation
+                answer = f"I found {len(documents)} documents that might be relevant to your question about: {question}\n\nKey documents found:\n"
+                for i, doc in enumerate(documents[:3], 1):
+                    answer += f"{i}. {doc.get('filename', 'Unknown')}\n"
+                
+                answer += "\nPlease check these documents or try rephrasing your question for more specific results."
+                
+                return {
+                    'answer': answer,
+                    'sources': self._format_sources_intelligent(documents),
+                    'confidence': 'low',
+                    'documents_searched': len(documents),
+                    'search_type': 'basic_fallback'
+                }
+            else:
+                return {
+                    'answer': f"I couldn't find relevant information for your question: {question}\n\nTry:\n• Using different keywords\n• Being more specific about what you're looking for\n• Checking if the information is in SuiteFiles",
+                    'sources': [],
+                    'confidence': 'low',
+                    'documents_searched': 0,
+                    'search_type': 'no_results'
+                }
+                
+        except Exception as e:
+            logger.error("Basic fallback search failed", error=str(e))
+            return {
+                'answer': f"I encountered an error while searching for: {question}. Please try again or contact support.",
+                'sources': [],
+                'confidence': 'error',
+                'documents_searched': 0,
+                'search_type': 'error'
+            }
+    
+    def _format_sources_intelligent(self, documents: List[Dict]) -> List[Dict]:
+        """Format sources with intelligent ranking."""
+        sources = []
+        for doc in documents[:5]:  # Limit to top 5 sources
+            sources.append({
+                'filename': doc.get('filename', 'Unknown'),
+                'url': doc.get('blob_url', ''),
+                'folder': doc.get('folder', 'Unknown'),
+                'project': doc.get('project_name', 'Unknown'),
+                'relevance': 'high' if len(doc.get('content', '')) > 500 else 'medium'
+            })
+        return sources
+    
+    def _calculate_intelligent_confidence(self, documents: List[Dict], intent: Dict[str, Any]) -> str:
+        """Calculate confidence based on documents and intent match."""
+        if not documents:
+            return 'low'
+        
+        doc_count = len(documents)
+        intent_confidence = intent.get('confidence', 0.5)
+        
+        # High confidence: Many docs + high intent confidence
+        if doc_count >= 10 and intent_confidence > 0.8:
+            return 'high'
+        elif doc_count >= 5 and intent_confidence > 0.6:
+            return 'medium'
+        else:
+            return 'low'
