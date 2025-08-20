@@ -136,7 +136,24 @@ class Settings(BaseSettings):
     
     # Processing settings
     max_file_size_mb: int = 10
-    supported_file_types: List[str] = [".pdf", ".docx", ".txt", ".md", ".py", ".js", ".ts"]
+    supported_file_types: List[str] = [
+        # Documents
+        ".pdf", ".docx", ".doc", ".txt", ".msg",
+        # Spreadsheets  
+        ".xlsx", ".xls", ".csv",
+        # Presentations
+        ".pptx", ".ppt",
+        # Images
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif",
+        # CAD & Technical Drawings
+        ".dwg", ".dxf", ".dwf", ".svg",
+        # Data formats
+        ".json", ".xml",
+        # Archives
+        ".zip", ".rar", ".7z",
+        # Code/Scripts (existing)
+        ".py", ".js", ".ts", ".md"
+    ]
     max_concurrent_processing: int = 5
     
     # Folder exclusion settings

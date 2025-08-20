@@ -5,6 +5,10 @@ import PyPDF2
 import openpyxl
 import io
 import structlog
+import extract_msg
+import json
+import csv
+from PIL import Image
 
 from src.models import DocumentMetadata
 
@@ -16,12 +20,45 @@ class DocumentProcessor:
     
     def __init__(self):
         self.supported_types = {
+            # Document formats
             '.pdf': self._extract_pdf_text,
             '.docx': self._extract_docx_text,
             '.doc': self._extract_doc_text,
+            '.txt': self._extract_txt_text,
+            '.msg': self._extract_msg_text,
+            
+            # Spreadsheet formats
             '.xlsx': self._extract_xlsx_text,
             '.xls': self._extract_xls_text,
-            '.txt': self._extract_txt_text
+            '.csv': self._extract_csv_text,
+            
+            # Presentation formats
+            '.pptx': self._extract_pptx_text,
+            '.ppt': self._extract_ppt_text,
+            
+            # Image formats (with OCR potential)
+            '.jpg': self._extract_image_metadata,
+            '.jpeg': self._extract_image_metadata,
+            '.png': self._extract_image_metadata,
+            '.gif': self._extract_image_metadata,
+            '.bmp': self._extract_image_metadata,
+            '.tiff': self._extract_image_metadata,
+            '.tif': self._extract_image_metadata,
+            
+            # CAD and drawing formats
+            '.dwg': self._extract_cad_metadata,
+            '.dxf': self._extract_dxf_text,
+            '.dwf': self._extract_cad_metadata,
+            '.svg': self._extract_svg_text,
+            
+            # Data formats
+            '.json': self._extract_json_text,
+            '.xml': self._extract_xml_text,
+            
+            # Archive formats
+            '.zip': self._extract_archive_metadata,
+            '.rar': self._extract_archive_metadata,
+            '.7z': self._extract_archive_metadata
         }
     
     async def process_document(self, document: DocumentMetadata, content: bytes) -> DocumentMetadata:
@@ -164,6 +201,326 @@ class DocumentProcessor:
             
         except Exception as e:
             logger.error("Failed to extract TXT text", error=str(e))
+            return None
+
+    async def _extract_msg_text(self, content: bytes) -> Optional[str]:
+        """Extract text from MSG (Outlook message) file."""
+        try:
+            import tempfile
+            import os
+            
+            # MSG files need to be saved to disk for extract_msg to read them
+            with tempfile.NamedTemporaryFile(suffix='.msg', delete=False) as tmp_file:
+                tmp_file.write(content)
+                tmp_file.flush()
+                
+                try:
+                    # Use extract_msg to parse the Outlook message
+                    msg = extract_msg.Message(tmp_file.name)
+                    
+                    text_parts = []
+                    
+                    # Extract email metadata
+                    if msg.subject:
+                        text_parts.append(f"Subject: {msg.subject}")
+                    
+                    if msg.sender:
+                        text_parts.append(f"From: {msg.sender}")
+                    
+                    if msg.to:
+                        text_parts.append(f"To: {msg.to}")
+                    
+                    if msg.date:
+                        text_parts.append(f"Date: {msg.date}")
+                    
+                    # Extract message body
+                    if msg.body:
+                        text_parts.append("\nMessage:")
+                        text_parts.append(msg.body)
+                    
+                    # Extract attachments info (file names only, not content)
+                    if hasattr(msg, 'attachments') and msg.attachments:
+                        text_parts.append("\nAttachments:")
+                        for attachment in msg.attachments:
+                            if hasattr(attachment, 'longFilename') and attachment.longFilename:
+                                text_parts.append(f"- {attachment.longFilename}")
+                    
+                    return "\n".join(text_parts) if text_parts else None
+                    
+                finally:
+                    # Clean up temporary file
+                    try:
+                        os.unlink(tmp_file.name)
+                    except:
+                        pass
+                        
+        except Exception as e:
+            logger.error("Failed to extract MSG text", error=str(e))
+            return None
+
+    async def _extract_csv_text(self, content: bytes) -> Optional[str]:
+        """Extract text from CSV file."""
+        try:
+            import csv
+            import io
+            
+            # Try different encodings
+            encodings = ['utf-8', 'utf-16', 'latin-1', 'cp1252']
+            
+            for encoding in encodings:
+                try:
+                    text_content = content.decode(encoding)
+                    csv_file = io.StringIO(text_content)
+                    reader = csv.reader(csv_file)
+                    
+                    text_parts = []
+                    row_count = 0
+                    
+                    for row in reader:
+                        if row_count == 0:
+                            text_parts.append("Headers: " + " | ".join(row))
+                        else:
+                            text_parts.append(" | ".join(row))
+                        
+                        row_count += 1
+                        if row_count > 100:  # Limit to first 100 rows
+                            text_parts.append(f"... and {row_count} more rows")
+                            break
+                    
+                    return "\n".join(text_parts) if text_parts else None
+                    
+                except UnicodeDecodeError:
+                    continue
+                    
+        except Exception as e:
+            logger.error("Failed to extract CSV text", error=str(e))
+            return None
+
+    async def _extract_json_text(self, content: bytes) -> Optional[str]:
+        """Extract text from JSON file."""
+        try:
+            import json
+            
+            # Try different encodings
+            encodings = ['utf-8', 'utf-16', 'latin-1']
+            
+            for encoding in encodings:
+                try:
+                    text_content = content.decode(encoding)
+                    data = json.loads(text_content)
+                    
+                    # Convert JSON to readable text
+                    return json.dumps(data, indent=2, ensure_ascii=False)
+                    
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    continue
+                    
+        except Exception as e:
+            logger.error("Failed to extract JSON text", error=str(e))
+            return None
+
+    async def _extract_xml_text(self, content: bytes) -> Optional[str]:
+        """Extract text from XML file."""
+        try:
+            # Try different encodings
+            encodings = ['utf-8', 'utf-16', 'latin-1']
+            
+            for encoding in encodings:
+                try:
+                    return content.decode(encoding)
+                except UnicodeDecodeError:
+                    continue
+                    
+        except Exception as e:
+            logger.error("Failed to extract XML text", error=str(e))
+            return None
+
+    async def _extract_image_metadata(self, content: bytes) -> Optional[str]:
+        """Extract metadata and basic info from image files."""
+        try:
+            from PIL import Image
+            import io
+            
+            image = Image.open(io.BytesIO(content))
+            
+            text_parts = []
+            text_parts.append(f"Image Type: {image.format}")
+            text_parts.append(f"Dimensions: {image.size[0]} x {image.size[1]} pixels")
+            text_parts.append(f"Color Mode: {image.mode}")
+            
+            # Extract EXIF data if available
+            if hasattr(image, '_getexif'):
+                exif = image._getexif()
+                if exif:
+                    text_parts.append("EXIF Data:")
+                    for key, value in exif.items():
+                        if isinstance(value, str) and len(value) < 100:
+                            text_parts.append(f"  {key}: {value}")
+            
+            # Note: For OCR text extraction from images, you'd need pytesseract
+            # text_parts.append("Note: OCR text extraction requires pytesseract library")
+            
+            return "\n".join(text_parts)
+            
+        except Exception as e:
+            logger.error("Failed to extract image metadata", error=str(e))
+            return None
+
+    async def _extract_cad_metadata(self, content: bytes) -> Optional[str]:
+        """Extract basic metadata from CAD files (.dwg, .dwf)."""
+        try:
+            # For now, extract basic file info
+            # Full CAD parsing would require specialized libraries like ezdxf
+            text_parts = []
+            text_parts.append("CAD Drawing File")
+            text_parts.append(f"File Size: {len(content)} bytes")
+            
+            # Check for common CAD text patterns in binary data
+            content_str = str(content[:2000])  # First 2KB for patterns
+            
+            if 'AutoCAD' in content_str:
+                text_parts.append("Software: AutoCAD")
+            if 'DWG' in content_str:
+                text_parts.append("Format: DWG")
+                
+            text_parts.append("Note: Full CAD text extraction requires specialized CAD libraries")
+            
+            return "\n".join(text_parts)
+            
+        except Exception as e:
+            logger.error("Failed to extract CAD metadata", error=str(e))
+            return None
+
+    async def _extract_dxf_text(self, content: bytes) -> Optional[str]:
+        """Extract text from DXF files (ASCII CAD format)."""
+        try:
+            # DXF files are often text-based, so we can extract some content
+            encodings = ['utf-8', 'latin-1', 'cp1252']
+            
+            for encoding in encodings:
+                try:
+                    text_content = content.decode(encoding)
+                    
+                    text_parts = []
+                    text_parts.append("DXF CAD Drawing")
+                    
+                    # Extract layer names
+                    lines = text_content.split('\n')
+                    layers = set()
+                    texts = []
+                    
+                    for i, line in enumerate(lines[:1000]):  # Limit scan
+                        if line.strip() == '8':  # Layer code in DXF
+                            if i + 1 < len(lines):
+                                layer = lines[i + 1].strip()
+                                if layer and not layer.isdigit():
+                                    layers.add(layer)
+                        
+                        if line.strip() == '1':  # Text value code in DXF
+                            if i + 1 < len(lines):
+                                text = lines[i + 1].strip()
+                                if text and len(text) > 1:
+                                    texts.append(text)
+                    
+                    if layers:
+                        text_parts.append("Layers: " + ", ".join(list(layers)[:10]))
+                    
+                    if texts:
+                        text_parts.append("Text Content:")
+                        text_parts.extend(texts[:20])  # First 20 text elements
+                    
+                    return "\n".join(text_parts)
+                    
+                except UnicodeDecodeError:
+                    continue
+                    
+        except Exception as e:
+            logger.error("Failed to extract DXF text", error=str(e))
+            return None
+
+    async def _extract_svg_text(self, content: bytes) -> Optional[str]:
+        """Extract text from SVG files."""
+        try:
+            # SVG is XML-based, so decode as text
+            encodings = ['utf-8', 'utf-16', 'latin-1']
+            
+            for encoding in encodings:
+                try:
+                    svg_content = content.decode(encoding)
+                    
+                    text_parts = []
+                    text_parts.append("SVG Vector Drawing")
+                    
+                    # Extract text elements
+                    import re
+                    text_matches = re.findall(r'<text[^>]*>(.*?)</text>', svg_content, re.IGNORECASE | re.DOTALL)
+                    
+                    if text_matches:
+                        text_parts.append("Text Elements:")
+                        for text in text_matches[:20]:  # Limit to first 20
+                            clean_text = re.sub(r'<[^>]+>', '', text).strip()
+                            if clean_text:
+                                text_parts.append(clean_text)
+                    
+                    return "\n".join(text_parts)
+                    
+                except UnicodeDecodeError:
+                    continue
+                    
+        except Exception as e:
+            logger.error("Failed to extract SVG text", error=str(e))
+            return None
+
+    async def _extract_pptx_text(self, content: bytes) -> Optional[str]:
+        """Extract text from PowerPoint files."""
+        try:
+            # Note: This would require python-pptx library
+            # For now, return placeholder
+            return "PowerPoint Presentation - Text extraction requires python-pptx library"
+            
+        except Exception as e:
+            logger.error("Failed to extract PPTX text", error=str(e))
+            return None
+
+    async def _extract_ppt_text(self, content: bytes) -> Optional[str]:
+        """Extract text from legacy PowerPoint files."""
+        try:
+            return "Legacy PowerPoint Presentation - Text extraction requires specialized library"
+            
+        except Exception as e:
+            logger.error("Failed to extract PPT text", error=str(e))
+            return None
+
+    async def _extract_archive_metadata(self, content: bytes) -> Optional[str]:
+        """Extract file list from archive files."""
+        try:
+            import zipfile
+            import io
+            
+            text_parts = []
+            text_parts.append("Archive File Contents:")
+            
+            try:
+                # Try as ZIP file
+                with zipfile.ZipFile(io.BytesIO(content), 'r') as zip_file:
+                    file_list = zip_file.namelist()
+                    text_parts.append(f"Total files: {len(file_list)}")
+                    text_parts.append("Files:")
+                    
+                    for filename in file_list[:50]:  # Limit to first 50 files
+                        text_parts.append(f"  {filename}")
+                    
+                    if len(file_list) > 50:
+                        text_parts.append(f"  ... and {len(file_list) - 50} more files")
+                        
+            except zipfile.BadZipFile:
+                text_parts.append("Archive format not supported for content extraction")
+                text_parts.append(f"File size: {len(content)} bytes")
+            
+            return "\n".join(text_parts)
+            
+        except Exception as e:
+            logger.error("Failed to extract archive metadata", error=str(e))
             return None
     
     def _create_preview(self, text: str, max_length: int = 500) -> str:

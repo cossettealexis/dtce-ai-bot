@@ -1131,26 +1131,87 @@ Would you like me to help you find any related information from our internal DTC
     async def _generate_answer_from_documents(self, question: str, documents: List[Dict]) -> str:
         """Generate a comprehensive answer using the provided documents."""
         try:
-            # Prepare context from documents
+            # Prepare context from documents with more content
             context_parts = []
-            for doc in documents[:10]:  # Limit to top 10 documents
-                content = doc.get('content', '')
-                filename = doc.get('filename', 'Unknown')
+            for doc in documents[:8]:  # Use top 8 documents for better context
+                # Try extracted_text first (new schema), fallback to content (legacy)
+                content = doc.get('extracted_text', '').strip() or doc.get('content', '').strip()
+                filename = doc.get('filename', 'Unknown Document')
+                project = doc.get('project_name', '') or self._extract_project_from_document(doc)
+                
                 if content:
-                    context_parts.append(f"**Document: {filename}**\n{content[:1000]}...")
+                    # Use more content (1500 chars) for better context
+                    context_part = f"**Document: {filename}**"
+                    if project and project != 'Unknown':
+                        context_part += f" (Project: {project})"
+                    context_part += f"\nContent: {content[:1500]}..."
+                    context_parts.append(context_part)
             
             if not context_parts:
-                return f"I couldn't find specific information about '{question}' in our project database."
+                return f"I searched our database but couldn't find specific documents related to '{question}'. Try using different keywords or ask about a broader topic."
             
             context = "\n\n".join(context_parts)
             
-            # Generate answer using the context
-            result = await self._generate_answer(question, context)
-            return result.get('answer', f"I found relevant documents but couldn't generate a specific answer for '{question}'.")
+            # Enhanced prompt specifically for document-based answers
+            enhanced_question = f"""Based on the {len(context_parts)} documents found about '{question}', please provide a comprehensive answer. 
+
+Extract specific information, examples, and insights from the documents. If the documents mention specific projects, issues, solutions, or recommendations, include those details. Even if the information is partial, extract what's useful and provide a complete answer.
+
+Original question: {question}"""
+            
+            # Generate answer using the context with better error handling
+            result = await self._generate_answer(enhanced_question, context)
+            
+            # Handle both string and dict responses
+            if isinstance(result, dict):
+                answer = result.get('answer', '').strip()
+            else:
+                answer = str(result).strip() if result else ''
+            if not answer or len(answer) < 50:
+                # If GPT response is too short, provide manual extraction
+                return f"""Based on {len(context_parts)} documents found about '{question}':
+
+{self._extract_key_points_from_context(context, question)}
+
+The documents contain relevant information but may require further analysis. Consider reviewing the source documents directly for more detailed information."""
+            
+            return answer
             
         except Exception as e:
-            logger.error("Failed to generate answer from documents", error=str(e))
-            return f"I encountered an error while processing your question about '{question}'. Please try rephrasing."
+            logger.error("Failed to generate answer from documents", error=str(e), question=question, doc_count=len(documents))
+            # Even if there's an error, try to provide something useful
+            if documents:
+                return f"I found {len(documents)} relevant documents about '{question}', but encountered a technical issue processing them. Please try rephrasing your question or contact support if the issue persists."
+            else:
+                return f"I couldn't find specific documents related to '{question}'. Try using different keywords or ask about a broader topic."
+
+    def _extract_key_points_from_context(self, context: str, question: str) -> str:
+        """Extract key points from context when GPT fails to generate a proper answer."""
+        try:
+            # Extract document names and key snippets
+            key_points = []
+            documents = context.split("**Document:")
+            
+            for i, doc_section in enumerate(documents[1:], 1):  # Skip first empty section
+                lines = doc_section.split('\n')
+                if lines:
+                    doc_name = lines[0].replace('**', '').strip()
+                    content = '\n'.join(lines[1:])
+                    
+                    # Extract first meaningful sentence or two
+                    sentences = content.split('. ')
+                    meaningful_content = '. '.join(sentences[:2])[:200]
+                    
+                    if meaningful_content.strip():
+                        key_points.append(f"• **{doc_name}**: {meaningful_content}...")
+            
+            if key_points:
+                return "\n".join(key_points[:6])  # Limit to 6 key points
+            else:
+                return "The documents contain technical information that may be relevant to your question."
+                
+        except Exception:
+            return "Multiple documents were found with relevant information."
 
     def _search_relevant_documents(self, question: str, project_filter: Optional[str] = None) -> List[Dict]:
         """Search for documents relevant to the question."""
@@ -1180,9 +1241,9 @@ Would you like me to help you find any related information from our internal DTC
                 results = self.search_client.search(
                     search_text=search_text,
                     top=50,  # Get more results for filtering
-                    highlight_fields="filename,project_name,content",  # Use existing field names
-                    select=["id", "filename", "content", "blob_url", "project_name",  # Use existing field names
-                           "folder", "last_modified", "created_date", "size"],  # Use existing field names
+                    highlight_fields="file_name,project_title,extracted_text",  # Use correct field names
+                    select=["id", "file_name", "extracted_text", "blob_url", "project_title",  # Use correct field names
+                           "folder_path", "modified_date", "created_date", "file_size"],  # Use correct field names
                     query_type="semantic",  # Always use semantic search for better results
                     semantic_configuration_name="default"  # Use the semantic configuration we defined
                 )
@@ -1193,9 +1254,9 @@ Would you like me to help you find any related information from our internal DTC
                 results = self.search_client.search(
                     search_text=search_text,
                     top=50,  # Get more results for filtering
-                    highlight_fields="filename,project_name,content",  # Use existing field names
-                    select=["id", "filename", "content", "blob_url", "project_name",  # Use existing field names
-                           "folder", "last_modified", "created_date", "size"],  # Use existing field names
+                    highlight_fields="file_name,project_title,extracted_text",  # Use correct field names
+                    select=["id", "file_name", "extracted_text", "blob_url", "project_title",  # Use correct field names
+                           "folder_path", "modified_date", "created_date", "file_size"],  # Use correct field names
                     query_type="simple"  # Use simple search as fallback
                 )
                 search_type = "simple"
@@ -1207,16 +1268,30 @@ Would you like me to help you find any related information from our internal DTC
             for result in results:
                 doc_dict = dict(result)
                 
+                # Map field names from search result to expected format
+                mapped_doc = {
+                    'id': doc_dict.get('id'),
+                    'filename': doc_dict.get('file_name', 'Unknown'),
+                    'extracted_text': doc_dict.get('extracted_text', ''),
+                    'content': doc_dict.get('extracted_text', ''),  # Map extracted_text to content for backwards compatibility
+                    'blob_url': doc_dict.get('blob_url', ''),
+                    'project_name': doc_dict.get('project_title', ''),
+                    'folder': doc_dict.get('folder_path', ''),
+                    'last_modified': doc_dict.get('modified_date', ''),
+                    'created_date': doc_dict.get('created_date', ''),
+                    'size': doc_dict.get('file_size', 0)
+                }
+                
                 # If we have a project filter, check if the document belongs to that project
                 if project_filter:
-                    doc_project = self._extract_project_from_url(doc_dict.get('blob_url', ''))
+                    doc_project = self._extract_project_from_url(mapped_doc.get('blob_url', ''))
                     if doc_project != project_filter:
                         continue  # Skip documents not in the target project
                 elif is_date_question:
                     # For date-only questions, include all matching documents but prioritize recent projects
                     pass  # Don't filter by project for date-only questions
                 
-                documents.append(doc_dict)
+                documents.append(mapped_doc)
                 
                 # Limit to top 10 after filtering
                 if len(documents) >= 10:

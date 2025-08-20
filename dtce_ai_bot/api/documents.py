@@ -187,21 +187,63 @@ async def extract_text(
                 logger.info("OpenAI fallback extraction successful", blob_name=blob_name)
                 
             except Exception as openai_error:
-                logger.error(
-                    "Both Form Recognizer and OpenAI extraction failed", 
+                logger.warning(
+                    "Both Form Recognizer and OpenAI extraction failed, trying local DocumentProcessor", 
                     blob_name=blob_name, 
                     form_recognizer_error=str(form_recognizer_error),
                     openai_error=str(openai_error)
                 )
                 
-                # Return minimal extraction result with document name for indexing
-                extraction_result = {
-                    "extracted_text": f"Document: {blob_name}",
-                    "character_count": len(blob_name),
-                    "page_count": 1,
-                    "extraction_method": "filename_only",
-                    "error": f"Form Recognizer: {form_recognizer_error}, OpenAI: {openai_error}"
-                }
+                # Try local DocumentProcessor as final fallback
+                try:
+                    from dtce_ai_bot.utils.document_processor import DocumentProcessor
+                    
+                    # Download blob content
+                    blob_data = blob_client.download_blob().readall()
+                    
+                    # Determine file extension from blob name
+                    file_extension = "." + blob_name.lower().split(".")[-1] if "." in blob_name else ""
+                    
+                    # Create a simple metadata object
+                    class SimpleMetadata:
+                        def __init__(self, file_type, file_name):
+                            self.file_type = file_type
+                            self.file_name = file_name
+                            self.extracted_text = ""
+                    
+                    metadata = SimpleMetadata(file_extension, blob_name)
+                    
+                    # Process with local DocumentProcessor
+                    processor = DocumentProcessor()
+                    result = await processor.process_document(metadata, blob_data)
+                    
+                    if result.extracted_text and result.extracted_text.strip():
+                        extraction_result = {
+                            "extracted_text": result.extracted_text,
+                            "character_count": len(result.extracted_text),
+                            "page_count": 1,
+                            "extraction_method": "local_processor",
+                            "success": True
+                        }
+                        logger.info("Local DocumentProcessor extraction successful", blob_name=blob_name)
+                    else:
+                        raise Exception("No text extracted by local processor")
+                        
+                except Exception as local_error:
+                    logger.error(
+                        "All extraction methods failed including local processor", 
+                        blob_name=blob_name, 
+                        local_error=str(local_error)
+                    )
+                    
+                    # Return minimal extraction result with document name for indexing
+                    extraction_result = {
+                        "extracted_text": f"Document: {blob_name}",
+                        "character_count": len(blob_name),
+                        "page_count": 1,
+                        "extraction_method": "filename_only",
+                        "error": f"Form Recognizer: {form_recognizer_error}, OpenAI: {openai_error}, Local: {local_error}"
+                    }
         
         # Log success
         logger.info(
@@ -267,27 +309,59 @@ async def index_document(
                 extraction_data = extraction_response
                 
         except Exception as e:
-            logger.warning("Text extraction failed, indexing without content", error=str(e))
-            # For unsupported file types, create basic metadata
-            file_extension = os.path.splitext(blob_name)[1].lower()
-            if file_extension in ['.eml']:  # Removed .msg since we now support it
-                extraction_data = {
-                    "extracted_text": f"Email document: {metadata.get('original_filename', blob_name)}",
-                    "file_type": "email",
-                    "note": "Email files require specialized extraction tools"
-                }
-            elif file_extension in ['.xlsx', '.xls']:
-                extraction_data = {
-                    "extracted_text": f"Spreadsheet document: {metadata.get('original_filename', blob_name)}",
-                    "file_type": "spreadsheet",
-                    "note": "Spreadsheet files contain tabular data"
-                }
-            else:
-                extraction_data = {
-                    "extracted_text": f"Document: {metadata.get('original_filename', blob_name)}",
-                    "file_type": "document",
-                    "note": f"File type {file_extension} processed without text extraction"
-                }
+            logger.warning("Text extraction failed, trying local PDF processor", error=str(e))
+            # Try local document processor as final fallback
+            try:
+                from ..utils.document_processor import DocumentProcessor
+                processor = DocumentProcessor()
+                
+                # Download blob content
+                blob_data = blob_client.download_blob().readall()
+                
+                # Create a mock document metadata object
+                from ..models.legacy_models import DocumentMetadata
+                mock_doc = DocumentMetadata(
+                    file_name=metadata.get('original_filename', blob_name),
+                    file_type=os.path.splitext(blob_name)[1].lower(),
+                    file_size=len(blob_data)
+                )
+                
+                # Process the document
+                processed_doc = await processor.process_document(mock_doc, blob_data)
+                
+                if processed_doc.extracted_text:
+                    extraction_data = {
+                        "extracted_text": processed_doc.extracted_text,
+                        "character_count": len(processed_doc.extracted_text),
+                        "page_count": 1,
+                        "extraction_method": "local_processor"
+                    }
+                    logger.info("Local processor extraction successful", blob_name=blob_name)
+                else:
+                    raise Exception("Local processor failed to extract text")
+                    
+            except Exception as local_error:
+                logger.warning("Local processor also failed", error=str(local_error))
+                # For unsupported file types, create basic metadata
+                file_extension = os.path.splitext(blob_name)[1].lower()
+                if file_extension in ['.eml']:  # Removed .msg since we now support it
+                    extraction_data = {
+                        "extracted_text": f"Email document: {metadata.get('original_filename', blob_name)}",
+                        "file_type": "email",
+                        "note": "Email files require specialized extraction tools"
+                    }
+                elif file_extension in ['.xlsx', '.xls']:
+                    extraction_data = {
+                        "extracted_text": f"Spreadsheet document: {metadata.get('original_filename', blob_name)}",
+                        "file_type": "spreadsheet",
+                        "note": "Spreadsheet files contain tabular data"
+                    }
+                else:
+                    extraction_data = {
+                        "extracted_text": f"Document: {metadata.get('original_filename', blob_name)}",
+                        "file_type": "document",
+                        "note": f"File type {file_extension} processed without text extraction"
+                    }
         
         # Extract project information from folder path
         folder_path = metadata.get("folder", "")

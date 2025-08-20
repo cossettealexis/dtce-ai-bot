@@ -565,14 +565,24 @@ Context from {context_type}:
 {context}
 
 CRITICAL INSTRUCTIONS:
-- Provide a natural, conversational answer
+- Provide a natural, conversational answer based on DTCE's engineering expertise
 - ONLY use information that is explicitly provided in the context above
 - NEVER create, invent, or make up project numbers, job numbers, or file names
 - NEVER create or mention URLs unless they are explicitly provided in the context
+- If documents show only "Document: filename" content, acknowledge this limitation
 - Include specific details from the documents when available
 - If the documents contain partial information, be honest about limitations
-- Focus on practical engineering guidance
+- Focus on practical engineering guidance for New Zealand conditions
+- When relevant, mention SuiteFiles as the primary document repository
+- For technical queries, emphasize DTCE's experience and methodology
 - Keep the response professional but approachable
+
+For engineering queries about:
+- **Past Projects**: Reference specific job folders and project details when available
+- **Technical Methods**: Describe DTCE's standard approaches and lessons learned
+- **Products/Materials**: Prioritize specifications used in past DTCE projects
+- **Design Standards**: Reference NZ structural codes and local conditions
+- **SuiteFiles Links**: Provide folder paths to relevant project documentation
 
 Answer:"""
 
@@ -1156,37 +1166,68 @@ Focus on:
             }
     
     async def _handle_scenario_technical(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
-        """Handle scenario-based technical queries - Use GPT for natural language answers"""
+        """Handle scenario-based technical queries with enhanced DTCE methodology"""
         logger.info("Processing scenario technical", question=question)
         
-        # Extract technical scenario keywords
+        # Extract technical scenario keywords with enhanced terms
         scenario_keywords = self._extract_scenario_keywords(question)
-        documents = await self._search_documents(' OR '.join(scenario_keywords), project_filter)
+        
+        # Add common engineering terms for better search
+        enhanced_keywords = scenario_keywords + [
+            'structural', 'design', 'engineering', 'analysis', 'drawings', 
+            'calculations', 'report', 'specifications', 'details'
+        ]
+        
+        documents = await self._search_documents(' OR '.join(enhanced_keywords), project_filter, limit=15)
         
         if documents:
             prompt = f"""Based on the DTCE project documents found, please answer: {question}
 
-Focus on:
-- Specific project examples matching the scenario that are mentioned in the documents
-- Technical solutions and approaches used as described in the documents
-- Design considerations and challenges from the documents
-- ONLY reference job numbers and project references that are explicitly mentioned in the documents"""
+**DTCE Engineering Approach Guidelines:**
+
+For scenario-based technical queries, structure your response as follows:
+
+1. **Project Examples**: List specific DTCE projects that match the scenario (if found in documents)
+   - Include job numbers or project names mentioned in the documents
+   - Describe the project scope and technical solutions used
+   - Reference the document sources
+
+2. **Technical Solutions**: Describe DTCE's engineering approaches
+   - Design methodologies and standards followed
+   - Material specifications and connection details
+   - Analysis methods and software used
+
+3. **Design Considerations**: Highlight key factors
+   - New Zealand building code requirements (NZS standards)
+   - Local environmental conditions (wind, seismic, soil)
+   - Construction practicalities and detailing
+
+4. **SuiteFiles References**: Direct users to relevant documentation
+   - Project folders containing similar designs
+   - Standard detail drawings and templates
+   - Calculation spreadsheets and methodologies
+
+**Important**: If documents only show "Document: filename" content, explain that full content extraction is being improved and suggest checking SuiteFiles directly for complete project information.
+
+Focus on practical engineering guidance for New Zealand conditions and DTCE's proven methodologies."""
             
-            answer = await self._generate_natural_answer(prompt, documents, "technical scenario projects")
+            answer = await self._generate_natural_answer(prompt, documents, "DTCE technical projects")
             return {
                 'answer': answer,
-                'sources': self._format_sources(documents),
-                'confidence': 'high',
+                'sources': self._format_sources_with_suitefiles(documents),
+                'confidence': 'high' if len(documents) >= 5 else 'medium',
                 'documents_searched': len(documents),
-                'rag_type': 'scenario_technical'
+                'rag_type': 'scenario_technical',
+                'query_type': 'Technical Scenario Analysis'
             }
         else:
             return {
-                'answer': "I couldn't find specific examples matching your technical scenario in our database.",
+                'answer': self._generate_fallback_technical_response(question),
                 'sources': [],
                 'confidence': 'low',
                 'documents_searched': 0,
-                'rag_type': 'scenario_technical'
+                'rag_type': 'scenario_technical',
+                'query_type': 'Technical Scenario Analysis - No Specific Documents Found'
             }
     
     async def _handle_lessons_learned(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
@@ -1804,3 +1845,158 @@ Focus on:
             logger.warning("Failed to convert to SuiteFiles URL", blob_url=blob_url, error=str(e))
         
         return None
+
+    def _format_sources_with_suitefiles(self, documents: List[Dict]) -> List[Dict]:
+        """Format sources with enhanced SuiteFiles integration for better navigation."""
+        formatted_sources = []
+        for doc in documents:
+            source = {
+                'title': doc.get('title', 'Unknown Document'),
+                'content_preview': doc.get('content', '')[:200] + '...' if doc.get('content') else '',
+                'file_path': doc.get('file_path', ''),
+                'score': doc.get('@search.score', 0),
+                'highlights': doc.get('@search.highlights', {}),
+            }
+            
+            # Add SuiteFiles URL for folder navigation
+            if doc.get('file_path'):
+                suitefiles_url = self._convert_to_suitefiles_url(doc['file_path'])
+                if suitefiles_url:
+                    source['suitefiles_folder_url'] = suitefiles_url
+            
+            formatted_sources.append(source)
+        
+        return formatted_sources
+
+    def _generate_fallback_technical_response(self, query: str, documents: List[Dict]) -> Dict:
+        """Generate fallback response for technical scenario queries when specific content is limited."""
+        
+        # Extract key technical terms from query
+        technical_terms = []
+        engineering_keywords = ['foundation', 'structural', 'timber', 'concrete', 'steel', 'building', 
+                               'design', 'load', 'beam', 'column', 'slab', 'wall', 'roof', 'seismic',
+                               'wind', 'pile', 'footing', 'connection', 'joint', 'material', 'code',
+                               'standard', 'specification', 'detail', 'drawing', 'analysis', 'calculation']
+        
+        query_lower = query.lower()
+        for keyword in engineering_keywords:
+            if keyword in query_lower:
+                technical_terms.append(keyword)
+        
+        # Format available sources
+        sources = self._format_sources_with_suitefiles(documents)
+        
+        fallback_response = f"""
+I found {len(documents)} relevant documents related to your technical query about {', '.join(technical_terms[:3]) if technical_terms else 'engineering topics'}.
+
+**Available Resources:**
+"""
+        
+        # Group sources by folder/topic
+        folder_groups = {}
+        for doc in sources:
+            file_path = doc.get('file_path', '')
+            if file_path:
+                # Extract main folder category
+                path_parts = file_path.split('/')
+                if len(path_parts) > 1:
+                    main_folder = path_parts[1] if len(path_parts) > 2 else path_parts[0]
+                    if main_folder not in folder_groups:
+                        folder_groups[main_folder] = []
+                    folder_groups[main_folder].append(doc)
+        
+        # Present organized results
+        for folder, docs in folder_groups.items():
+            fallback_response += f"\n**{folder}:**\n"
+            for doc in docs[:3]:  # Limit to top 3 per folder
+                title = doc.get('title', 'Unknown Document')
+                if doc.get('suitefiles_folder_url'):
+                    fallback_response += f"- {title} [View in SuiteFiles]({doc['suitefiles_folder_url']})\n"
+                else:
+                    fallback_response += f"- {title}\n"
+        
+        fallback_response += f"""
+**For More Specific Information:**
+- Review the documents listed above for detailed technical content
+- Use SuiteFiles links to browse related documents in each folder
+- Consider refining your query with more specific technical terms
+- Contact the engineering team for project-specific guidance
+
+**Query Processing Note:** This response is based on document metadata and titles. For detailed technical content, please review the full documents through the SuiteFiles links provided.
+"""
+        
+        return {
+            'response': fallback_response.strip(),
+            'sources': sources,
+            'rag_type': 'scenario_technical_fallback'
+        }
+
+    def _generate_fallback_lessons_response(self, query: str, documents: List[Dict]) -> Dict:
+        """Generate fallback response for lessons learned queries when specific content is limited."""
+        
+        # Extract problem/challenge terms from query
+        problem_keywords = ['issue', 'problem', 'challenge', 'failure', 'error', 'mistake', 'lesson',
+                           'difficulty', 'complication', 'setback', 'obstacle', 'trouble', 'concern']
+        
+        query_lower = query.lower()
+        identified_problems = [kw for kw in problem_keywords if kw in query_lower]
+        
+        sources = self._format_sources_with_suitefiles(documents)
+        
+        fallback_response = f"""
+I found {len(documents)} documents that may contain relevant lessons learned and problem-solving insights.
+
+**Document Categories Found:**
+"""
+        
+        # Categorize documents by type/folder
+        doc_categories = {}
+        for doc in sources:
+            file_path = doc.get('file_path', '')
+            title = doc.get('title', '')
+            
+            # Identify document category
+            category = 'General Engineering'
+            if any(word in file_path.lower() for word in ['project', 'job']):
+                category = 'Project Documentation'
+            elif any(word in file_path.lower() for word in ['report', 'analysis', 'study']):
+                category = 'Technical Reports'
+            elif any(word in file_path.lower() for word in ['specification', 'standard', 'code']):
+                category = 'Standards & Specifications'
+            elif any(word in file_path.lower() for word in ['drawing', 'detail', 'plan']):
+                category = 'Technical Drawings'
+            
+            if category not in doc_categories:
+                doc_categories[category] = []
+            doc_categories[category].append(doc)
+        
+        for category, docs in doc_categories.items():
+            fallback_response += f"\n**{category}:** {len(docs)} documents\n"
+            for doc in docs[:2]:  # Show top 2 per category
+                title = doc.get('title', 'Unknown Document')
+                if doc.get('suitefiles_folder_url'):
+                    fallback_response += f"  - {title} [Browse Folder]({doc['suitefiles_folder_url']})\n"
+                else:
+                    fallback_response += f"  - {title}\n"
+        
+        fallback_response += f"""
+**Recommended Approach for Finding Lessons Learned:**
+
+1. **Review Project Files:** Look for post-project reports, meeting minutes, or project closeout documents
+2. **Check Technical Reports:** Examine analysis reports and studies for identified challenges and solutions
+3. **Browse Related Folders:** Use the SuiteFiles links above to explore folders for additional context
+4. **Consult Team Knowledge:** Reach out to project team members who worked on similar challenges
+
+**Search Refinement Suggestions:**
+- Include specific project names or numbers if known
+- Use technical terms related to the specific problem area
+- Search for "post-project," "lessons," "issues," or "challenges"
+
+**Note:** This response is based on document discovery. For detailed lessons learned content, please review the full documents and folders linked above.
+"""
+        
+        return {
+            'response': fallback_response.strip(),
+            'sources': sources,
+            'rag_type': 'lessons_learned_fallback'
+        }
