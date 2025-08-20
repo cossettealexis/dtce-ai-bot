@@ -5,72 +5,77 @@ INPUT: Ask about a specific clause/code that talks about a particular “term”
 * “Tell me what particular clause talks about the detailing requirements in designing a beam.”
 * “Tell me the strength reduction factors used when I’m designing a beam or when considering seismic actions.”
 * “Tell me what particular NZS structural code to refer to if I’m designing a composite slab to make it a floor diaphragm?”
-OUTPUT:AI to give an accurate response that was directly obtained from the NZ Standard (if uploaded to the AI database).
+OUTPUT:AI to give an accurate response directly obtained from the NZ Standard (if uploaded to the AI database).AI to also provide direct links to SuiteFiles wherever applicable.
 
 INPUT: Look for past projects as references using “keywords” or structural detailing
-* “I am designing a precast panel, please tell me all past projects that have a scope about the following keywords or description:Precast PanelPrecastPrecast ConnectionUnispans”
+* “I am designing a precast panel, please tell me all past projects that have a scope about the following keywords or description: Precast Panel, Precast, Precast Connection, Unispans”
 * “I am designing a timber retaining wall, it’s going to be 3m tall; can you provide me example past projects and help me draft a design philosophy?”
 * “Please advise me on what DTCE has done in the past for a 2-storey concrete precast panel building maybe with a timber-framed structure on top?”
-OUTPUT:AI is expected to provide job numbers that include the keywords from the user. AI may also directly provide links that will lead the user to the specific folder in SuiteFiles.
+OUTPUT:AI is expected to provide job numbers that include the keywords from the user.AI to also provide direct links to the corresponding folders in SuiteFiles wherever applicable.
 
 INPUT: I’m looking for a specific proprietary product that’s suitable to provide a waterproofing layer to a concrete block wall that DTCE has used in the past.
 * “I need timber connection details for joining a timber beam to a column. Please provide specifications for the proprietary products DTCE usually refers to, as well as other options to consider.”
 * “What are the available sizes of LVL timber on the market? Please list all links containing the sizes and price per length. Also, confirm if the suppliers are located near Wellington.”
-OUTPUT:AI to provide relevant product specifications, prioritizing documents from SuiteFiles, along with alternative products found online. AI may also include product links to make access easier for the user.
+OUTPUT:AI to provide relevant product specifications, prioritizing SuiteFiles documents.AI to also provide alternative options and product links.Include SuiteFiles links wherever applicable.
 
 INPUT: Look for online threads or references about structural design procedures or current design discussions accessible to the public (especially NZ references / forums)
 * “I am currently designing a composite beam but need to make it haunched/tapered. Please provide related references or online threads mentioning the keyword ‘tapered composite beam’, preferably from anonymous structural engineers.”
 * “Please provide design guidelines for a reinforced concrete column to withstand both seismic and gravity actions. If possible, include a legitimate link that gives direct access to the specific design guidelines.”
-OUTPUT:AI to search for and provide links to relevant public online discussions, technical forums, or reference articles that match the keywords. Where possible, AI should prioritize reputable engineering communities and professional sources.
+OUTPUT:AI to search for and provide public online resources, technical forums, and relevant discussions.AI to prioritize reputable engineering communities and also include SuiteFiles links if DTCE has relevant references.
 
-INPUT: My client is asking about builders that we’ve worked with before.Can you find any companies and/or contact details that constructed a design for us in the past 3 years and didn’t seem to have too many issues during construction?The design job I’m dealing with now is a steel structure retrofit of an old brick building.
-OUTPUT:AI to search past project records or the DTCE database and return builder names, contact information, and related project references.
+INPUT: My client is asking about builders that we’ve worked with before.“Can you find any companies and/or contact details that constructed a design for us in the past 3 years and didn’t seem to have too many issues during construction?”“The design job I’m dealing with now is a steel structure retrofit of an old brick building.”
+OUTPUT:AI to search past project records and return builder names, contact details, and related project references.AI to also provide SuiteFiles links to builder records and project folders where available.
 
-INPUT: Easier access to all general templates / design spreadsheets in SuiteFiles or any other NZ engineering body (e.g., PS1, PS1A to PS4 templates)
+INPUT: Easier access to all general templates / design spreadsheets in SuiteFiles or other NZ engineering bodies (e.g., PS1 to PS4 templates)
 * "Please provide me with the template we generally use for preparing a PS1. Also, please provide me with the direct link to access it on SuiteFiles."
 * "I wasn’t able to find a PS3 template in SuiteFiles. Please provide me with a legitimate link to a general PS3 template that can be submitted to any council in New Zealand."
 * "Please provide me with the link or the file for the timber beam design spreadsheet that DTCE usually uses or has used."
-OUTPUT:AI to provide specific documents/templates, reducing time spent searching the internet or past SuiteFiles records.
+OUTPUT:AI to retrieve and provide the correct document or template.AI to also provide direct SuiteFiles links wherever applicable.
 
-ADDITIONAL:DTCE database which has the builder/client contact details.
+INPUT: Find similar past projects based on architect fee proposal scope“Can you find me past DTCE projects that had similar scope to this? It looks like a double cantilever corner window.”
+OUTPUT:AI to match scope and retrieve similar projects (posts/beams above sliding doors, concrete wall/beam base).AI to include SuiteFiles links to relevant job folders or proposal templates if available.
 
-Other Questions Example:
-Here’s the request for a fee proposal from an architect.Can you find me past DTCE projects that had similar scope to this?It looks like a double cantilever corner window.
-“Hi Marlo,We’re after a proposal for some SED structure required for a residential renovation in Seatoun.Likely scope would be for posts and beams supporting roof above a new sliding door corner unit at first floor level.This would be supported by concrete wall structure (and a concrete beam below).
-WIP preliminary drawings below, along with a couple of screenshots illustrating what we’re after.If you have capacity for this could you send us through a proposal that we can forward on to client.”
+Thematic Scenarios
 
-1. Scenario-Based Technical Queries
+1. INPUT: Scenario-Based Technical Queries
 * "Show me examples of mid-rise timber frame buildings in high wind zones that we’ve designed."
 * "What foundation systems have we used for houses on steep slopes in Wellington?"
 * "Find projects where we designed concrete shear walls for seismic strengthening."
 * "What connection details have we used for balconies on coastal apartment buildings?"
+OUTPUT:AI to retrieve relevant past projects.AI to include SuiteFiles links to drawings, reports, or job folders wherever available.
 
-2. Problem-Solving & Lessons Learned
+2. INPUT: Problem-Solving & Lessons Learned
 * "What issues have we run into when using screw piles in soft soils?"
 * "Summarise any lessons learned from projects where retaining walls failed during construction."
 * "What waterproofing methods have worked best for basement walls in high water table areas?"
+OUTPUT:AI to summarise problems encountered and resolutions from previous projects.Include SuiteFiles links to post-project reviews or lessons-learned documents if available.
 
-3. Regulatory & Consent Precedents
+3. INPUT: Regulatory & Consent Precedents
 * "Give me examples of projects where council questioned our wind load calculations."
 * "How have we approached alternative solution applications for non-standard stair designs?"
 * "Show me precedent for using non-standard bracing in heritage building retrofits."
+OUTPUT:AI to retrieve documentation of council feedback, alternative solutions, or precedent cases.SuiteFiles links to council correspondence, design notes, or internal logs to be included.
 
-4. Cost & Time Insights
+4. INPUT: Cost & Time Insights
 * "How long does it typically take from concept to PS1 for small commercial alterations?"
 * "What’s the typical cost range for structural design of multi-unit residential projects?"
 * "Find projects where the structural scope expanded significantly after concept design."
+OUTPUT:AI to summarise expected timelines and costs based on past projects.Provide links to proposal trackers, budgets, or job summaries in SuiteFiles.
 
-5. Best Practices & Templates
+5. INPUT: Best Practices & Templates
 * "What’s our standard approach to designing steel portal frames for industrial buildings?"
 * "Show me our best example drawings for timber diaphragm design."
 * "What calculation templates do we have for multi-storey timber buildings?"
+OUTPUT:AI to return documented standard approaches and templates.Direct SuiteFiles links to example drawings and templates to be provided.
 
-6. Materials & Methods Comparisons
+6. INPUT: Materials & Methods Comparisons
 * "When have we chosen precast concrete over in-situ concrete for floor slabs, and why?"
 * "What timber treatment levels have we specified for exterior beams in coastal conditions?"
 * "Compare different seismic retrofit methods we’ve used for unreinforced masonry buildings."
+OUTPUT:AI to analyse and return project case studies for comparison.SuiteFiles links to specs, drawings, or notes should be included.
 
-7. Internal Knowledge Mapping
+7. INPUT: Internal Knowledge Mapping
 * "Which engineers have experience with tilt-slab construction?"
 * "Who has documented expertise in pile design for soft coastal soils?"
 * "Show me project notes authored by our senior engineer on seismic strengthening."
+OUTPUT:AI to return internal personnel info, authored notes, and relevant writeups.Provide SuiteFiles links to notes, internal records, or authored documents.

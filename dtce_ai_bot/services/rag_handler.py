@@ -1477,32 +1477,17 @@ Focus on:
         documents = await self._search_documents(search_query, project_filter)
         
         if documents:
-            projects = self._extract_projects_with_scenarios(documents, scenario_keywords)
+            # Use GPT to generate natural answer based on scenario documents
+            prompt = f"Looking for DTCE project examples that match this scenario: {question}\n\nScenario keywords: {', '.join(scenario_keywords)}"
+            answer = await self._generate_natural_answer(prompt, documents, "scenario examples")
             
-            if projects:
-                answer = f"Here are examples from DTCE projects matching your scenario:\n\n"
-                for i, project in enumerate(projects[:8], 1):
-                    answer += f"**{i}. Job #{project['job_number']}** - {project['name']}\n"
-                    answer += f"   Scenario: {project['scenario_match']}\n"
-                    if project.get('suitefiles_url'):
-                        answer += f"   📁 [View project in SuiteFiles]({project['suitefiles_url']})\n"
-                    answer += f"   Details: {project['details']}\n\n"
-                
-                return {
-                    'answer': answer,
-                    'sources': self._format_sources(documents),
-                    'confidence': 'high',
-                    'documents_searched': len(documents),
-                    'rag_type': 'scenario_technical'
-                }
-            else:
-                return {
-                    'answer': f"I found {len(documents)} documents but couldn't identify specific scenario examples matching your criteria.",
-                    'sources': self._format_sources(documents[:3]),
-                    'confidence': 'medium',
-                    'documents_searched': len(documents),
-                    'rag_type': 'scenario_technical'
-                }
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high',
+                'documents_searched': len(documents),
+                'rag_type': 'scenario_technical'
+            }
         else:
             return {
                 'answer': "I couldn't find projects matching your specific scenario criteria in our database.",
@@ -1523,31 +1508,17 @@ Focus on:
         documents = await self._search_documents(search_query, project_filter)
         
         if documents:
-            lessons = self._extract_lessons_from_documents(documents)
+            # Use GPT to generate natural answer based on lessons learned documents
+            prompt = f"Looking for lessons learned from DTCE projects related to: {question}\n\nIssue keywords: {', '.join(issue_keywords)}"
+            answer = await self._generate_natural_answer(prompt, documents, "lessons learned")
             
-            if lessons:
-                answer = "Here are lessons learned from DTCE projects:\n\n"
-                for i, lesson in enumerate(lessons[:6], 1):
-                    answer += f"**{i}. {lesson['issue']}**\n"
-                    answer += f"   Project: Job #{lesson['job_number']}\n"
-                    answer += f"   Lesson: {lesson['lesson_learned']}\n"
-                    answer += f"   Solution: {lesson['solution']}\n\n"
-                
-                return {
-                    'answer': answer,
-                    'sources': self._format_sources(documents),
-                    'confidence': 'high',
-                    'documents_searched': len(documents),
-                    'rag_type': 'lessons_learned'
-                }
-            else:
-                return {
-                    'answer': f"I found {len(documents)} documents but couldn't extract specific lessons learned from them.",
-                    'sources': self._format_sources(documents[:3]),
-                    'confidence': 'medium',
-                    'documents_searched': len(documents),
-                    'rag_type': 'lessons_learned'
-                }
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high',
+                'documents_searched': len(documents),
+                'rag_type': 'lessons_learned'
+            }
         else:
             return {
                 'answer': "I couldn't find specific lessons learned about this issue in our database.",
@@ -1567,31 +1538,17 @@ Focus on:
         documents = await self._search_documents(search_query, project_filter)
         
         if documents:
-            precedents = self._extract_regulatory_precedents(documents)
+            # Use GPT to generate natural answer based on regulatory documents
+            prompt = f"Looking for regulatory precedents from DTCE projects related to: {question}\n\nRegulatory keywords: {', '.join(regulatory_keywords)}"
+            answer = await self._generate_natural_answer(prompt, documents, "regulatory precedents")
             
-            if precedents:
-                answer = "Here are regulatory precedents from DTCE projects:\n\n"
-                for i, precedent in enumerate(precedents[:6], 1):
-                    answer += f"**{i}. {precedent['council_issue']}**\n"
-                    answer += f"   Project: Job #{precedent['job_number']}\n"
-                    answer += f"   Council: {precedent['council']}\n"
-                    answer += f"   Resolution: {precedent['resolution']}\n\n"
-                
-                return {
-                    'answer': answer,
-                    'sources': self._format_sources(documents),
-                    'confidence': 'high',
-                    'documents_searched': len(documents),
-                    'rag_type': 'regulatory_precedent'
-                }
-            else:
-                return {
-                    'answer': f"I found {len(documents)} documents but couldn't identify specific regulatory precedents.",
-                    'sources': self._format_sources(documents[:3]),
-                    'confidence': 'medium',
-                    'documents_searched': len(documents),
-                    'rag_type': 'regulatory_precedent'
-                }
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high',
+                'documents_searched': len(documents),
+                'rag_type': 'regulatory_precedent'
+            }
         else:
             return {
                 'answer': "I couldn't find regulatory precedents for this type of issue in our database.",
@@ -1611,31 +1568,17 @@ Focus on:
         documents = await self._search_documents(search_query, project_filter)
         
         if documents:
-            insights = self._extract_cost_time_insights(documents)
+            # Use GPT to generate natural answer based on cost/time documents
+            prompt = f"Looking for cost and time insights from DTCE projects related to: {question}\n\nCost/time keywords: {', '.join(cost_time_keywords)}"
+            answer = await self._generate_natural_answer(prompt, documents, "cost and time insights")
             
-            if insights:
-                answer = "Here are cost and time insights from DTCE projects:\n\n"
-                for i, insight in enumerate(insights[:5], 1):
-                    answer += f"**{i}. {insight['project_type']}**\n"
-                    answer += f"   Timeline: {insight['timeline']}\n"
-                    answer += f"   Cost range: {insight['cost_range']}\n"
-                    answer += f"   Examples: {insight['examples']}\n\n"
-                
-                return {
-                    'answer': answer,
-                    'sources': self._format_sources(documents),
-                    'confidence': 'high',
-                    'documents_searched': len(documents),
-                    'rag_type': 'cost_time_insights'
-                }
-            else:
-                return {
-                    'answer': f"I found {len(documents)} documents but couldn't extract specific cost/time information.",
-                    'sources': self._format_sources(documents[:3]),
-                    'confidence': 'medium',
-                    'documents_searched': len(documents),
-                    'rag_type': 'cost_time_insights'
-                }
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high',
+                'documents_searched': len(documents),
+                'rag_type': 'cost_time_insights'
+            }
         else:
             return {
                 'answer': "I couldn't find cost and time information for this type of project in our database.",
@@ -1655,33 +1598,17 @@ Focus on:
         documents = await self._search_documents(search_query, project_filter)
         
         if documents:
-            practices = self._extract_best_practices(documents)
+            # Use GPT to generate natural answer based on best practices documents
+            prompt = f"Looking for DTCE's best practices related to: {question}\n\nPractice keywords: {', '.join(practice_keywords)}"
+            answer = await self._generate_natural_answer(prompt, documents, "best practices")
             
-            if practices:
-                answer = f"Here are DTCE's best practices:\n\n"
-                for i, practice in enumerate(practices[:5], 1):
-                    answer += f"**{i}. {practice['practice_area']}**\n"
-                    answer += f"   Standard approach: {practice['approach']}\n"
-                    answer += f"   Key considerations: {practice['considerations']}\n"
-                    if practice.get('examples'):
-                        answer += f"   Examples: {practice['examples']}\n"
-                    answer += "\n"
-                
-                return {
-                    'answer': answer,
-                    'sources': self._format_sources(documents),
-                    'confidence': 'high',
-                    'documents_searched': len(documents),
-                    'rag_type': 'best_practices'
-                }
-            else:
-                return {
-                    'answer': f"I found {len(documents)} documents but couldn't extract specific best practices.",
-                    'sources': self._format_sources(documents[:3]),
-                    'confidence': 'medium',
-                    'documents_searched': len(documents),
-                    'rag_type': 'best_practices'
-                }
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high',
+                'documents_searched': len(documents),
+                'rag_type': 'best_practices'
+            }
         else:
             return {
                 'answer': "I couldn't find best practices for this area in our database.",
@@ -1701,32 +1628,17 @@ Focus on:
         documents = await self._search_documents(search_query, project_filter)
         
         if documents:
-            comparisons = self._extract_material_comparisons(documents)
+            # Use GPT to generate natural answer based on materials/methods documents
+            prompt = f"Looking for materials and methods comparisons from DTCE projects related to: {question}\n\nMaterial keywords: {', '.join(material_keywords)}"
+            answer = await self._generate_natural_answer(prompt, documents, "materials and methods")
             
-            if comparisons:
-                answer = f"Here are materials and methods comparisons from DTCE projects:\n\n"
-                for i, comparison in enumerate(comparisons[:5], 1):
-                    answer += f"**{i}. {comparison['comparison_type']}**\n"
-                    answer += f"   Decision factors: {comparison['factors']}\n"
-                    answer += f"   When we choose option A: {comparison['option_a_criteria']}\n"
-                    answer += f"   When we choose option B: {comparison['option_b_criteria']}\n"
-                    answer += f"   Examples: {comparison['examples']}\n\n"
-                
-                return {
-                    'answer': answer,
-                    'sources': self._format_sources(documents),
-                    'confidence': 'high',
-                    'documents_searched': len(documents),
-                    'rag_type': 'materials_methods'
-                }
-            else:
-                return {
-                    'answer': f"I found {len(documents)} documents but couldn't extract specific material comparisons.",
-                    'sources': self._format_sources(documents[:3]),
-                    'confidence': 'medium',
-                    'documents_searched': len(documents),
-                    'rag_type': 'materials_methods'
-                }
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high',
+                'documents_searched': len(documents),
+                'rag_type': 'materials_methods'
+            }
         else:
             return {
                 'answer': "I couldn't find material/method comparisons for this area in our database.",
@@ -1746,31 +1658,17 @@ Focus on:
         documents = await self._search_documents(search_query, project_filter)
         
         if documents:
-            expertise = self._extract_internal_expertise(documents)
+            # Use GPT to generate natural answer based on internal expertise documents
+            prompt = f"Looking for DTCE's internal expertise and knowledge related to: {question}\n\nExpertise keywords: {', '.join(expertise_keywords)}"
+            answer = await self._generate_natural_answer(prompt, documents, "internal knowledge")
             
-            if expertise:
-                answer = f"Here's DTCE's internal expertise mapping:\n\n"
-                for i, expert in enumerate(expertise[:8], 1):
-                    answer += f"**{i}. {expert['expertise_area']}**\n"
-                    answer += f"   Engineers: {expert['engineers']}\n"
-                    answer += f"   Experience level: {expert['experience']}\n"
-                    answer += f"   Project examples: {expert['projects']}\n\n"
-                
-                return {
-                    'answer': answer,
-                    'sources': self._format_sources(documents),
-                    'confidence': 'high',
-                    'documents_searched': len(documents),
-                    'rag_type': 'internal_knowledge'
-                }
-            else:
-                return {
-                    'answer': f"I found {len(documents)} documents but couldn't identify specific expertise information.",
-                    'sources': self._format_sources(documents[:3]),
-                    'confidence': 'medium',
-                    'documents_searched': len(documents),
-                    'rag_type': 'internal_knowledge'
-                }
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high',
+                'documents_searched': len(documents),
+                'rag_type': 'internal_knowledge'
+            }
         else:
             return {
                 'answer': "I couldn't find internal expertise information for this area in our database.",
