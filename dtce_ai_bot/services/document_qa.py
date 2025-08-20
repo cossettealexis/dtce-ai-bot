@@ -828,31 +828,19 @@ Would you like me to help you find any related information from our internal DTC
         documents = self._search_relevant_documents(search_query, project_filter)
         
         if documents:
-            # Filter for documents likely to contain lessons learned
-            lessons_docs = [doc for doc in documents if any(keyword in doc.get('content', '').lower() 
-                          for keyword in ['lesson', 'issue', 'problem', 'failure', 'avoid', 'difficulty'])]
+            # Use GPT to analyze all documents for lessons learned, don't filter by keywords
+            answer = await self._generate_answer_from_documents(
+                f"What lessons have been learned or issues encountered with {topic}? Summarize any problems, failures, difficulties, or solutions from the project documents.",
+                documents
+            )
             
-            if lessons_docs:
-                answer = await self._generate_answer_from_documents(
-                    f"What lessons have been learned or issues encountered with {topic}? Summarize the problems and solutions.",
-                    lessons_docs
-                )
-                
-                return {
-                    'answer': answer,
-                    'sources': self._format_sources(lessons_docs),
-                    'confidence': 'high',
-                    'documents_searched': len(documents),
-                    'search_type': 'lessons_learned'
-                }
-            else:
-                return {
-                    'answer': f"I found {len(documents)} documents related to '{topic}' but no specific lessons learned or problem reports. You might need to check project meeting minutes or post-construction reviews.",
-                    'sources': self._format_sources(documents[:3]),
-                    'confidence': 'low',
-                    'documents_searched': len(documents),
-                    'search_type': 'lessons_learned_no_issues'
-                }
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high' if len(documents) >= 3 else 'medium',
+                'documents_searched': len(documents),
+                'search_type': 'lessons_learned'
+            }
         else:
             return {
                 'answer': f"I couldn't find documented lessons learned for '{topic}'. Check project folders for meeting minutes, construction issues, or post-project reviews.",
