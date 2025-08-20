@@ -559,14 +559,7 @@ Focus on providing genuine value even without internal documents."""
                 
                 if content:
                     context_part = f"**Document: {filename}**\n{content[:1000]}..."
-                    if blob_url:
-                        # Generate file link for direct document access using safe URL method
-                        suitefiles_url = self._get_safe_suitefiles_url(blob_url, "file")
-                        if "Document available in SuiteFiles" not in suitefiles_url:
-                            context_part += f"\nSuiteFiles URL: {suitefiles_url}"
-                            context_part += f"\nTo include in response format as: [{filename}]({suitefiles_url})"
-                        else:
-                            context_part += f"\nDocument available in SuiteFiles (URL conversion failed)"
+                    # Do NOT include any URLs in context sent to GPT to prevent blob URL leakage
                     context_parts.append(context_part)
             
             if not context_parts:
@@ -584,7 +577,7 @@ CRITICAL INSTRUCTIONS:
 - Provide a natural, conversational answer based on DTCE's engineering expertise
 - ONLY use information that is explicitly provided in the context above
 - NEVER create, invent, or make up project numbers, job numbers, or file names that aren't in the context
-- When URLs are provided in the context, include them as clickable links in your response
+- DO NOT include any URLs or links in your response - links will be provided separately
 - If documents show only "Document: filename" content, acknowledge this limitation
 - Include specific details from the documents when available
 - If the documents contain partial information, be honest about limitations
@@ -593,10 +586,7 @@ CRITICAL INSTRUCTIONS:
 - For technical queries, emphasize DTCE's experience and methodology
 - Keep the response professional but approachable
 
-LINK HANDLING:
-- When a URL is provided in the context, format it as: [Document Name](URL)
-- If user asks for links but no URLs are available in context, explain that links aren't available
-- Only include URLs that are explicitly provided in the document context above
+Remember: Never include clickable links or URLs in your response text.
 
 For engineering queries about:
 - **Past Projects**: Reference specific job folders and project details when available

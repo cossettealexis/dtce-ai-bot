@@ -8113,8 +8113,7 @@ Respond with ONLY a JSON object:
                 
                 if content:
                     context_part = f"**Document: {filename}**\n{content[:1200]}..."
-                    if blob_url:
-                        context_part += f"\nURL: {blob_url}"
+                    # Do NOT include any URLs in context sent to GPT to prevent blob URL leakage
                     context_parts.append(context_part)
             
             if not context_parts:
