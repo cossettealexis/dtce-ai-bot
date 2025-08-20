@@ -577,7 +577,8 @@ CRITICAL INSTRUCTIONS:
 - Provide a natural, conversational answer based on DTCE's engineering expertise
 - ONLY use information that is explicitly provided in the context above
 - NEVER create, invent, or make up project numbers, job numbers, or file names that aren't in the context
-- DO NOT include any URLs or links in your response - links will be provided separately
+- You MAY include external URLs (websites, forums, manufacturers) if relevant to the engineering question
+- NEVER include any Azure blob storage URLs (dtceaistorage.blob.core.windows.net)
 - If documents show only "Document: filename" content, acknowledge this limitation
 - Include specific details from the documents when available
 - If the documents contain partial information, be honest about limitations
@@ -586,14 +587,17 @@ CRITICAL INSTRUCTIONS:
 - For technical queries, emphasize DTCE's experience and methodology
 - Keep the response professional but approachable
 
-Remember: Never include clickable links or URLs in your response text.
+URL GUIDELINES:
+- External websites (manufacturers, forums, standards bodies): ✅ ALLOWED
+- Azure blob URLs (dtceaistorage.blob.core.windows.net): ❌ FORBIDDEN
+- Document links will be provided separately in sources section
 
 For engineering queries about:
 - **Past Projects**: Reference specific job folders and project details when available
 - **Technical Methods**: Describe DTCE's standard approaches and lessons learned
 - **Products/Materials**: Prioritize specifications used in past DTCE projects
 - **Design Standards**: Reference NZ structural codes and local conditions
-- **SuiteFiles Links**: When URLs are provided, format them as clickable links
+- **External Resources**: Include relevant external websites, forums, or manufacturer links when helpful
 
 Answer:"""
 
@@ -607,7 +611,16 @@ Answer:"""
                 max_tokens=800
             )
             
-            return response.choices[0].message.content.strip()
+            answer = response.choices[0].message.content.strip()
+            
+            # SAFETY CHECK: Remove any blob URLs that might have slipped through
+            import re
+            blob_url_pattern = r'https://dtceaistorage\.blob\.core\.windows\.net[^\s\)]*'
+            if re.search(blob_url_pattern, answer):
+                logger.warning("Blob URL detected in GPT response, removing it")
+                answer = re.sub(blob_url_pattern, "[Document available in SuiteFiles]", answer)
+            
+            return answer
             
         except Exception as e:
             logger.error("Failed to generate natural answer", error=str(e))

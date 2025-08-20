@@ -8187,7 +8187,16 @@ Answer:"""
                 max_tokens=1000
             )
             
-            return response.choices[0].message.content.strip()
+            answer = response.choices[0].message.content.strip()
+            
+            # SAFETY CHECK: Remove any blob URLs that might have slipped through
+            import re
+            blob_url_pattern = r'https://dtceaistorage\.blob\.core\.windows\.net[^\s\)]*'
+            if re.search(blob_url_pattern, answer):
+                logger.warning("Blob URL detected in GPT response, removing it")
+                answer = re.sub(blob_url_pattern, "[Document available in SuiteFiles]", answer)
+            
+            return answer
             
         except Exception as e:
             logger.error("Failed to generate intelligent natural answer", error=str(e))
