@@ -4545,7 +4545,7 @@ Focus on practical regulatory guidance that can be applied to similar situations
                 template_type = self._identify_template_type(question)
                 
                 # Search for template documents
-                template_docs = await self._search_template_documents(question, template_type)
+                template_docs = self._search_template_documents(question, template_type)
                 
                 if not template_docs:
                     # If no specific templates found, try a broader search and provide helpful guidance
@@ -4777,7 +4777,7 @@ Would you like me to search for specific templates or documents that might help?
         
         # Get template files
         template_type = self._identify_template_type(question)
-        template_docs = await self._search_template_documents(question, template_type)
+        template_docs = self._search_template_documents(question, template_type)
         
         # Combine both
         combined_answer = guidance_response['answer']
@@ -4847,7 +4847,7 @@ Would you like me to search for specific templates or documents that might help?
         else:
             return 'UNKNOWN'
 
-    async def _search_template_documents(self, question: str, template_type: str) -> List[Dict]:
+    def _search_template_documents(self, question: str, template_type: str) -> List[Dict]:
         """Search for template documents in SuiteFiles using comprehensive approach."""
         
         question_lower = question.lower()

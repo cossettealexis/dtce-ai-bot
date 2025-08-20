@@ -66,18 +66,17 @@ async def create_search_index_if_not_exists():
             SimpleField(name="year", type=SearchFieldDataType.Int32, filterable=True, facetable=True),
         ]
         
-        # Configure semantic search
+        # Configure semantic search - only use fields that exist and are searchable
         semantic_config = SemanticConfiguration(
             name="default",
             prioritized_fields=SemanticPrioritizedFields(
-                title_field=SemanticField(field_name="filename"),
+                title_field=SemanticField(field_name="content"),  # Use content instead of filename for title
                 content_fields=[
                     SemanticField(field_name="content"),
                     SemanticField(field_name="project_name")
                 ],
                 keywords_fields=[
-                    SemanticField(field_name="folder"),
-                    SemanticField(field_name="content_type")
+                    SemanticField(field_name="folder")
                 ]
             )
         )
