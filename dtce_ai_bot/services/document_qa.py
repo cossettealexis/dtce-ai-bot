@@ -497,7 +497,8 @@ Respond with ONLY a JSON object:
                     filename = doc.get('filename', 'Unknown')
                     answer += f"{i}. **{filename}**\n"
                     if doc.get('blob_url'):
-                        answer += f"   📄 [Download]({doc['blob_url']})\n\n"
+                        safe_url = self._get_safe_suitefiles_url(doc['blob_url'])
+                        answer += f"   📄 [Download]({safe_url})\n\n"
                 
                 return {
                     'answer': answer,
@@ -902,7 +903,8 @@ Would you like me to help you find any related information from our internal DTC
                     filename = doc.get('filename', 'Unknown')
                     answer += f"{i}. **{filename}**\n"
                     if doc.get('blob_url'):
-                        answer += f"   📄 [Download]({doc['blob_url']})\n\n"
+                        safe_url = self._get_safe_suitefiles_url(doc['blob_url'])
+                        answer += f"   📄 [Download]({safe_url})\n\n"
                 
                 # Add additional guidance from other documents
                 if len(documents) > len(template_docs):
@@ -1786,7 +1788,7 @@ Content: {content}
         for doc in documents:
             blob_url = doc.get('blob_url', '')
             # Convert blob URL to SuiteFiles URL for direct access
-            suitefiles_url = self._convert_to_suitefiles_url(blob_url) if blob_url else blob_url
+            suitefiles_url = self._get_safe_suitefiles_url(blob_url)
             
             source = {
                 'filename': doc.get('filename', 'Unknown'),
@@ -2431,9 +2433,9 @@ Would you like me to provide general engineering guidance about {doc_type} proje
                         for doc in docs[:5]:
                             filename = doc.get('filename', 'Unknown')
                             blob_url = doc.get('blob_url', '')
-                            suite_files_url = self._convert_to_suitefiles_url(blob_url)
+                            suite_files_url = self._get_safe_suitefiles_url(blob_url)
                             
-                            if suite_files_url:
+                            if suite_files_url and suite_files_url != "Document link not available":
                                 answer_parts.append(f"    • [{filename}]({suite_files_url})")
                             else:
                                 answer_parts.append(f"    • {filename}")
@@ -2495,12 +2497,12 @@ Would you like me to provide general engineering guidance about {doc_type} proje
         
         for doc in project_docs[:20]:  # Limit sources
             blob_url = doc.get('blob_url', '')
-            suite_files_url = self._convert_to_suitefiles_url(blob_url)
+            suite_files_url = self._get_safe_suitefiles_url(blob_url)
             
             source = {
                 'title': doc.get('filename', 'Unknown'),
                 'content': (doc.get('content', '') or '')[:200] + "..." if doc.get('content') else "",
-                'url': suite_files_url or blob_url,
+                'url': suite_files_url,
                 'project': project_number,
                 'relevance_score': 1.0  # High relevance for specific project match
             }
@@ -2508,8 +2510,13 @@ Would you like me to provide general engineering guidance about {doc_type} proje
         
         return sources
 
-    def _convert_to_suitefiles_url(self, blob_url: str) -> Optional[str]:
-        """Convert Azure blob URL to SuiteFiles URL for folder navigation."""
+    def _convert_to_suitefiles_url(self, blob_url: str, link_type: str = "file") -> Optional[str]:
+        """Convert Azure blob URL to SuiteFiles URL for file or folder navigation.
+        
+        Args:
+            blob_url: The Azure blob storage URL
+            link_type: Either "file" or "folder" to determine link type
+        """
         if not blob_url:
             return None
         
@@ -2520,7 +2527,8 @@ Would you like me to provide general engineering guidance about {doc_type} proje
             
             # Extract the file path from blob URL
             # Example blob URL: https://dtceaistorage.blob.core.windows.net/dtce-documents/Engineering/04_Design(Structural)/05_Timber/11%20Proprietary%20Products/Lumberworx/Lumberworx-Laminated-Veneer-Lumber-Glulam-Beams2013.pdf
-            # Should become: https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Engineering/04_Design%28Structural%29/05_Timber/11%20Proprietary%20Products/Lumberworx
+            # For file: https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/Projects/219/219392/06%20Calculations/...
+            # For folder: https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Projects/219/219392/06%20Calculations/...
             
             # Extract everything after "/dtce-documents/"
             if '/dtce-documents/' in blob_url:
@@ -2531,16 +2539,23 @@ Would you like me to provide general engineering guidance about {doc_type} proje
                 decoded_path = urllib.parse.unquote(path_part)
                 
                 # Check if this is a file (has extension) or folder
-                if '.' in decoded_path.split('/')[-1]:
-                    # This is a file - extract folder path and use /folder/ instead of /file/
-                    folder_path = '/'.join(decoded_path.split('/')[:-1])
-                    # Encode for SharePoint URLs with proper encoding
-                    encoded_path = urllib.parse.quote(folder_path, safe='/')
-                    # Build SuiteFiles URL - use /folder/ for folder navigation
-                    suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/folder/{encoded_path}"
-                else:
-                    # This is already a folder path
+                filename = decoded_path.split('/')[-1]
+                is_file = '.' in filename and len(filename.split('.')[-1]) <= 5  # Common file extensions
+                
+                if link_type == "file" and is_file:
+                    # This is a file - create direct file link
                     encoded_path = urllib.parse.quote(decoded_path, safe='/')
+                    # Build SuiteFiles URL - direct path for files
+                    suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/{encoded_path}"
+                else:
+                    # This is a folder or we want folder navigation
+                    if is_file:
+                        # Extract folder path from file path
+                        folder_path = '/'.join(decoded_path.split('/')[:-1])
+                        encoded_path = urllib.parse.quote(folder_path, safe='/')
+                    else:
+                        # This is already a folder path
+                        encoded_path = urllib.parse.quote(decoded_path, safe='/')
                     suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/folder/{encoded_path}"
                 
                 return suite_files_url
@@ -2551,13 +2566,21 @@ Would you like me to provide general engineering guidance about {doc_type} proje
                 import urllib.parse
                 decoded_path = urllib.parse.unquote(path_part)
                 
-                # Extract folder path for Projects
-                if '.' in decoded_path.split('/')[-1]:
-                    folder_path = '/'.join(decoded_path.split('/')[:-1])
-                    encoded_path = urllib.parse.quote(folder_path, safe='/')
-                    suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/folder/Projects/{encoded_path}"
-                else:
+                # Check if this is a file or folder for Projects
+                filename = decoded_path.split('/')[-1]
+                is_file = '.' in filename and len(filename.split('.')[-1]) <= 5
+                
+                if link_type == "file" and is_file:
+                    # Direct file access
                     encoded_path = urllib.parse.quote(decoded_path, safe='/')
+                    suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/Projects/{encoded_path}"
+                else:
+                    # Folder navigation
+                    if is_file:
+                        folder_path = '/'.join(decoded_path.split('/')[:-1])
+                        encoded_path = urllib.parse.quote(folder_path, safe='/')
+                    else:
+                        encoded_path = urllib.parse.quote(decoded_path, safe='/')
                     suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/folder/Projects/{encoded_path}"
                 
                 return suite_files_url
@@ -2565,6 +2588,28 @@ Would you like me to provide general engineering guidance about {doc_type} proje
             logger.warning("Failed to convert to SuiteFiles URL", blob_url=blob_url, error=str(e))
         
         return None
+
+    def _get_safe_suitefiles_url(self, blob_url: str, link_type: str = "file") -> str:
+        """
+        Safely convert blob URL to SuiteFiles URL, ensuring we never return blob URLs.
+        Returns SuiteFiles URL or fallback message, never blob URLs.
+        
+        Args:
+            blob_url: The Azure blob storage URL
+            link_type: Either "file" or "folder" to determine link type
+        """
+        if not blob_url:
+            return "Document link not available"
+        
+        try:
+            suitefiles_url = self._convert_to_suitefiles_url(blob_url, link_type)
+            if suitefiles_url and not suitefiles_url.startswith('https://dtceaistorage.blob.core.windows.net'):
+                return suitefiles_url
+        except Exception as e:
+            logger.warning("Failed to convert blob URL to SuiteFiles", blob_url=blob_url, error=str(e))
+        
+        # Never return blob URLs - return generic message instead
+        return "Access document through SuiteFiles"
 
     def _search_keyword_documents(self, keywords: List[str]) -> List[Dict]:
         """Search for documents related to the specified keywords using semantic search with fallback."""
@@ -8222,7 +8267,7 @@ Answer:"""
         for doc in documents[:5]:  # Limit to top 5 sources
             blob_url = doc.get('blob_url', '')
             # Convert blob URL to SuiteFiles URL for direct access
-            suitefiles_url = self._convert_to_suitefiles_url(blob_url) if blob_url else blob_url
+            suitefiles_url = self._get_safe_suitefiles_url(blob_url)
             
             sources.append({
                 'filename': doc.get('filename', 'Unknown'),

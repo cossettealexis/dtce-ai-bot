@@ -560,9 +560,9 @@ Focus on providing genuine value even without internal documents."""
                 if content:
                     context_part = f"**Document: {filename}**\n{content[:1000]}..."
                     if blob_url:
-                        # Generate file link for direct document access
-                        suitefiles_url = self._convert_to_suitefiles_url(blob_url, "file")
-                        if suitefiles_url:
+                        # Generate file link for direct document access using safe URL method
+                        suitefiles_url = self._get_safe_suitefiles_url(blob_url, "file")
+                        if "Document available in SuiteFiles" not in suitefiles_url:
                             context_part += f"\nSuiteFiles URL: {suitefiles_url}"
                             context_part += f"\nTo include in response format as: [{filename}]({suitefiles_url})"
                         else:
@@ -1762,11 +1762,11 @@ Focus on:
             is_file = '.' in filename and len(filename.split('.')[-1]) <= 5  # Common file extensions
             
             if link_type == "file" and is_file:
-                # Build direct file access URL
+                # Build direct file access URL - files go directly to the path without /file/ prefix
                 encoded_path = urllib.parse.quote(decoded_path, safe="/")
-                suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/file/{encoded_path}"
+                suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/{encoded_path}"
             else:
-                # Build folder navigation URL
+                # Build folder navigation URL - folders need /folder/ prefix
                 if is_file:
                     # Extract folder path from file path
                     folder_path = '/'.join(decoded_path.split('/')[:-1])
@@ -1802,8 +1802,8 @@ Focus on:
             
             # Add SuiteFiles URL for folder navigation
             if doc.get('file_path'):
-                suitefiles_url = self._convert_to_suitefiles_url(doc['file_path'])
-                if suitefiles_url:
+                suitefiles_url = self._get_safe_suitefiles_url(doc['file_path'], "folder")
+                if "Document available in SuiteFiles" not in suitefiles_url:
                     source['suitefiles_folder_url'] = suitefiles_url
             
             formatted_sources.append(source)
