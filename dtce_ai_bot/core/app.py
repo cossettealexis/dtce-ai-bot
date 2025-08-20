@@ -121,6 +121,36 @@ def create_app() -> FastAPI:
             greetings = ["hi", "hello", "hey", "help", "what can you do", "how are you", "good morning", "good afternoon"]
             return text.lower().strip() in greetings or len(text.strip()) < 4
         
+        def _format_teams_text(self, text: str) -> str:
+            """Format text for Teams to ensure proper line breaks and readability."""
+            import re
+            if not text:
+                return text
+                
+            # Fix common Teams formatting issues
+            formatted = text
+            
+            # Teams requires very explicit line breaks - convert all single breaks to double
+            formatted = re.sub(r'(?<!\n)\n(?!\n)', '\n\n', formatted)
+            
+            # Add extra spacing before emoji section headers
+            formatted = re.sub(r'(\n|^)(🔗|📝|⚠️|📋|✅|💡|🔍)\s*', r'\1\n\n\2 ', formatted)
+            
+            # Ensure bullet points have plenty of spacing - Teams is very particular about this
+            formatted = re.sub(r'\n\n•\s*', '\n\n• ', formatted)
+            formatted = re.sub(r'\n•\s*', '\n\n• ', formatted)
+            
+            # Add even more spacing before bold section headers with emojis
+            formatted = re.sub(r'\n\n(🔗|📝|⚠️|📋|✅|💡|🔍)\s*\*\*', r'\n\n\n\1 **', formatted)
+            
+            # Special handling for URLs - ensure they have proper spacing
+            formatted = re.sub(r'(\n• \*\*[^*]+\*\*: )(https?://[^\s]+)', r'\1\n  \2', formatted)
+            
+            # Clean up excessive line breaks (more than 4) but keep good spacing
+            formatted = re.sub(r'\n{5,}', '\n\n\n\n', formatted)
+            
+            return formatted.strip()
+        
         async def on_message_activity(self, turn_context: TurnContext):
             logger = structlog.get_logger()
             user_message = turn_context.activity.text
@@ -131,13 +161,15 @@ def create_app() -> FastAPI:
                 greeting_response = (
                     "Hi there! 👋\n\n"
                     "I'm your DTCE AI assistant. I can help you find engineering documents, reports, and project files.\n\n"
-                    "Just ask me in plain English about what you're looking for:\n"
-                    "• \"Find structural calculations\"\n"
-                    "• \"Show me bridge drawings\"\n" 
+                    "Just ask me in plain English about what you're looking for:\n\n"
+                    "• \"Find structural calculations\"\n\n"
+                    "• \"Show me bridge drawings\"\n\n" 
                     "• \"What reports do we have for the project?\"\n\n"
                     "What can I help you find today?"
                 )
-                message = MessageFactory.text(greeting_response)
+                # Format the greeting response for Teams
+                formatted_greeting = self._format_teams_text(greeting_response)
+                message = MessageFactory.text(formatted_greeting)
                 message.text_format = "markdown"
                 await turn_context.send_activity(message)
                 return
@@ -174,14 +206,17 @@ def create_app() -> FastAPI:
                     confidence_indicator = ""
                     response_text = f"🔍 **DTCE AI Assistant**\n\n{answer}{confidence_indicator}"
                 
-                message = MessageFactory.text(response_text)
+                # Format the response for Teams
+                formatted_response = self._format_teams_text(response_text)
+                message = MessageFactory.text(formatted_response)
                 message.text_format = "markdown"
                 await turn_context.send_activity(message)
                 
             except Exception as e:
                 logger.error("Error processing AI request", error=str(e))
                 error_response = "🚨 I'm experiencing technical difficulties. Please try again in a moment, or contact IT support if the issue persists."
-                message = MessageFactory.text(error_response)
+                formatted_error = self._format_teams_text(error_response)
+                message = MessageFactory.text(formatted_error)
                 message.text_format = "markdown"
                 await turn_context.send_activity(message)
     

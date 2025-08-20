@@ -5148,20 +5148,33 @@ While I couldn't find a specific PS1 template, here's comprehensive guidance:
             if 'timber' in question_lower and wants_external_link:
                 return """📋 **Timber Beam Design Spreadsheet**
 
+
 🔗 **Direct Download Links:**
+
 • **NZ Wood Timber Design Tools**: https://www.nzwood.co.nz/building-with-wood/design-tools/
+
 • **STIC Timber Design Spreadsheets**: https://www.stic.org.nz/structural-design-tools
+
 • **WoodSolutions Beam Calculator**: https://www.woodsolutions.com.au/design-tools
+
 • **Engineering NZ Timber Resources**: https://www.engineeringnz.org/resources/
 
+
 📝 **Alternative Options:**
+
 • **Commercial Software**: Microlam, TimberCalc Pro
+
 • **Free Tools**: Various university and industry calculators
+
 • **Previous DTCE Projects**: Check similar timber design projects
 
+
 ⚠️ **Important Notes:**
+
 • Verify calculations comply with NZS 3603 (Timber Structures)
+
 • Check load combinations per NZS 1170.1
+
 • Consider deflection limits and serviceability requirements"""
             
             elif 'timber' in question_lower:

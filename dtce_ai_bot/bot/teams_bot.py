@@ -37,23 +37,25 @@ class DTCETeamsBot(ActivityHandler):
         # Fix common Teams formatting issues
         formatted = text
         
-        # Replace single line breaks with double line breaks for better Teams display
-        # This is crucial for Teams to properly render line breaks
+        # Teams requires very explicit line breaks - convert all single breaks to double
         formatted = re.sub(r'(?<!\n)\n(?!\n)', '\n\n', formatted)
         
-        # Ensure emoji headers have proper spacing
+        # Add extra spacing before emoji section headers
         import re
-        formatted = re.sub(r'(\n|^)(🔗|📝|⚠️|📋|✅|💡|🔍)\s*', r'\1\n\2 ', formatted)
+        formatted = re.sub(r'(\n|^)(🔗|📝|⚠️|📋|✅|💡|🔍)\s*', r'\1\n\n\2 ', formatted)
         
-        # Ensure bullet points have proper spacing
+        # Ensure bullet points have plenty of spacing - Teams is very particular about this
         formatted = re.sub(r'\n\n•\s*', '\n\n• ', formatted)
         formatted = re.sub(r'\n•\s*', '\n\n• ', formatted)
         
-        # Add extra spacing before section headers
+        # Add even more spacing before bold section headers with emojis
         formatted = re.sub(r'\n\n(🔗|📝|⚠️|📋|✅|💡|🔍)\s*\*\*', r'\n\n\n\1 **', formatted)
         
-        # Clean up excessive line breaks (more than 3)
-        formatted = re.sub(r'\n{4,}', '\n\n\n', formatted)
+        # Special handling for URLs - ensure they have proper spacing
+        formatted = re.sub(r'(\n• \*\*[^*]+\*\*: )(https?://[^\s]+)', r'\1\n  \2', formatted)
+        
+        # Clean up excessive line breaks (more than 4) but keep good spacing
+        formatted = re.sub(r'\n{5,}', '\n\n\n\n', formatted)
         
         return formatted.strip()
 
