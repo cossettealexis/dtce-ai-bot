@@ -550,7 +550,8 @@ Focus on providing genuine value even without internal documents."""
                     context_part = f"**Document: {filename}**\n{content[:1000]}..."
                     if blob_url:
                         suitefiles_url = self._convert_to_suitefiles_url(blob_url) or blob_url
-                        context_part += f"\nURL: {suitefiles_url}"
+                        context_part += f"\nSuiteFiles URL: {suitefiles_url}"
+                        context_part += f"\nTo include in response format as: [{filename}]({suitefiles_url})"
                     context_parts.append(context_part)
             
             if not context_parts:
@@ -567,8 +568,8 @@ Context from {context_type}:
 CRITICAL INSTRUCTIONS:
 - Provide a natural, conversational answer based on DTCE's engineering expertise
 - ONLY use information that is explicitly provided in the context above
-- NEVER create, invent, or make up project numbers, job numbers, or file names
-- NEVER create or mention URLs unless they are explicitly provided in the context
+- NEVER create, invent, or make up project numbers, job numbers, or file names that aren't in the context
+- When URLs are provided in the context, include them as clickable links in your response
 - If documents show only "Document: filename" content, acknowledge this limitation
 - Include specific details from the documents when available
 - If the documents contain partial information, be honest about limitations
@@ -577,12 +578,17 @@ CRITICAL INSTRUCTIONS:
 - For technical queries, emphasize DTCE's experience and methodology
 - Keep the response professional but approachable
 
+LINK HANDLING:
+- When a URL is provided in the context, format it as: [Document Name](URL)
+- If user asks for links but no URLs are available in context, explain that links aren't available
+- Only include URLs that are explicitly provided in the document context above
+
 For engineering queries about:
 - **Past Projects**: Reference specific job folders and project details when available
 - **Technical Methods**: Describe DTCE's standard approaches and lessons learned
 - **Products/Materials**: Prioritize specifications used in past DTCE projects
 - **Design Standards**: Reference NZ structural codes and local conditions
-- **SuiteFiles Links**: Provide folder paths to relevant project documentation
+- **SuiteFiles Links**: When URLs are provided, format them as clickable links
 
 Answer:"""
 
