@@ -549,7 +549,8 @@ Focus on providing genuine value even without internal documents."""
                 if content:
                     context_part = f"**Document: {filename}**\n{content[:1000]}..."
                     if blob_url:
-                        suitefiles_url = self._convert_to_suitefiles_url(blob_url) or blob_url
+                        # Generate file link for direct document access
+                        suitefiles_url = self._convert_to_suitefiles_url(blob_url, "file") or blob_url
                         context_part += f"\nSuiteFiles URL: {suitefiles_url}"
                         context_part += f"\nTo include in response format as: [{filename}]({suitefiles_url})"
                     context_parts.append(context_part)
@@ -1692,8 +1693,13 @@ Focus on:
         """Format sources with product information."""
         return self._format_sources(documents)
 
-    def _convert_to_suitefiles_url(self, blob_url: str) -> Optional[str]:
-        """Convert Azure blob URL to SuiteFiles URL for folder navigation."""
+    def _convert_to_suitefiles_url(self, blob_url: str, link_type: str = "file") -> Optional[str]:
+        """Convert Azure blob URL to SuiteFiles URL for file or folder navigation.
+        
+        Args:
+            blob_url: The Azure blob storage URL
+            link_type: Either "file" or "folder" to determine link type
+        """
         if not blob_url:
             return None
         
@@ -1704,7 +1710,6 @@ Focus on:
             
             # Extract the file path from blob URL
             # Example blob URL: https://dtceaistorage.blob.core.windows.net/dtce-documents/Engineering/04_Design(Structural)/05_Timber/11%20Proprietary%20Products/Lumberworx/Lumberworx-Laminated-Veneer-Lumber-Glulam-Beams2013.pdf
-            # Should become: https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/folder/Engineering/04_Design%28Structural%29/05_Timber/11%20Proprietary%20Products/Lumberworx
             
             # Extract everything after "/dtce-documents/"
             if "/dtce-documents/" in blob_url:
@@ -1714,17 +1719,22 @@ Focus on:
                 import urllib.parse
                 decoded_path = urllib.parse.unquote(path_part)
                 
-                # Check if this is a file (has extension) or folder
-                if '.' in decoded_path.split('/')[-1]:
-                    # This is a file - extract folder path and use /folder/ instead of /file/
-                    folder_path = '/'.join(decoded_path.split('/')[:-1])
-                    # Encode for SharePoint URLs with proper encoding
-                    encoded_path = urllib.parse.quote(folder_path, safe="/")
-                    # Build SuiteFiles URL - use /folder/ for folder navigation
-                    suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/folder/{encoded_path}"
-                else:
-                    # This is already a folder path
+                if link_type == "file" and '.' in decoded_path.split('/')[-1]:
+                    # This is a file - provide direct file link
                     encoded_path = urllib.parse.quote(decoded_path, safe="/")
+                    # Build SuiteFiles URL for direct file access
+                    suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/file/{encoded_path}"
+                else:
+                    # This is a folder or we want folder navigation
+                    if '.' in decoded_path.split('/')[-1]:
+                        # Extract folder path from file path
+                        folder_path = '/'.join(decoded_path.split('/')[:-1])
+                        encoded_path = urllib.parse.quote(folder_path, safe="/")
+                    else:
+                        # This is already a folder path
+                        encoded_path = urllib.parse.quote(decoded_path, safe="/")
+                    
+                    # Build SuiteFiles URL for folder navigation
                     suite_files_url = f"{sharepoint_base_url}/AppPages/documents.aspx#/folder/{encoded_path}"
                 
                 return suite_files_url
