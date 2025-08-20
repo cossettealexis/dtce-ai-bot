@@ -9,6 +9,7 @@ from botbuilder.schema import ChannelAccount, Activity, ActivityTypes, Attachmen
 import json
 import asyncio
 import aiohttp
+import re
 import structlog
 from typing import List, Optional
 
@@ -34,28 +35,18 @@ class DTCETeamsBot(ActivityHandler):
         if not text:
             return text
             
-        # Fix common Teams formatting issues
+        # For Teams, we need to be very explicit about line breaks
+        # Teams requires double line breaks for paragraph separation
         formatted = text
         
-        # Teams requires very explicit line breaks - convert all single breaks to double
-        formatted = re.sub(r'(?<!\n)\n(?!\n)', '\n\n', formatted)
+        # Ensure bullet points have proper spacing
+        formatted = re.sub(r'\n•', '\n\n•', formatted)
         
-        # Add extra spacing before emoji section headers
-        import re
-        formatted = re.sub(r'(\n|^)(🔗|📝|⚠️|📋|✅|💡|🔍)\s*', r'\1\n\n\2 ', formatted)
+        # Ensure section headers have proper spacing
+        formatted = re.sub(r'\n(\*\*[^*]+\*\*)', r'\n\n\1', formatted)
         
-        # Ensure bullet points have plenty of spacing - Teams is very particular about this
-        formatted = re.sub(r'\n\n•\s*', '\n\n• ', formatted)
-        formatted = re.sub(r'\n•\s*', '\n\n• ', formatted)
-        
-        # Add even more spacing before bold section headers with emojis
-        formatted = re.sub(r'\n\n(🔗|📝|⚠️|📋|✅|💡|🔍)\s*\*\*', r'\n\n\n\1 **', formatted)
-        
-        # Special handling for URLs - ensure they have proper spacing
-        formatted = re.sub(r'(\n• \*\*[^*]+\*\*: )(https?://[^\s]+)', r'\1\n  \2', formatted)
-        
-        # Clean up excessive line breaks (more than 4) but keep good spacing
-        formatted = re.sub(r'\n{5,}', '\n\n\n\n', formatted)
+        # Clean up any triple+ line breaks to just double
+        formatted = re.sub(r'\n{3,}', '\n\n', formatted)
         
         return formatted.strip()
 
@@ -330,47 +321,9 @@ Please analyze the uploaded documents in context of the user's question. If the 
     async def _send_welcome_message(self, turn_context: TurnContext):
         """Send welcome message with available commands."""
         
-        welcome_text = """
-🤖 **Welcome to DTCE AI Assistant!**
-
-I can help you find information from engineering documents, analyze project requests, and provide design guidance based on our past experience.
-
-**Available Commands:**
-• `help` or `Hello` - Show this help message
-• `search [query]` - Search documents (e.g., `search bridge calculations`)
-• `ask [question]` - Ask questions about documents (e.g., `ask What are the seismic requirements?`)
-• `analyze [project request]` - Analyze project scoping requests
-• `projects` - List available projects
-• `health` - Check system status
-
-**📎 File Upload Support:**
-• **PDF** - Reports, RFPs, specifications, scoping documents
-• **Word/Excel/PowerPoint** - Documents, spreadsheets, presentations
-• **CAD Files** - .dwg, .dxf drawings
-• **Images** - .png, .jpg engineering drawings
-• **Text/Email** - .txt, .md, .msg files
-
-**🎯 Project Scoping & Analysis:**
-I can analyze client requests and RFPs to:
-• Find similar past projects for reference
-• Identify potential issues and solutions
-• Generate design philosophy recommendations
-• Provide compliance guidance (PS1, building consent)
-• Warn about risks based on past experience
-
-**Quick Examples:**
-• "What projects do we have?"
-• "Show me structural calculations for project 222"
-• "What were the conclusions in the final report?"
-• "Please review this request for our services from our client..."
-• Upload an RFP → "Please analyze this RFP and find similar past projects"
-• Upload drawings → "Review these structural drawings"
-• "Hi" - Get this welcome message
-
-        Just type your question, paste a client request, or upload documents and I'll search through your engineering files to help! 🔍
-        """
+        welcome_text = "🤖 **Welcome to DTCE AI Assistant!**\n\nI can help you find information from engineering documents, analyze project requests, and provide design guidance based on our past experience.\n\n**Available Commands:**\n• `help` or `Hello` - Show this help message\n• `search [query]` - Search documents (e.g., `search bridge calculations`)\n• `ask [question]` - Ask questions about documents (e.g., `ask What are the seismic requirements?`)\n• `analyze [project request]` - Analyze project scoping requests\n• `projects` - List available projects\n• `health` - Check system status\n\n**📎 File Upload Support:**\n• **PDF** - Reports, RFPs, specifications, scoping documents\n• **Word/Excel/PowerPoint** - Documents, spreadsheets, presentations\n• **CAD Files** - .dwg, .dxf drawings\n• **Images** - .png, .jpg engineering drawings\n• **Text/Email** - .txt, .md, .msg files\n\n**🎯 Project Scoping & Analysis:**\nI can analyze client requests and RFPs to:\n• Find similar past projects for reference\n• Identify potential issues and solutions\n• Generate design philosophy recommendations\n• Provide compliance guidance (PS1, building consent)\n• Warn about risks based on past experience\n\n**Quick Examples:**\n• \"What projects do we have?\"\n• \"Show me structural calculations for project 222\"\n• \"What were the conclusions in the final report?\"\n• \"Please review this request for our services from our client...\"\n• Upload an RFP → \"Please analyze this RFP and find similar past projects\"\n• Upload drawings → \"Review these structural drawings\"\n• \"Hi\" - Get this welcome message\n\nJust type your question, paste a client request, or upload documents and I'll search through your engineering files to help! 🔍"
         
-        await self._send_teams_message(turn_context, welcome_text.strip())
+        await self._send_teams_message(turn_context, welcome_text)
 
     async def _send_health_status(self, turn_context: TurnContext):
         """Send system health status."""

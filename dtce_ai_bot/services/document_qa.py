@@ -329,7 +329,7 @@ Respond with ONLY a JSON object:
         logger.info("Handling NZS code lookup", topic=topic)
         
         # Search for standards documents
-        documents = await self._search_relevant_documents(f"NZS {topic}", project_filter)
+        documents = self._search_relevant_documents(f"NZS {topic}", project_filter)
         
         if documents:
             # Generate clause-focused answer
@@ -360,7 +360,7 @@ Respond with ONLY a JSON object:
         logger.info("Handling project reference", topic=topic)
         
         # Search for project documents
-        documents = await self._search_relevant_documents(topic, project_filter)
+        documents = self._search_relevant_documents(topic, project_filter)
         
         if documents:
             # Extract unique projects
@@ -406,7 +406,7 @@ Respond with ONLY a JSON object:
         
         # Search for templates, spreadsheets, forms
         search_query = f"template calculation spreadsheet form PS1 PS3 {topic}"
-        documents = await self._search_relevant_documents(search_query, project_filter)
+        documents = self._search_relevant_documents(search_query, project_filter)
         
         if documents:
             # Filter for likely templates (Excel files, forms, etc.)
@@ -450,7 +450,7 @@ Respond with ONLY a JSON object:
         topic = intent.get('topic', '')
         logger.info("Handling general engineering search", topic=topic)
         
-        documents = await self._search_relevant_documents(topic, project_filter)
+        documents = self._search_relevant_documents(topic, project_filter)
         
         if documents:
             answer = await self._generate_answer_from_documents(topic, documents)
@@ -485,7 +485,7 @@ What would you like to know?""",
         
         # Search for product specs, material info
         search_query = f"product specification material supplier {topic}"
-        documents = await self._search_relevant_documents(search_query, project_filter)
+        documents = self._search_relevant_documents(search_query, project_filter)
         
         if documents:
             answer = await self._generate_answer_from_documents(
@@ -515,7 +515,7 @@ What would you like to know?""",
         
         # Search for contractor/contact information
         search_query = f"contractor builder client contact {topic}"
-        documents = await self._search_relevant_documents(search_query, project_filter)
+        documents = self._search_relevant_documents(search_query, project_filter)
         
         if documents:
             answer = await self._generate_answer_from_documents(
@@ -544,7 +544,7 @@ What would you like to know?""",
         logger.info("Handling scope similarity", topic=topic)
         
         # Search for similar project scopes
-        documents = await self._search_relevant_documents(topic, project_filter)
+        documents = self._search_relevant_documents(topic, project_filter)
         
         if documents:
             projects = self._extract_projects_from_documents(documents)
@@ -588,7 +588,7 @@ What would you like to know?""",
         
         # Search for technical guidance, best practices
         search_query = f"design guidance best practice methodology {topic}"
-        documents = await self._search_relevant_documents(search_query, project_filter)
+        documents = self._search_relevant_documents(search_query, project_filter)
         
         if documents:
             answer = await self._generate_answer_from_documents(
@@ -618,7 +618,7 @@ What would you like to know?""",
         
         # Search for council approvals, consents, regulatory issues
         search_query = f"council consent approval regulatory precedent {topic}"
-        documents = await self._search_relevant_documents(search_query, project_filter)
+        documents = self._search_relevant_documents(search_query, project_filter)
         
         if documents:
             answer = await self._generate_answer_from_documents(
@@ -658,7 +658,7 @@ What would you like to know?""",
         if location: search_terms.append(location)
         
         search_query = ' '.join(search_terms)
-        documents = await self._search_relevant_documents(search_query, project_filter)
+        documents = self._search_relevant_documents(search_query, project_filter)
         
         if documents:
             projects = self._extract_projects_from_documents(documents)
@@ -710,7 +710,7 @@ What would you like to know?""",
         
         # Search for issues, problems, lessons learned
         search_query = f"lessons learned issues problems failure construction {topic}"
-        documents = await self._search_relevant_documents(search_query, project_filter)
+        documents = self._search_relevant_documents(search_query, project_filter)
         
         if documents:
             # Filter for documents likely to contain lessons learned
@@ -754,7 +754,7 @@ What would you like to know?""",
         
         # Search for timeline, cost, scope information
         search_query = f"timeline cost duration PS1 scope expansion fee variation {topic}"
-        documents = await self._search_relevant_documents(search_query, project_filter)
+        documents = self._search_relevant_documents(search_query, project_filter)
         
         if documents:
             answer = await self._generate_answer_from_documents(
@@ -785,7 +785,7 @@ What would you like to know?""",
         
         # Search for best practices, standard approaches, reference examples
         search_query = f"best practice standard approach reference example template {topic}"
-        documents = await self._search_relevant_documents(search_query, project_filter)
+        documents = self._search_relevant_documents(search_query, project_filter)
         
         if documents:
             # Filter for template-like documents
@@ -838,7 +838,7 @@ What would you like to know?""",
         
         # Search for comparative information
         search_query = f"compare comparison vs versus {topic}"
-        documents = await self._search_relevant_documents(search_query, project_filter)
+        documents = self._search_relevant_documents(search_query, project_filter)
         
         if documents:
             answer = await self._generate_answer_from_documents(
@@ -869,7 +869,7 @@ What would you like to know?""",
         logger.info("Handling internal knowledge query", topic=topic, expertise_area=expertise_area)
         
         # Search for documents to identify authorship and expertise
-        documents = await self._search_relevant_documents(topic, project_filter)
+        documents = self._search_relevant_documents(topic, project_filter)
         
         if documents:
             # Extract authorship information where possible
@@ -6928,7 +6928,7 @@ What specific information are you looking for?"""
                 
                 # Try a simple search to see if we have relevant documents
                 try:
-                    search_docs = await self._search_relevant_documents(question)
+                    search_docs = self._search_relevant_documents(question)
                     
                     if search_docs and len(search_docs) > 0:
                         # Found relevant documents! Process as normal search query
