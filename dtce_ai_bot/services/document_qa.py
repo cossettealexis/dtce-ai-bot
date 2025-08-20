@@ -1564,6 +1564,12 @@ Content: {content}
             - Financial: fee structures, billing procedures, cost estimation
             - General Professional: best practices, recommendations, troubleshooting
 
+            CRITICAL RESTRICTIONS:
+            - NEVER create, invent, or make up project numbers, job numbers, or file names
+            - NEVER create or mention URLs unless they are explicitly provided in the context
+            - ONLY reference specific documents, projects, or files that are actually mentioned in the context
+            - If you don't have specific information, provide general guidance instead
+
             RESPONSE STRATEGY:
             1. PRIMARY: Always use document context when available - cite specific documents and extract useful information
             2. NEVER say documents don't contain relevant information if documents are provided
@@ -1585,7 +1591,10 @@ Content: {content}
             Available Document Context:
             {context if context.strip() else "No specific documents found for this query."}
 
-            INSTRUCTIONS:
+            CRITICAL INSTRUCTIONS:
+            - ONLY use information that is explicitly provided in the document context above
+            - NEVER create, invent, or make up project numbers, job numbers, or file names
+            - NEVER create or mention URLs unless they are explicitly provided in the context
             - If documents contain relevant information, use them as your primary source and cite specific details
             - If documents don't contain the answer, provide professional guidance and best practices
             - For business process questions (WorkflowMax, billing, etc.), provide step-by-step guidance
@@ -7996,13 +8005,16 @@ Respond with ONLY a JSON object:
 Context from DTCE documents:
 {context}
 
-Instructions:
+CRITICAL INSTRUCTIONS:
 - Provide a natural, conversational answer
-- Include specific details from the documents
-- Mention job numbers, file names, or URLs when relevant
-- If information is partial, be honest about limitations
-- Focus on practical engineering guidance
+- ONLY use information that is explicitly provided in the context above
+- NEVER create or invent project numbers, job numbers, or file names
+- NEVER create or mention URLs unless they are explicitly provided in the context
+- If a document filename is mentioned in context, you can reference it
+- If information is partial or missing, be honest about limitations
+- Focus on practical engineering guidance based on available information
 - Keep response professional but approachable
+- If no specific documents are found, provide general engineering guidance
 
 Answer:"""
 

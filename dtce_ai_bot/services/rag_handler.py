@@ -564,10 +564,12 @@ Focus on providing genuine value even without internal documents."""
 Context from {context_type}:
 {context}
 
-Instructions:
+CRITICAL INSTRUCTIONS:
 - Provide a natural, conversational answer
-- Include specific details from the documents
-- Mention job numbers, file names, or URLs when relevant
+- ONLY use information that is explicitly provided in the context above
+- NEVER create, invent, or make up project numbers, job numbers, or file names
+- NEVER create or mention URLs unless they are explicitly provided in the context
+- Include specific details from the documents when available
 - If the documents contain partial information, be honest about limitations
 - Focus on practical engineering guidance
 - Keep the response professional but approachable
@@ -1165,10 +1167,10 @@ Focus on:
             prompt = f"""Based on the DTCE project documents found, please answer: {question}
 
 Focus on:
-- Specific project examples matching the scenario
-- Technical solutions and approaches used
-- Design considerations and challenges
-- Job numbers and project references when available"""
+- Specific project examples matching the scenario that are mentioned in the documents
+- Technical solutions and approaches used as described in the documents
+- Design considerations and challenges from the documents
+- ONLY reference job numbers and project references that are explicitly mentioned in the documents"""
             
             answer = await self._generate_natural_answer(prompt, documents, "technical scenario projects")
             return {
