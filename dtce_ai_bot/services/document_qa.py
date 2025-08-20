@@ -54,42 +54,59 @@ class DocumentQAService:
         try:
             logger.info("Processing question", question=question, project_filter=project_filter)
             
-            # Use AI-powered smart routing instead of rigid keyword matching
-            handler_type, classification = await self.smart_router.route_query(question)
+            # Handle only basic greetings, everything else gets searched
+            question_lower = question.lower().strip()
+            if question_lower in ["hey", "hi", "hello"]:
+                return {
+                    'answer': "Hello! I'm the DTCE AI Assistant. I can help you find information from DTCE's project documents, templates, standards, and provide engineering guidance. What would you like to know?",
+                    'sources': [],
+                    'confidence': 'high',
+                    'documents_searched': 0,
+                    'search_type': 'greeting'
+                }
+            elif question_lower in ["what", "what?"] or len(question.strip()) < 3:
+                return {
+                    'answer': "I need a bit more information to help you. Please ask a specific question about engineering, projects, standards, or anything else I can assist with!",
+                    'sources': [],
+                    'confidence': 'high', 
+                    'documents_searched': 0,
+                    'search_type': 'clarification'
+                }
             
-            logger.info("Smart routing result", 
-                       handler=handler_type,
-                       intent=classification.get('primary_intent'),
-                       confidence=classification.get('confidence'))
+            # For everything else, just search the index directly
+            logger.info("Searching documents for question", question=question)
+            documents = await self._search_relevant_documents(question, project_filter)
             
-            # Route to appropriate handler based on AI classification
-            if handler_type == "conversational":
-                return await self._handle_conversational_query(question, classification)
-            elif handler_type == "nz_standards":
-                return await self._handle_nz_standards_query(question, project_filter)
-            elif handler_type == "template_search":
-                return await self._handle_template_search_query(question, project_filter)
-            elif handler_type == "project_search":
-                return await self._handle_keyword_project_query(question, project_filter)
-            elif handler_type == "scenario_technical":
-                return await self._handle_scenario_technical_query(question, project_filter)
-            elif handler_type == "regulatory_precedent":
-                return await self._handle_regulatory_precedent_query(question, project_filter)
-            elif handler_type == "cost_time_insights":
-                return await self._handle_cost_time_insights_query(question, project_filter)
-            elif handler_type == "best_practices_templates":
-                return await self._handle_best_practices_templates_query(question, project_filter)
-            elif handler_type == "materials_methods":
-                return await self._handle_materials_methods_query(question, project_filter)
-            elif handler_type == "internal_knowledge":
-                return await self._handle_internal_knowledge_query(question, project_filter)
-            elif handler_type == "web_search":
-                return await self._handle_web_search_query(question, project_filter)
-            elif handler_type == "contractor_search":
-                return await self._handle_contractor_search_query(question, project_filter)
-            else:  # general_search or fallback
-                # Use intelligent general search instead of dumb keyword matching
-                return await self._handle_intelligent_general_query(question, project_filter, classification)
+            if documents and len(documents) > 0:
+                logger.info("Found documents, generating answer", docs_found=len(documents))
+                answer = await self._generate_answer_from_documents(question, documents)
+                sources = self._format_sources(documents)
+                
+                return {
+                    'answer': answer,
+                    'sources': sources,
+                    'confidence': 'high' if len(documents) >= 5 else 'medium',
+                    'documents_searched': len(documents),
+                    'search_type': 'direct_search'
+                }
+            else:
+                logger.info("No documents found, providing guidance")
+                return {
+                    'answer': f"""I searched for documents related to '{question}' but didn't find specific matches in our project database.
+
+I can help you find information about:
+• Past DTCE projects and case studies  
+• Design templates and calculation sheets
+• Building codes and standards (NZS, AS/NZS)
+• Technical design guidance
+• Project timelines and methodologies
+
+Try rephrasing your question or asking about a specific topic. What would you like to know?""",
+                    'sources': [],
+                    'confidence': 'low',
+                    'documents_searched': 0,
+                    'search_type': 'no_results'
+                }
             
         except Exception as e:
             logger.error("Question answering failed", error=str(e), question=question)
@@ -6032,7 +6049,7 @@ While I couldn't find a specific PS1 template, here's comprehensive guidance:
             
             question_lower = question.lower().strip()
             
-            # Generate appropriate conversational responses
+            # Handle pure greetings and very simple queries
             if question_lower in ["hey", "hi", "hello"]:
                 answer = "Hello! I'm the DTCE AI Assistant. I can help you find information from DTCE's project documents, templates, standards, and provide engineering guidance. What would you like to know?"
             elif question_lower in ["what", "what?"]:
@@ -6051,10 +6068,39 @@ What specific information are you looking for?"""
             elif len(question.strip()) < 3:
                 answer = "I need a bit more information to help you. Please ask a specific question about engineering, projects, standards, or anything else I can assist with!"
             else:
-                # For other unclear queries, provide a helpful prompt
-                answer = f"""I'm not quite sure what you're asking about with '{question}'. I'm designed to help with engineering questions and DTCE project information. 
+                # For anything else classified as conversational, try searching first
+                # The user might have asked something meaningful that was misclassified
+                logger.info("Conversational query contains meaningful content, attempting search first", question=question)
+                
+                # Try a simple search to see if we have relevant documents
+                try:
+                    search_docs = await self._search_relevant_documents(question)
+                    
+                    if search_docs and len(search_docs) > 0:
+                        # Found relevant documents! Process as normal search query
+                        logger.info("Found documents for conversational query, processing as search", 
+                                   question=question, docs_found=len(search_docs))
+                        
+                        # Generate answer based on the documents found
+                        answer = await self._generate_answer_from_documents(question, search_docs)
+                        sources = self._format_sources(search_docs)
+                        
+                        return {
+                            'answer': answer,
+                            'sources': sources,
+                            'confidence': 'medium',
+                            'documents_searched': len(search_docs),
+                            'search_type': 'conversational_fallback_search',
+                            'classification': classification
+                        }
+                        
+                except Exception as search_error:
+                    logger.warning("Search failed for conversational query", error=str(search_error))
+                
+                # If no documents found or search failed, provide helpful guidance
+                answer = f"""I searched for documents related to '{question}' but didn't find specific matches. 
 
-Try asking something like:
+I'm designed to help with engineering questions and DTCE project information. Try asking something like:
 • 'Find projects similar to a 3-story office building'
 • 'Show me NZS 3101 concrete design information'
 • 'What's our standard approach for steel connections?'
