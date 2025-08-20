@@ -4891,7 +4891,7 @@ Would you like me to search for specific templates or documents that might help?
             try:
                 # Try both simple and semantic search
                 for query_type in ["simple", "semantic"]:
-                    response = await self.client.search(
+                    response = await self.search_client.search(
                         search_text=search_term,
                         search_fields=["title", "content", "filename"],
                         top=15,
@@ -5005,7 +5005,7 @@ Would you like me to search for specific templates or documents that might help?
         # Perform broader search
         for term in search_terms[:3]:  # Limit to top 3 search terms
             try:
-                response = await self.client.search(
+                response = await self.search_client.search(
                     search_text=term,
                     search_fields=["title", "content"],
                     top=5,
@@ -6143,9 +6143,9 @@ What can I help you find?"""
                 search_text=search_query,
                 top=20,
                 include_total_count=True,
-                search_fields=["content", "filename", "project_id"],
-                select=["content", "filename", "project_id", "blob_url", "project_name"],
-                filter=f"project_id eq '{project_filter}'" if project_filter else None,
+                search_fields=["content", "filename", "project_name"],
+                select=["content", "filename", "project_name", "blob_url"],
+                filter=f"project_name eq '{project_filter}'" if project_filter else None,
                 highlight_fields="content"
             )
             
