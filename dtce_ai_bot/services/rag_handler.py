@@ -65,16 +65,24 @@ class RAGHandler:
             },
             'online_references': {
                 'patterns': [
-                    r'online threads.*mentioning.*keyword.*tapered composite beam.*anonymous',
-                    r'online threads.*references.*preferably.*anonymous.*structural engineers',
-                    r'provide.*online threads.*mentioning.*keyword',
-                    r'anonymous.*structural engineers.*online.*forum',
-                    r'external.*online threads.*structural.*forum',
-                    r'want.*from.*online thread',
-                    r'online.*discussions.*anonymous.*engineers',
-                    r'forum.*discussion.*anonymous.*professional',
-                    r'need.*external.*forum.*reference',
-                    r'online.*community.*discussion.*anonymous'
+                    r'look for.*online threads.*references',
+                    r'online threads.*mentioning.*keyword',
+                    r'provide.*online threads',
+                    r'references.*online threads',
+                    r'anonymous.*structural engineers',
+                    r'public.*forums.*discussions',
+                    r'online.*discussions.*public',
+                    r'external.*forums.*references',
+                    r'legitimate link.*direct access',
+                    r'online.*communities.*forums',
+                    r'structural design.*discussions.*public',
+                    r'current design discussions.*accessible.*public',
+                    r'NZ references.*forums',
+                    r'reputable engineering communities',
+                    r'professional.*forums.*online',
+                    r'technical forums.*reference',
+                    r'external.*reference.*online',
+                    r'public.*engineering.*forums'
                 ],
                 'handler': self._handle_online_references
             },
@@ -912,6 +920,33 @@ Answer:"""
         
         return any(keyword in filename for keyword in template_keywords)
     
+    def _extract_technical_keywords(self, question: str) -> List[str]:
+        """Extract technical keywords for external searches"""
+        keywords = []
+        q_lower = question.lower()
+        
+        # Specific technical terms
+        if 'composite beam' in q_lower:
+            keywords.extend(['composite beam', 'steel-concrete composite'])
+        if 'haunched' in q_lower or 'tapered' in q_lower:
+            keywords.extend(['haunched beam', 'tapered beam', 'variable depth beam'])
+        if 'concrete column' in q_lower:
+            keywords.extend(['concrete column', 'reinforced concrete column'])
+        if 'seismic' in q_lower:
+            keywords.extend(['seismic design', 'earthquake engineering'])
+        if 'design guideline' in q_lower:
+            keywords.extend(['design guidelines', 'design procedures'])
+        if 'structural' in q_lower:
+            keywords.extend(['structural engineering', 'structural design'])
+        
+        # Add NZS codes if mentioned
+        if 'nzs' in q_lower:
+            keywords.append('NZS codes')
+        if 'new zealand' in q_lower or ' nz ' in q_lower:
+            keywords.append('New Zealand standards')
+            
+        return keywords if keywords else ['structural engineering']
+
     def _extract_online_reference_keywords(self, question: str) -> List[str]:
         """Extract keywords for online reference searches"""
         # Extract technical terms from the question
@@ -1347,28 +1382,49 @@ Answer:"""
         
         # Strong indicators for external only
         external_indicators = [
-            'online thread', 'forum', 'anonymous', 'external', 'public',
-            'community', 'discussion', 'reddit', 'eng-tips',
-            'legitimate link', 'direct access', 'online reference'
+            'online thread', 'online threads', 'forum', 'forums', 'anonymous', 'external', 'public',
+            'community', 'discussion', 'discussions', 'reddit', 'eng-tips',
+            'legitimate link', 'direct access', 'online reference', 'online references',
+            'accessible to the public', 'current design discussions', 'professional sources',
+            'reputable engineering communities', 'technical forums', 'structural design procedures',
+            'look for online', 'provide related references', 'mentioning the keyword'
         ]
         
         # Strong indicators for internal only  
         internal_indicators = [
             'dtce', 'our project', 'past project', 'internal', 'suitefiles',
-            'company', 'in-house', 'proprietary'
+            'company', 'in-house', 'proprietary', 'dtce documents', 'our database'
         ]
         
-        # Count indicators
-        external_count = sum(1 for indicator in external_indicators if indicator in q_lower)
-        internal_count = sum(1 for indicator in internal_indicators if indicator in q_lower)
+        # Count indicators with weighted scoring
+        external_score = 0
+        internal_score = 0
         
-        # Decision logic
-        if external_count > 0 and internal_count == 0:
+        for indicator in external_indicators:
+            if indicator in q_lower:
+                # Give higher weight to stronger indicators
+                if indicator in ['look for online', 'online threads', 'accessible to the public', 'public', 'forums']:
+                    external_score += 2
+                else:
+                    external_score += 1
+        
+        for indicator in internal_indicators:
+            if indicator in q_lower:
+                internal_score += 1
+        
+        # Special case: if question asks for both ("include" suggests comprehensive response)
+        if 'include' in q_lower and external_score > 0:
+            return "both"
+        
+        # Decision logic with bias toward external for ambiguous cases
+        if external_score > 0 and internal_score == 0:
             return "external_only"
-        elif internal_count > 0 and external_count == 0:
+        elif internal_score > 0 and external_score == 0:
             return "internal_only"
+        elif external_score >= internal_score:
+            return "external_only"  # Bias toward external when unclear
         else:
-            return "both"  # Default to both when unclear
+            return "both"
     
     async def _handle_internal_documents_only(self, question: str, documents: List[Dict]) -> Dict[str, Any]:
         """Handle requests for internal documents only"""
@@ -1394,26 +1450,45 @@ We don't have specific internal DTCE documents matching this query. Provide a he
     
     async def _handle_external_resources_only(self, question: str) -> Dict[str, Any]:
         """Handle requests for external resources only"""
-        prompt = f"""The user is specifically asking for external online resources: {question}
+        
+        # Extract keywords from the question for targeted search suggestions
+        keywords = self._extract_technical_keywords(question)
+        
+        prompt = f"""The user is asking for external online resources and forums: {question}
 
-Provide ONLY external resources including:
-- Specific engineering forums (Eng-Tips, Reddit r/StructuralEngineering)
-- Professional organizations (NZSEE, Engineering New Zealand)
-- Standards websites (Standards New Zealand)
-- University repositories
-- Industry websites and technical resources
+Provide specific, actionable external resources with direct links and search strategies:
 
-Do NOT mention DTCE internal documents or search keywords. Focus on legitimate external sources where they can find community discussions and professional guidance."""
+ENGINEERING FORUMS & COMMUNITIES:
+- Eng-Tips Forums (https://www.eng-tips.com) - Professional engineering discussions
+- Reddit r/StructuralEngineering (https://reddit.com/r/StructuralEngineering) - Active community discussions
+- StructuralEng Forum (https://www.structuraleng.com) - Technical discussions
+- Engineering Stack Exchange (https://engineering.stackexchange.com) - Q&A format
+
+NEW ZEALAND SPECIFIC:
+- Engineering New Zealand forums (https://www.engineeringnz.org) - Professional network
+- NZSEE (https://www.nzsee.org.nz) - Earthquake engineering society
+- SESOC (https://www.sesoc.org.nz) - Structural engineering society
+
+SEARCH STRATEGIES:
+- Use keywords: {', '.join(keywords)} when searching these forums
+- Check recent discussions and case studies
+- Look for posts from verified professionals
+
+PROFESSIONAL STANDARDS:
+- Standards New Zealand (https://www.standards.govt.nz)
+- MBIE Building Performance (https://www.building.govt.nz)
+
+Provide specific search suggestions and explain how to access relevant discussions on these platforms."""
         
         try:
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {"role": "system", "content": "You are helping users find external engineering resources. Focus only on legitimate external sources."},
+                    {"role": "system", "content": "You are an expert at finding external engineering resources. Provide specific, actionable guidance with real links and search strategies."},
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.4,
-                max_tokens=600
+                temperature=0.3,
+                max_tokens=800
             )
             
             answer = response.choices[0].message.content.strip()
@@ -1428,7 +1503,21 @@ Do NOT mention DTCE internal documents or search keywords. Focus on legitimate e
         except Exception as e:
             logger.error("Error generating external resources answer", error=str(e))
             return {
-                'answer': "For external engineering resources, I recommend checking Eng-Tips Forums, Reddit r/StructuralEngineering, New Zealand Society for Earthquake Engineering (NZSEE), and Engineering New Zealand's professional networks.",
+                'answer': """🔗 **External Engineering Resources**
+
+**Professional Forums:**
+- **Eng-Tips Forums** (https://www.eng-tips.com) - Search for your topic in structural engineering section
+- **Reddit r/StructuralEngineering** (https://reddit.com/r/StructuralEngineering) - Active community discussions
+- **Engineering Stack Exchange** (https://engineering.stackexchange.com) - Q&A format
+
+**New Zealand Resources:**
+- **Engineering New Zealand** (https://www.engineeringnz.org) - Professional networking and forums
+- **NZSEE** (https://www.nzsee.org.nz) - Earthquake engineering resources
+- **SESOC** (https://www.sesoc.org.nz) - Structural engineering society
+
+**Standards & Guidelines:**
+- **Standards New Zealand** (https://www.standards.govt.nz) - Official standards
+- **MBIE Building Performance** (https://www.building.govt.nz) - Building regulations""",
                 'sources': [],
                 'confidence': 'medium',
                 'documents_searched': 0,
