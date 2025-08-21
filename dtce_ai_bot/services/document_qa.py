@@ -8165,19 +8165,19 @@ Respond with ONLY a JSON object:
 Context from DTCE documents:
 {context}
 
-CRITICAL INSTRUCTIONS:
+CRITICAL INSTRUCTIONS FOR DOCUMENT REFERENCES:
 - Provide a natural, conversational answer
 - ONLY use information that is explicitly provided in the context above
-- WHEN referencing a document by filename, you MUST include its SuiteFiles link from the context
-- EXAMPLE: "From the document 'example.pdf' ([Access in SuiteFiles](suitefiles_link_here))"
-- NEVER create or invent project numbers, job numbers, or file names
+- WHENEVER you mention a document filename (like "document.pdf" or "filename.txt"), you MUST immediately include its SuiteFiles link
+- MANDATORY FORMAT: "filename" ([Access in SuiteFiles](suitefiles_link))
+- EXAMPLE: "The document 'Builders contact detail.txt' ([Access in SuiteFiles](link_here)) contains..."
+- EXAMPLE: "Check the file '219292-SH-001-B CoA Schedule.pdf' ([Access in SuiteFiles](link_here)) for details..."
+- If you mention ANY document but don't include its SuiteFiles link, that's a CRITICAL ERROR
+- NEVER create or invent project numbers, job numbers, or file names not in the context
 - NEVER create or mention URLs unless they are explicitly provided in the context
-- If a document filename is mentioned in context, you can reference it AND include its SuiteFiles link
-- If you mention a document but don't include its SuiteFiles link, that's an error
 - If information is partial or missing, be honest about limitations
 - Focus on practical engineering guidance based on available information
 - Keep response professional but approachable
-- If no specific documents are found, provide general engineering guidance
 
 Answer:"""
 
@@ -8203,6 +8203,12 @@ Answer:"""
             # POST-PROCESSING: Check if documents are mentioned without SuiteFiles links
             answer = self._ensure_suitefiles_links_in_response(answer, documents)
             
+            # DEBUG: Log final answer to check if links are present
+            logger.info("Final answer generated", 
+                       has_suitefiles_links="Access in SuiteFiles" in answer,
+                       answer_length=len(answer),
+                       num_documents=len(documents))
+            
             return answer
             
         except Exception as e:
@@ -8215,30 +8221,51 @@ Answer:"""
         
         # Create a mapping of filenames to SuiteFiles URLs
         doc_links = {}
+        filename_variations = {}
+        
         for doc in documents:
             filename = doc.get('filename', '')
             if filename:
                 blob_url = doc.get('blob_url', '')
                 suitefiles_url = self._get_safe_suitefiles_url(blob_url)
-                # Store both with and without extension for matching
-                base_name = filename.replace('.pdf', '').replace('.docx', '').replace('.txt', '')
-                doc_links[filename.lower()] = suitefiles_url
-                doc_links[base_name.lower()] = suitefiles_url
+                if suitefiles_url and suitefiles_url != "Document available in SuiteFiles":
+                    # Store exact filename
+                    doc_links[filename] = suitefiles_url
+                    # Store variations: without extension, different cases
+                    base_name = filename.replace('.pdf', '').replace('.docx', '').replace('.txt', '').replace('.xlsx', '').replace('.xls', '')
+                    filename_variations[filename.lower()] = (filename, suitefiles_url)
+                    filename_variations[base_name.lower()] = (filename, suitefiles_url)
         
-        # Find document references in the response that don't have links
+        # Look for document mentions that don't have SuiteFiles links
         modified_answer = answer
-        for filename, suitefiles_url in doc_links.items():
-            # Look for mentions of the filename that aren't already linked
-            pattern = re.compile(rf'(?<!\[)["\']?{re.escape(filename)}["\']?(?!\])', re.IGNORECASE)
+        
+        # First pass: Find exact filename matches
+        for original_filename, suitefiles_url in doc_links.items():
+            # Multiple patterns to catch different mention styles
+            patterns = [
+                rf'\b{re.escape(original_filename)}\b',  # Exact match
+                rf'titled\s+["\']?{re.escape(original_filename)}["\']?',  # "titled filename"
+                rf'document\s+["\']?{re.escape(original_filename)}["\']?',  # "document filename"
+                rf'file\s+["\']?{re.escape(original_filename)}["\']?',  # "file filename"
+            ]
             
-            # Replace with linked version if not already linked
-            def replace_with_link(match):
-                matched_text = match.group(0)
-                return f'{matched_text} ([Access in SuiteFiles]({suitefiles_url}))'
-            
-            # Only replace if the filename appears but isn't already linked
-            if re.search(pattern, modified_answer) and suitefiles_url not in modified_answer:
-                modified_answer = re.sub(pattern, replace_with_link, modified_answer, count=1)
+            for pattern in patterns:
+                if re.search(pattern, modified_answer, re.IGNORECASE):
+                    # Check if this filename mention already has a SuiteFiles link nearby
+                    context_window = 100  # characters around the match
+                    matches = list(re.finditer(pattern, modified_answer, re.IGNORECASE))
+                    
+                    for match in matches:
+                        start = max(0, match.start() - context_window)
+                        end = min(len(modified_answer), match.end() + context_window)
+                        context = modified_answer[start:end]
+                        
+                        # If no SuiteFiles link in context, add one
+                        if 'Access in SuiteFiles' not in context:
+                            matched_text = match.group(0)
+                            replacement = f'{matched_text} ([Access in SuiteFiles]({suitefiles_url}))'
+                            modified_answer = modified_answer[:match.start()] + replacement + modified_answer[match.end():]
+                            break  # Only replace first occurrence
         
         return modified_answer
 
