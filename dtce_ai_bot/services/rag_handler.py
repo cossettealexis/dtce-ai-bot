@@ -190,16 +190,83 @@ class RAGHandler:
         }
     
     async def process_rag_query(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
-        """Process a query according to RAG specifications."""
+        """Process ANY query by searching Azure index directly and letting GPT format results."""
         try:
-            # Identify the RAG pattern
-            rag_type = self._identify_rag_pattern(question)
+            logger.info("Processing query", question=question)
             
-            if rag_type:
-                handler = self.rag_patterns[rag_type]['handler']
-                return await handler(question, project_filter)
+            # STEP 1: Search user's question directly in Azure index (word by word OR query)
+            search_words = [word.strip() for word in question.split() if len(word.strip()) > 2]
+            search_query = ' OR '.join(search_words)
+            
+            # STEP 2: Get documents from Azure index
+            documents = await self._search_documents(search_query, project_filter)
+            
+            if documents:
+                # STEP 3: Prepare document context WITH SuiteFiles links
+                document_details = []
+                for doc in documents[:10]:  # Get top 10 results
+                    filename = doc.get('filename', 'Unknown')
+                    content = doc.get('content', '')
+                    blob_url = doc.get('blob_url', '')
+                    suitefiles_link = self._get_safe_suitefiles_url(blob_url)
+                    
+                    doc_info = f"**Document: {filename}**\n"
+                    if suitefiles_link and suitefiles_link != "Document available in SuiteFiles":
+                        doc_info += f"SuiteFiles Link: {suitefiles_link}\n"
+                    doc_info += f"Content: {content[:800]}..."
+                    document_details.append(doc_info)
+                
+                context_with_links = "\n\n".join(document_details)
+                
+                # STEP 4: Let GPT format the results based on user's intent
+                prompt = f"""User asked: {question}
+
+Documents found in Azure search index:
+{context_with_links}
+
+Instructions:
+- Provide a comprehensive answer based on the documents found
+- INCLUDE the SuiteFiles links provided above for relevant documents
+- Format the response based on the user's question intent:
+  * If asking for templates/forms: prioritize documents that appear to be templates
+  * If asking about past projects: organize by project when possible
+  * If asking about products/materials: include specifications and supplier info
+  * If asking for calculations: focus on spreadsheets and technical documents
+- Present the information in a helpful, organized way
+- Make it clear users can access documents through the provided SuiteFiles links
+- Focus on practical engineering guidance for New Zealand conditions"""
+                
+                answer = await self._generate_project_answer_with_links(prompt, context_with_links)
+                
+                return {
+                    'answer': answer,
+                    'sources': self._format_sources(documents),
+                    'confidence': 'high',
+                    'documents_searched': len(documents),
+                    'rag_type': 'direct_search'
+                }
             else:
-                return await self._handle_general_query(question, project_filter)
+                # STEP 5: No documents found - provide helpful guidance
+                prompt = f"""User asked: {question}
+
+No documents were found in our Azure search index for this query.
+
+Provide a helpful response that:
+1. Acknowledges we couldn't find specific documents for this question
+2. Suggests alternative approaches or external resources if relevant
+3. For engineering questions, provide general guidance based on New Zealand engineering practices
+4. If asking for templates, suggest official sources like Engineering New Zealand or MBIE
+5. Maintains a helpful, professional tone"""
+                
+                answer = await self._generate_natural_answer(prompt, [], "general guidance")
+                
+                return {
+                    'answer': answer,
+                    'sources': [],
+                    'confidence': 'low',
+                    'documents_searched': 0,
+                    'rag_type': 'no_results'
+                }
                 
         except Exception as e:
             logger.error("RAG processing failed", error=str(e), question=question)
@@ -413,95 +480,74 @@ Format your response to help users access the product documents and specificatio
             }
     
     async def _handle_template_request(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
-        """Handle template and form requests - Use GPT for natural language answers"""
+        """Handle template and form requests - Simple flow: search question directly, let GPT format results"""
         logger.info("Processing template request", question=question)
         
-        # Search for templates and forms
-        template_terms = self._extract_template_terms(question)
-        search_query = ' OR '.join(template_terms)
+        # Search the user's question directly in Azure index (word by word OR query)
+        # Extract meaningful words from the question for search
+        search_words = [word.strip() for word in question.split() if len(word.strip()) > 2]
+        search_query = ' OR '.join(search_words)
         
         documents = await self._search_documents(search_query, project_filter, doc_types=['xlsx', 'xls', 'pdf', 'doc', 'docx'])
         
         if documents:
-            # Filter for actual templates/forms
-            template_docs = [doc for doc in documents if self._is_template_document(doc)]
+            # Prepare document context WITH SuiteFiles links
+            document_details = []
+            for doc in documents[:10]:  # Get more results to let GPT decide what's relevant
+                filename = doc.get('filename', 'Unknown')
+                content = doc.get('content', '')
+                blob_url = doc.get('blob_url', '')
+                suitefiles_link = self._get_safe_suitefiles_url(blob_url)
+                
+                doc_info = f"**Document: {filename}**\n"
+                if suitefiles_link and suitefiles_link != "Document available in SuiteFiles":
+                    doc_info += f"SuiteFiles Link: {suitefiles_link}\n"
+                doc_info += f"Content: {content[:800]}..."
+                document_details.append(doc_info)
             
-            if template_docs:
-                # Prepare template context WITH SuiteFiles links
-                template_details = []
-                for doc in template_docs[:5]:
-                    filename = doc.get('filename', 'Unknown')
-                    content = doc.get('content', '')
-                    blob_url = doc.get('blob_url', '')
-                    suitefiles_link = self._get_safe_suitefiles_url(blob_url)
-                    
-                    template_info = f"**Template: {filename}**\n"
-                    if suitefiles_link and suitefiles_link != "Document available in SuiteFiles":
-                        template_info += f"SuiteFiles Link: {suitefiles_link}\n"
-                    template_info += f"Description: {content[:600]}..."
-                    template_details.append(template_info)
-                
-                context_with_links = "\n\n".join(template_details)
-                
-                # Use GPT to generate natural language answer about templates
-                prompt = f"""Based on the templates and forms found, please answer: {question}
+            context_with_links = "\n\n".join(document_details)
+            
+            # Let GPT format the results based on user's intent
+            prompt = f"""User asked: {question}
 
-Templates Found:
+Documents found in Azure search index:
 {context_with_links}
 
-Instructions for your response:
-- INCLUDE the SuiteFiles links provided above for each relevant template
-- Explain what each template is for and how to access it
-- If the user mentions they cannot access SuiteFiles or need alternatives, also suggest:
+Instructions:
+- Format the response based on the user's intent from their question
+- INCLUDE the SuiteFiles links provided above for relevant documents
+- If the user is asking for templates/forms, prioritize documents that appear to be templates
+- If user mentions they can't access SuiteFiles or need alternatives, suggest:
   * Engineering New Zealand (ENZ) website for official PS templates
-  * MBIE website for government-approved templates  
+  * MBIE website for government-approved templates
   * Local council websites for council-specific formats
-- Focus primarily on the SuiteFiles documents found and their links
-- Make it clear users can directly access these templates through the provided links"""
-                
-                answer = await self._generate_project_answer_with_links(prompt, context_with_links)
-                
-                return {
-                    'answer': answer,
-                    'sources': self._format_sources(template_docs),
-                    'confidence': 'high',
-                    'documents_searched': len(documents),
-                    'rag_type': 'template_request'
-                }
-            else:
-                # GPT generates response about found documents even if not templates
-                prompt = f"""The user asked: {question}
-
-We found {len(documents)} documents but they don't appear to be templates/forms. Please provide a helpful response suggesting:
-1. What we found instead
-2. Alternative sources for templates like Engineering New Zealand or MBIE
-3. Suggestions for finding the specific templates they need"""
-                
-                answer = await self._generate_natural_answer(prompt, documents[:3], "related documents")
-                
-                return {
-                    'answer': answer,
-                    'sources': self._format_sources(documents[:3]),
-                    'confidence': 'medium',
-                    'documents_searched': len(documents),
-                    'rag_type': 'template_request'
-                }
+- Present the information in a helpful, organized way
+- Make it clear users can access documents through the provided SuiteFiles links"""
+            
+            answer = await self._generate_project_answer_with_links(prompt, context_with_links)
+            
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high',
+                'documents_searched': len(documents),
+                'rag_type': 'template_request'
+            }
         else:
-            # GPT generates helpful response even when no documents found
-            prompt = f"""The user asked: {question}
+            # No documents found - provide helpful guidance
+            prompt = f"""User asked: {question}
 
-No relevant documents were found in our SuiteFiles database. Please provide a helpful response that:
-1. Acknowledges we couldn't find the templates in SuiteFiles
+No documents were found in our Azure search index for this query.
+
+Provide a helpful response that:
+1. Acknowledges we couldn't find documents in our database
 2. Suggests official alternative sources:
    - Engineering New Zealand (ENZ) for official Producer Statement templates
    - MBIE website for government-approved building templates
    - Local council websites for council-specific formats
-3. Explains what the template is typically used for (if it's a PS1, PS3, etc.)
-4. Maintains a helpful, professional tone
-
-Focus on providing genuine value even without internal documents."""
+3. Explains what the template/document is typically used for
+4. Maintains a helpful, professional tone"""
             
-            # Use GPT even with no documents - it can still provide valuable guidance
             answer = await self._generate_natural_answer(prompt, [], "external sources")
             
             return {
@@ -914,11 +960,38 @@ Answer:"""
         return " | ".join(contact_info) if contact_info else "Contact details not found"
     
     def _is_template_document(self, doc: Dict) -> bool:
-        """Check if document is actually a template/form"""
+        """Check if document is actually a template/form by examining both filename and content"""
         filename = doc.get('filename', '').lower()
-        template_keywords = ['template', 'form', 'ps1', 'ps2', 'ps3', 'ps4', 'calculation', 'spreadsheet']
+        content = doc.get('content', '').lower()
         
-        return any(keyword in filename for keyword in template_keywords)
+        # Primary template keywords - strong indicators
+        primary_keywords = ['template', 'blank template', 'form template', 'ps1', 'ps2', 'ps3', 'ps4']
+        
+        # Secondary template keywords - weaker indicators but still relevant
+        secondary_keywords = ['calculation', 'spreadsheet', 'form', 'blank form', 'empty form', 'standard form']
+        
+        # Exclude completed project documents
+        exclude_keywords = ['project no.', 'job no.', 'client:', 'project:', 'completed', 'signed', 'submitted']
+        
+        # Check if it's clearly an excluded document (completed project)
+        if any(keyword in content for keyword in exclude_keywords):
+            return False
+        
+        # Strong match - filename or content contains primary template keywords
+        if any(keyword in filename for keyword in primary_keywords):
+            return True
+            
+        if any(keyword in content for keyword in primary_keywords):
+            return True
+        
+        # Weaker match - check secondary keywords but be more strict
+        if any(keyword in filename for keyword in secondary_keywords):
+            # Additional check to ensure it's actually a template
+            template_indicators = ['blank', 'template', 'standard', 'format', 'example']
+            if any(indicator in filename or indicator in content for indicator in template_indicators):
+                return True
+        
+        return False
     
     def _extract_technical_keywords(self, question: str) -> List[str]:
         """Extract technical keywords for external searches"""
@@ -1345,17 +1418,81 @@ Answer:"""
         return found_keywords[:5]  # Limit to 5 keywords
     
     async def _handle_general_query(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
-        """Handle general queries that don't match specific RAG patterns."""
-        # If no specific RAG pattern is found, return general_query type
-        # The DocumentQAService will handle this as a "no pattern match"
+        """Handle general queries by searching the user's question directly in Azure index."""
+        logger.info("Processing general query", question=question)
         
-        return {
-            'answer': "No specific RAG pattern matched",
-            'sources': [],
-            'confidence': 'low',
-            'documents_searched': 0,
-            'rag_type': 'general_query'
-        }
+        # Search the user's question directly in Azure index (word by word OR query)
+        # Extract meaningful words from the question for search
+        search_words = [word.strip() for word in question.split() if len(word.strip()) > 2]
+        search_query = ' OR '.join(search_words)
+        
+        # Search all document types
+        documents = await self._search_documents(search_query, project_filter)
+        
+        if documents:
+            # Prepare document context WITH SuiteFiles links
+            document_details = []
+            for doc in documents[:10]:  # Get top 10 results
+                filename = doc.get('filename', 'Unknown')
+                content = doc.get('content', '')
+                blob_url = doc.get('blob_url', '')
+                suitefiles_link = self._get_safe_suitefiles_url(blob_url)
+                
+                doc_info = f"**Document: {filename}**\n"
+                if suitefiles_link and suitefiles_link != "Document available in SuiteFiles":
+                    doc_info += f"SuiteFiles Link: {suitefiles_link}\n"
+                doc_info += f"Content: {content[:800]}..."
+                document_details.append(doc_info)
+            
+            context_with_links = "\n\n".join(document_details)
+            
+            # Let GPT format the results based on user's intent
+            prompt = f"""User asked: {question}
+
+Documents found in Azure search index:
+{context_with_links}
+
+Instructions:
+- Provide a comprehensive answer based on the documents found
+- INCLUDE the SuiteFiles links provided above for relevant documents
+- Format the response based on the user's question intent
+- Present the information in a helpful, organized way
+- Make it clear users can access documents through the provided SuiteFiles links
+- If the question is about templates/forms, prioritize documents that appear to be templates
+- If the question is about past projects, organize by project when possible
+- If the question is about products/materials, include specifications and supplier info
+- Focus on practical engineering guidance for New Zealand conditions"""
+            
+            answer = await self._generate_project_answer_with_links(prompt, context_with_links)
+            
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high',
+                'documents_searched': len(documents),
+                'rag_type': 'general_query_with_results'
+            }
+        else:
+            # No documents found - provide helpful guidance
+            prompt = f"""User asked: {question}
+
+No documents were found in our Azure search index for this query.
+
+Provide a helpful response that:
+1. Acknowledges we couldn't find specific documents for this question
+2. Suggests alternative approaches or external resources if relevant
+3. Maintains a helpful, professional tone
+4. If it's an engineering question, provide general guidance based on New Zealand engineering practices"""
+            
+            answer = await self._generate_natural_answer(prompt, [], "general guidance")
+            
+            return {
+                'answer': answer,
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'rag_type': 'general_query_no_results'
+            }
     
     # Update placeholder methods to use natural language generation
     async def _handle_online_references(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
