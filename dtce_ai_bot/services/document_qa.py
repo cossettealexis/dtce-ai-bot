@@ -590,9 +590,52 @@ What would you like to know?""",
     async def _handle_contact_lookup(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
         """Handle contact and contractor lookup queries."""
         topic = intent.get('topic', '')
+        question = intent.get('original_question', '')
         logger.info("Handling contact lookup", topic=topic)
         
-        # Search for contractor/contact information
+        # Enhanced search for builder/contractor performance queries
+        if any(term in question.lower() for term in ['builder', 'contractor', 'construction', 'built', 'constructed']):
+            # Search specifically for builder/contractor documents and project reports
+            search_queries = [
+                f"builder contractor construction {topic}",
+                "PS3 construction main contractor",
+                "builders contact detail",
+                "contractor performance construction",
+                "construction issues problems",
+                f"steel structure retrofit {topic}" if 'steel' in question.lower() else f"retrofit {topic}",
+                "project completion construction quality"
+            ]
+            
+            all_documents = []
+            for query in search_queries:
+                docs = self._search_relevant_documents(query, project_filter)
+                all_documents.extend(docs)
+            
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_documents = []
+            for doc in all_documents:
+                doc_id = doc.get('id', '') or doc.get('filename', '')
+                if doc_id not in seen:
+                    seen.add(doc_id)
+                    unique_documents.append(doc)
+            
+            if unique_documents:
+                # Use intelligent answer generation for builder performance queries
+                answer = await self._generate_intelligent_natural_answer(
+                    question,
+                    unique_documents[:15],  # Limit to top 15 most relevant
+                    intent
+                )
+                return {
+                    'answer': answer,
+                    'sources': self._format_sources_intelligent(unique_documents),
+                    'confidence': 'high' if len(unique_documents) >= 5 else 'medium',
+                    'documents_searched': len(unique_documents),
+                    'search_type': 'contractor_performance_lookup'
+                }
+        
+        # Fallback to general contact search
         search_query = f"contractor builder client contact {topic}"
         documents = self._search_relevant_documents(search_query, project_filter)
         
@@ -610,7 +653,7 @@ What would you like to know?""",
             }
         else:
             return {
-                'answer': f"I couldn't find contact information related to '{topic}'. Check the project folders in SuiteFiles or contact the project manager directly.",
+                'answer': f"I couldn't find specific contractor or builder information for '{topic}'. For builder recommendations and contact details, check:\n• Project folders in SuiteFiles for past construction records\n• 'Builders contact detail' files\n• PS3 construction contractor documents\n• Project completion reports for performance feedback",
                 'sources': [],
                 'confidence': 'low',
                 'documents_searched': 0,
@@ -8169,15 +8212,15 @@ Context from DTCE documents:
 {context}
 
 CRITICAL INSTRUCTIONS:
-- Provide a natural, conversational answer
-- WHEN you reference a document, COPY the exact SuiteFiles link from the context above
-- The context already contains clickable links like [📂 Access this document in SuiteFiles](url)
-- INCLUDE these exact links when mentioning documents
-- Example: "The document 'filename.pdf' [📂 Access this document in SuiteFiles](url) shows that..."
-- NEVER create or mention URLs unless they are explicitly provided in the context above
-- If information is partial or missing, be honest about limitations
-- Focus on practical engineering guidance based on available information
-- Keep response professional but approachable
+- Provide a natural, conversational answer that directly addresses the user's specific question
+- WHEN you reference a document, ALWAYS include the exact clickable link from the context above
+- The context contains clickable links like [📂 Access this document in SuiteFiles](url) - USE THESE EXACTLY
+- EXAMPLE: "The document 'Builders contact detail.txt' [📂 Access this document in SuiteFiles](url) contains specific contact information..."
+- If asked about builders/contractors: provide SPECIFIC company names, contact details, and performance assessments when available
+- If asked about project history: focus on relevant past projects with similar scope
+- If information is missing: be specific about what's not available and suggest where to find it
+- NEVER mention documents without providing their clickable SuiteFiles links
+- Keep response professional but practical and actionable
 
 Answer:"""
 
