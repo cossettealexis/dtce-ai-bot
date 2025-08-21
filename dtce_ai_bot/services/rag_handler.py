@@ -86,18 +86,26 @@ class RAGHandler:
                     
                     # Extract project information from blob_url or fallback to filename
                     project_name = self._extract_project_name_from_blob_url(blob_url)
-                    if project_name == "Unknown Project":
+                    if not project_name:
                         # Try to extract from filename if available
                         project_from_filename = self._extract_project_from_filename(filename_for_project)
-                        if project_from_filename != "Unknown Project":
+                        if project_from_filename:
                             project_name = project_from_filename
                     
                     suitefiles_link = self._get_safe_suitefiles_url(blob_url)
                     
                     # Format document information in structured way for GPT
-                    doc_result = f"""📄 **DOCUMENT FOUND:**
+                    if project_name:
+                        doc_result = f"""📄 **DOCUMENT FOUND:**
 - **File Name:** {filename}
 - **Project:** {project_name}
+- **SuiteFiles Link:** {suitefiles_link}
+- **Content Preview:** {content[:800]}...
+
+"""
+                    else:
+                        doc_result = f"""📄 **DOCUMENT FOUND:**
+- **File Name:** {filename}
 - **SuiteFiles Link:** {suitefiles_link}
 - **Content Preview:** {content[:800]}...
 
@@ -131,13 +139,15 @@ Based on your determination, follow these linking guidelines:
    - Any credible online forums, studies, or publications you reference
 
 🔄 IF BOTH: Include both SuiteFiles links for relevant documents AND online links for general knowledge aspects
+❓ IF NEITHER/UNCLEAR: Provide both SuiteFiles links (if relevant documents found) AND general knowledge with online resources
 
 Your task is to:
-1. FIRST determine the user's intent (SuiteFiles, General, or Both)
+1. FIRST determine the user's intent (SuiteFiles, General, Both, or Neither/Unclear)
 2. Analyze the retrieved content I'm providing below from SuiteFiles
 3. Use the retrieved content to construct a helpful answer if relevant to the user's query
 4. If the retrieved documents are not sufficient, supplement with general knowledge and appropriate online resources
 5. Apply the correct linking strategy based on your intent determination
+6. If intent is unclear, provide comprehensive answer with both SuiteFiles links (if relevant) and online resources
 
 ℹ️ Reference Example (rag.txt)
 You may refer to the following example file — rag.txt — which contains example question-answer formats showing how the AI could respond to different structural engineering and project-related queries.
@@ -270,80 +280,61 @@ Example Combined Response:
         return suitefiles_url or "Document available in SuiteFiles"
     
     def _extract_project_name_from_blob_url(self, blob_url: str) -> str:
-        """Extract project name/number from blob URL path."""
+        """Extract project name/number from blob URL path - only if actually in Projects folder."""
         if not blob_url:
             logger.warning("No blob URL provided for project extraction")
-            return "Unknown Project"
+            return ""
         
         try:
             logger.info("Extracting project name from blob URL", blob_url=blob_url)
             
-            # Try different patterns that might exist in the blob URLs
-            patterns_to_try = [
-                "/dtce-documents/Projects/",
-                "/dtce-ai-documents/Projects/", 
-                "/Projects/",
-                "Projects/",
-                "/projects/",  # lowercase
-                "projects/"    # lowercase
-            ]
+            # Only look for "Projects" folder specifically - not other folders like Engineering, Templates, etc.
+            import re
             
-            path_part = None
-            matched_pattern = None
-            for pattern in patterns_to_try:
-                if pattern in blob_url:
-                    path_part = blob_url.split(pattern)[1]
-                    matched_pattern = pattern
-                    logger.info(f"Found pattern '{pattern}'", path_part=path_part, blob_url=blob_url)
-                    break
-            
-            if not path_part:
-                # Try regex patterns for more flexible matching
-                import re
-                # Look for any variation of Projects folder
-                match = re.search(r'/([Pp]rojects?)/(.+)', blob_url)
-                if match:
-                    path_part = match.group(2)
-                    matched_pattern = f"/{match.group(1)}/"
-                    logger.info(f"Found regex pattern '{matched_pattern}'", path_part=path_part, blob_url=blob_url)
-            
-            if path_part:
-                # Remove query parameters
-                if "?" in path_part:
-                    path_part = path_part.split("?")[0]
+            # Look for both "/Projects/" and "/Project/" folders (case insensitive) followed by project structure
+            projects_match = re.search(r'/Projects?/(.+)', blob_url, re.IGNORECASE)
+            if projects_match:
+                path_after_projects = projects_match.group(1)
                 
-                # Remove URL encoding
+                # Remove query parameters and URL encoding
+                if "?" in path_after_projects:
+                    path_after_projects = path_after_projects.split("?")[0]
+                
                 from urllib.parse import unquote
-                path_part = unquote(path_part)
+                path_after_projects = unquote(path_after_projects)
                 
-                logger.info("Clean path part", path_part=path_part)
+                logger.info("Found path after /Project(s)/", path_after_projects=path_after_projects)
                 
-                # Split path and get project info - typically 220/220294/... 
-                path_segments = [seg for seg in path_part.split('/') if seg]  # Filter out empty segments
-                logger.info("Path segments", segments=path_segments)
+                # Split path and look for project number patterns - typically 220/220294/... 
+                path_segments = [seg for seg in path_after_projects.split('/') if seg]
+                logger.info("Path segments after Project(s)", segments=path_segments)
                 
                 if len(path_segments) >= 2:
                     # Get project number (second segment, like "220294")
                     project_number = path_segments[1]
-                    logger.info("Extracted project number from second segment", project_number=project_number)
-                    return f"Project {project_number}"
+                    if project_number.isdigit() and len(project_number) >= 3:
+                        logger.info("Extracted project number from second segment", project_number=project_number)
+                        return f"Project {project_number}"
                 elif len(path_segments) >= 1:
-                    # Get first segment if available
+                    # Get first segment if it looks like a project number
                     project_number = path_segments[0]
-                    logger.info("Extracted project number from first segment", project_number=project_number)
-                    return f"Project {project_number}"
-            else:
-                logger.warning("No recognized project pattern found in blob URL", blob_url=blob_url)
+                    if project_number.isdigit() and len(project_number) >= 3:
+                        logger.info("Extracted project number from first segment", project_number=project_number)
+                        return f"Project {project_number}"
+            
+            # If we reach here, it's either not in Project(s) folder or doesn't have valid project structure
+            logger.info("Document not in Project(s) folder or no valid project structure found", blob_url=blob_url)
+            return ""  # Return empty string - not a project document
                     
         except Exception as e:
             logger.warning("Failed to extract project name from blob URL", error=str(e), blob_url=blob_url)
             
-        return "Unknown Project"
+        return ""  # Return empty string instead of "Unknown Project"
 
     def _extract_project_from_filename(self, filename: str) -> str:
         """Extract project number from filename if it contains project patterns."""
         if not filename:
-            return "Unknown Project"
+            return ""
         
         try:
             import re
