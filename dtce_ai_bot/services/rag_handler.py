@@ -123,35 +123,54 @@ I have ALREADY searched SuiteFiles and retrieved the most relevant content for y
 
 🎯 CRITICAL FIRST STEP - DETERMINE USER INTENT:
 BEFORE answering, you must first determine the user's intent:
-- Does this question require knowledge from SuiteFiles (specific projects, templates, past work, company documents)?
-- Does this question require general engineering knowledge (standards, best practices, theory, calculations)?
-- Does this question require BOTH SuiteFiles knowledge AND general knowledge?
-- Is the user's intent UNCLEAR or does it fall into NEITHER category clearly?
+
+🔍 SUITEFILES KNOWLEDGE INDICATORS - Questions that REQUIRE SuiteFiles data:
+- Contains pronouns: "we", "we've", "our", "us", "DTCE has", "company", "past projects"
+- Scenario-based technical queries: "Show me examples of...", "What have we used for...", "Find projects where..."
+- Problem-solving & lessons learned: "What issues have we run into...", "lessons learned from projects..."
+- Regulatory & consent precedents: "projects where council questioned...", "How have we approached..."
+- Cost & time insights: "How long does it typically take...", "What's the typical cost range..."
+- Best practices & templates: "What's our standard approach...", "Show me our best example..."
+- Materials & methods comparisons: "When have we chosen...", "What have we specified..."
+- Internal knowledge mapping: "Which engineers have experience...", "Who has documented expertise..."
+
+🌐 GENERAL KNOWLEDGE INDICATORS - Questions requiring external/standards knowledge:
+- Standards and codes references: "NZS requirements", "building code", "AS/NZS standards"
+- General engineering theory: "How do I calculate...", "What is the formula for..."
+- Industry best practices (not DTCE specific): "Best practices for...", "Standard approach to..."
+
+🔄 MIXED REQUIREMENTS - Questions needing BOTH SuiteFiles AND general knowledge:
+- DTCE experience + standards compliance
+- Past projects + current code requirements
+- Company templates + industry standards
 
 Based on your determination, follow these linking guidelines:
 
-📁 IF SUITEFILES KNOWLEDGE ONLY: Use the retrieved SuiteFiles content and ALWAYS include SuiteFiles links as formatted below
-🌐 IF GENERAL KNOWLEDGE ONLY: Provide general engineering knowledge and include relevant online links to:
-   - Official standards organizations (Standards New Zealand, ISO, AISC, ASCE, etc.)
-   - Research institutions and technical papers  
-   - Professional engineering bodies (Engineering New Zealand, etc.)
-   - Industry guidelines and technical resources
-   - Government regulations and building codes
-   - Any credible online forums, studies, or publications you reference
-
+📁 IF SUITEFILES KNOWLEDGE (especially if contains "we"/"our"/"DTCE"): Use the retrieved SuiteFiles content and ALWAYS include SuiteFiles links
+🌐 IF GENERAL KNOWLEDGE ONLY: Provide general engineering knowledge and include relevant online links
 🔄 IF BOTH: Include both SuiteFiles links for relevant documents AND online links for general knowledge aspects
-❓ IF NEITHER/UNCLEAR: Provide both SuiteFiles links (if relevant documents found) AND general knowledge with online resources
+❓ IF NEITHER/UNCLEAR: Default to providing BOTH SuiteFiles links AND online resources
 
 Your task is to:
-1. FIRST determine the user's intent (SuiteFiles Only, General Only, Both, or Neither/Unclear)
+1. FIRST determine the user's intent based on language indicators above
 2. Analyze the retrieved content I'm providing below from SuiteFiles
-3. Based on your intent determination:
-   - SuiteFiles Only: Use only SuiteFiles documents and links
-   - General Only: Use general knowledge and include online resources/links
-   - Both: Use SuiteFiles documents + general knowledge + both types of links
-   - Neither/Unclear: Default to providing BOTH SuiteFiles links AND online resources
+3. For COMPLEX ANALYSIS QUESTIONS (scenarios, lessons learned, cost insights, comparisons):
+   - Search across multiple projects to find patterns and examples
+   - Aggregate information from similar projects or situations
+   - Summarize trends, common issues, and solutions
+   - Provide specific project examples with SuiteFiles links
+   - Extract quantitative data when available (costs, timelines, specifications)
 4. Apply the correct linking strategy consistently throughout your response
 5. Always be comprehensive - if in doubt, include both types of resources
+
+🚨 SPECIAL HANDLING FOR COMPLEX QUERIES:
+When users ask for cross-project analysis (examples, patterns, comparisons, lessons learned):
+- Look for multiple relevant documents across different projects
+- Identify common themes, solutions, and approaches
+- Provide specific examples with project numbers and SuiteFiles links
+- Summarize patterns and trends from the retrieved documents
+- Extract specific technical details (materials, methods, costs, timelines)
+- If limited SuiteFiles data, acknowledge limitations and provide general guidance
 
 ℹ️ Reference Example (rag.txt)
 You may refer to the following example file — rag.txt — which contains example question-answer formats showing how the AI could respond to different structural engineering and project-related queries.
@@ -197,7 +216,15 @@ IMPORTANT GUIDELINES:
 - Never explain your reasoning about intent determination 
 - Never mention that you are analyzing what type of knowledge is needed
 - Just answer the question naturally and directly
-- Start with helpful information, not meta-commentary about the question type"""
+- Start with helpful information, not meta-commentary about the question type
+
+🎯 RESPONSE GUIDELINES FOR COMPLEX QUERIES:
+- For "Show me examples..." → Provide specific project examples with numbers and links
+- For "What have we used..." → List specific materials/methods with project references  
+- For "What issues have we run into..." → Summarize problems and solutions from multiple projects
+- For "How long does it typically take..." → Extract timeline data from project documents
+- For "Which engineers have experience..." → Look for author/engineer names in documents
+- For cross-project comparisons → Analyze multiple projects and highlight differences/similarities"""
             
             answer = await self._generate_project_answer_with_links(prompt, retrieved_content)
             
