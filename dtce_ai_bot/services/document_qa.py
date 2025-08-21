@@ -480,48 +480,140 @@ Respond with ONLY a JSON object:
     async def _handle_template_request(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
         """Handle design template and form requests."""
         topic = intent.get('topic', '')
+        question = intent.get('question', '')
         logger.info("Handling template request", topic=topic)
         
-        # Search for templates, spreadsheets, forms
-        search_query = f"template calculation spreadsheet form PS1 PS3 {topic}"
-        documents = self._search_relevant_documents(search_query, project_filter)
+        # Search for templates using improved logic
+        template_docs = self._search_template_documents(question, topic)
         
-        if documents:
-            # Filter for likely templates (Excel files, forms, etc.)
-            template_docs = [doc for doc in documents if any(ext in doc.get('filename', '').lower() 
-                           for ext in ['.xlsx', '.xls', '.pdf', 'template', 'form', 'ps1', 'ps3'])]
+        if template_docs:
+            # Check if we found actual blank templates vs completed forms
+            blank_templates = [doc for doc in template_docs if doc.get('is_blank_template', False)]
+            completed_forms = [doc for doc in template_docs if doc.get('is_completed_project', False)]
             
-            if template_docs:
-                answer = f"Here are the design templates and forms related to '{topic}':\n\n"
-                for i, doc in enumerate(template_docs[:8], 1):
+            if blank_templates:
+                # We found actual blank templates - great!
+                answer = f"✅ **Found blank templates for '{topic}':**\n\n"
+                for i, doc in enumerate(blank_templates[:6], 1):
                     filename = doc.get('filename', 'Unknown')
                     answer += f"{i}. **{filename}**\n"
                     if doc.get('blob_url'):
                         safe_url = self._get_safe_suitefiles_url(doc['blob_url'])
-                        answer += f"   📄 [Download]({safe_url})\n\n"
+                        answer += f"   📄 [Download from SuiteFiles]({safe_url})\n\n"
                 
                 return {
                     'answer': answer,
-                    'sources': self._format_sources(template_docs),
+                    'sources': self._format_sources(blank_templates),
                     'confidence': 'high',
-                    'documents_searched': len(documents),
-                    'search_type': 'template_request'
+                    'documents_searched': len(template_docs),
+                    'search_type': 'template_request_blank_found'
+                }
+                
+            elif completed_forms and any(ps in topic.lower() for ps in ['ps1', 'ps3', 'ps4', 'producer']):
+                # We found completed forms but no blank templates for Producer Statements
+                # Provide external guidance instead
+                ps_type = 'PS3' if 'ps3' in topic.lower() else 'PS1' if 'ps1' in topic.lower() else 'PS4' if 'ps4' in topic.lower() else 'Producer Statement'
+                
+                answer = f"🔍 **I found completed {ps_type} forms from past projects, but no blank templates in SuiteFiles.**\n\n"
+                answer += f"For a blank {ps_type} template that you can fill out yourself, I recommend these official sources:\n\n"
+                
+                # Add specific guidance based on PS type
+                if 'ps3' in topic.lower():
+                    answer += """🔗 **Official PS3 Template Sources:**
+• **MBIE Official PS3 Form**: [Download blank PS3 template](https://www.building.govt.nz/assets/Uploads/building-code-compliance/producer-statements/ps3-construction-review-producer-statement.pdf)
+• **Engineering NZ Resources**: [PS3 guidance and templates](https://www.engineeringnz.org/our-work/advocacy/building-system-reform/producer-statements/)
+
+📝 **What is PS3?**
+• Construction review producer statement
+• Used to verify construction complies with consent documentation
+• Must be completed by qualified professional
+• Accepted by all New Zealand councils when properly filled out"""
+
+                elif 'ps1' in topic.lower():
+                    answer += """🔗 **Official PS1 Template Sources:**
+• **MBIE Official PS1 Form**: [Download blank PS1 template](https://www.building.govt.nz/assets/Uploads/building-code-compliance/producer-statements/ps1-design-producer-statement.pdf)
+• **Engineering NZ Resources**: [PS1 guidance and templates](https://www.engineeringnz.org/our-work/advocacy/building-system-reform/producer-statements/)
+
+📝 **What is PS1?**
+• Design producer statement
+• Certifies structural design compliance with building codes
+• Must be completed by Chartered Professional Engineer (CPEng)
+• Required for building consent applications"""
+
+                elif 'ps4' in topic.lower():
+                    answer += """🔗 **Official PS4 Template Sources:**
+• **MBIE Official PS4 Form**: [Download blank PS4 template](https://www.building.govt.nz/assets/Uploads/building-code-compliance/producer-statements/ps4-construction-producer-statement.pdf)
+• **Engineering NZ Resources**: [PS4 guidance and templates](https://www.engineeringnz.org/our-work/advocacy/building-system-reform/producer-statements/)
+
+📝 **What is PS4?**
+• Construction completion producer statement
+• Certifies construction complies with consent and design
+• Must be completed by qualified professional
+• Used for building completion certification"""
+
+                else:
+                    answer += """🔗 **Official Producer Statement Templates:**
+• **MBIE Building Website**: [All Producer Statement forms](https://www.building.govt.nz/building-code-compliance/producer-statements/)
+• **Engineering NZ**: [Professional guidance and templates](https://www.engineeringnz.org/our-work/advocacy/building-system-reform/producer-statements/)"""
+
+                answer += f"\n\n📁 **SuiteFiles Note:** The documents I found appear to be completed forms from past projects rather than blank templates. For your reference, here are some completed examples:\n\n"
+                
+                for i, doc in enumerate(completed_forms[:3], 1):
+                    filename = doc.get('filename', 'Unknown')
+                    answer += f"{i}. {filename} (completed project example)\n"
+                    if doc.get('blob_url'):
+                        safe_url = self._get_safe_suitefiles_url(doc['blob_url'])
+                        answer += f"   📄 [View example in SuiteFiles]({safe_url})\n"
+                
+                return {
+                    'answer': answer,
+                    'sources': self._format_sources(completed_forms[:3]),
+                    'confidence': 'high',
+                    'documents_searched': len(template_docs),
+                    'search_type': 'template_request_external_guidance'
                 }
             else:
+                # Found some other documents but not clear templates
+                answer = f"📄 **Found documents related to '{topic}' but no clear blank templates:**\n\n"
+                for i, doc in enumerate(template_docs[:5], 1):
+                    filename = doc.get('filename', 'Unknown')
+                    answer += f"{i}. **{filename}**\n"
+                    if doc.get('blob_url'):
+                        safe_url = self._get_safe_suitefiles_url(doc['blob_url'])
+                        answer += f"   📄 [View in SuiteFiles]({safe_url})\n\n"
+                
+                answer += "\n💡 **Suggestions:**\n• Check the Templates or Resources folders in SuiteFiles directly\n• Contact your project manager for DTCE-specific templates\n• Try searching for the specific template name"
+                
                 return {
-                    'answer': f"I found documents related to '{topic}' but no specific templates or forms. You might need to check the Templates folder in SuiteFiles directly.",
-                    'sources': self._format_sources(documents[:3]),
+                    'answer': answer,
+                    'sources': self._format_sources(template_docs[:5]),
                     'confidence': 'medium',
-                    'documents_searched': len(documents),
-                    'search_type': 'template_request_no_templates'
+                    'documents_searched': len(template_docs),
+                    'search_type': 'template_request_unclear_results'
                 }
         else:
+            # No documents found at all - provide guidance based on template type
+            if any(ps in topic.lower() for ps in ['ps1', 'ps3', 'ps4', 'producer']):
+                # Generate specific guidance for Producer Statements
+                answer = self._generate_template_guidance(topic, question.lower())
+                search_type = 'template_request_external_guidance'
+                confidence = 'high'
+            else:
+                answer = f"❌ **No templates found for '{topic}' in SuiteFiles.**\n\n"
+                answer += "💡 **Suggestions:**\n"
+                answer += "• Check the Templates, Resources, or Design folders in SuiteFiles\n"
+                answer += "• Contact your project manager for DTCE-specific templates\n"
+                answer += "• Try searching with different keywords\n"
+                answer += "• Ask a colleague who has worked on similar projects"
+                search_type = 'template_request_no_results'
+                confidence = 'low'
+            
             return {
-                'answer': f"I couldn't find templates or forms for '{topic}'. Check the Templates and Resources folders in SuiteFiles, or contact the team for custom templates.",
+                'answer': answer,
                 'sources': [],
-                'confidence': 'low',
+                'confidence': confidence,
                 'documents_searched': 0,
-                'search_type': 'template_request_no_results'
+                'search_type': search_type
             }
     
     async def _handle_general_engineering_search(self, intent: Dict[str, Any], project_filter: Optional[str] = None) -> Dict[str, Any]:
@@ -6207,41 +6299,41 @@ Would you like me to search for specific templates or documents that might help?
             return 'UNKNOWN'
 
     def _search_template_documents(self, question: str, template_type: str) -> List[Dict]:
-        """Search for template documents in SuiteFiles using comprehensive approach."""
+        """Search for template documents in SuiteFiles, prioritizing blank/fillable templates."""
         
         question_lower = question.lower()
         template_docs = []
+        blank_templates = []  # Priority for actual blank templates
         
         # Build comprehensive search terms based on the question content
         search_terms = []
         
-        # Specific template type searches
+        # Specific template type searches with template-focused terms
         if any(word in question_lower for word in ['ps1', 'producer statement 1']):
-            search_terms.extend(['PS1', 'producer statement 1', 'producer statement', 'PS-1'])
+            search_terms.extend(['PS1 template', 'PS1 blank', 'producer statement 1 template', 'PS-1 form'])
         elif any(word in question_lower for word in ['ps3', 'producer statement 3']):
-            search_terms.extend(['PS3', 'producer statement 3', 'producer statement', 'PS-3'])
+            search_terms.extend(['PS3 template', 'PS3 blank', 'producer statement 3 template', 'PS-3 form'])
         elif any(word in question_lower for word in ['ps4', 'producer statement 4']):
-            search_terms.extend(['PS4', 'producer statement 4', 'producer statement', 'PS-4'])
+            search_terms.extend(['PS4 template', 'PS4 blank', 'producer statement 4 template', 'PS-4 form'])
         elif any(word in question_lower for word in ['timber', 'beam', 'design']):
-            search_terms.extend(['timber beam', 'beam design', 'timber design', 'structural design', 'beam calculator'])
+            search_terms.extend(['timber beam template', 'beam design template', 'timber design spreadsheet', 'beam calculator'])
         elif any(word in question_lower for word in ['calculation', 'calc']):
-            search_terms.extend(['calculation', 'design calc', 'structural calc', 'engineering calc'])
+            search_terms.extend(['calculation template', 'design calculator', 'structural calc template'])
         elif any(word in question_lower for word in ['report', 'assessment']):
-            search_terms.extend(['report template', 'assessment template', 'engineering report'])
+            search_terms.extend(['report template', 'assessment template', 'engineering report template'])
         
         # Add generic template terms
         if 'template' in question_lower:
-            search_terms.append('template')
+            search_terms.extend(['template', 'blank template', 'standard template'])
         if 'spreadsheet' in question_lower:
-            search_terms.extend(['spreadsheet', 'calculator', 'design tool'])
+            search_terms.extend(['spreadsheet template', 'calculator', 'design tool'])
         if 'form' in question_lower:
-            search_terms.append('form')
+            search_terms.extend(['form template', 'blank form'])
         
-        # If no specific terms found, extract key words from question
+        # If no specific terms found, extract key words from question with template focus
         if not search_terms:
-            # Extract meaningful words from the question
             words = [word for word in question_lower.split() if len(word) > 3 and word not in ['the', 'for', 'that', 'with', 'have', 'uses', 'used']]
-            search_terms.extend(words[:3])  # Use top 3 meaningful words
+            search_terms.extend([f"{word} template" for word in words[:2]])  # Add "template" to key words
         
         logger.info(f"Template search terms: {search_terms}")
         
@@ -6253,7 +6345,7 @@ Would you like me to search for specific templates or documents that might help?
                     response = self.search_client.search(
                         search_text=search_term,
                         search_fields=["filename", "content"],
-                        top=15,
+                        top=20,
                         query_type=query_type
                     )
                     
@@ -6261,36 +6353,65 @@ Would you like me to search for specific templates or documents that might help?
                         doc_dict = dict(result)
                         filename = (doc_dict.get('filename') or '').lower()
                         content = (doc_dict.get('content') or '').lower()
+                        project_id = doc_dict.get('project_id', '')
                         
-                        # More flexible filtering for useful documents
-                        is_useful_doc = (
-                            # File type check - include more types
-                            any(ext in filename for ext in ['.doc', '.pdf', '.xls', '.xlsx', '.docx', '.ppt', '.pptx']) and
-                            # Exclude emails and irrelevant files
-                            not any(bad in filename for bad in ['.msg', 'email', 're:', 'fwd:', 'unknown']) and
-                            # Include if it has template-like content or relevant keywords
-                            (
-                                any(keyword in filename for keyword in ['template', 'form', 'blank', 'standard', 'example']) or
-                                any(keyword in content[:500] for keyword in search_terms[:2]) or  # Check if search terms appear in content
-                                (len(filename) > 5 and any(word in filename for word in search_terms[:2]))
-                            )
+                        # Check if this is actually a blank template vs completed form
+                        is_blank_template = any(keyword in filename for keyword in [
+                            'template', 'blank', 'form', 'standard', 'generic', 'general', 'master', 'base'
+                        ])
+                        
+                        # Exclude completed project documents
+                        is_completed_project = (
+                            # Has specific project numbers/codes
+                            bool(project_id and project_id.strip()) or
+                            # Contains project-specific references
+                            any(pattern in filename for pattern in [
+                                'sr424', 'sr425', 'wcc', 'acc', 'chc', '-', 'project ', 'job ', 'ltd', 'limited'
+                            ]) or
+                            # Contains filled-in content indicators
+                            any(indicator in content[:1000] for indicator in [
+                                'signed by', 'certified', 'completed by', 'date completed'
+                            ])
                         )
                         
-                        if is_useful_doc and doc_dict not in template_docs:
-                            # Add search relevance score
+                        # Score document type priority
+                        is_good_file_type = any(ext in filename for ext in ['.doc', '.pdf', '.xls', '.xlsx', '.docx', '.ppt', '.pptx'])
+                        is_bad_file = any(bad in filename for bad in ['.msg', 'email', 're:', 'fwd:', 'unknown'])
+                        has_relevant_content = any(keyword in content[:500] for keyword in search_terms[:2])
+                        
+                        if is_good_file_type and not is_bad_file:
                             doc_dict['search_relevance'] = result.get('@search.score', 0)
-                            template_docs.append(doc_dict)
+                            doc_dict['is_blank_template'] = is_blank_template
+                            doc_dict['is_completed_project'] = is_completed_project
                             
-                    if len(template_docs) >= 10:  # Stop if we have enough results
+                            # Prioritize blank templates
+                            if is_blank_template and not is_completed_project:
+                                if doc_dict not in blank_templates:
+                                    blank_templates.append(doc_dict)
+                            elif not is_completed_project and has_relevant_content:
+                                # Secondary priority for potentially useful documents
+                                if doc_dict not in template_docs:
+                                    template_docs.append(doc_dict)
+                            elif is_completed_project and len(blank_templates) == 0 and len(template_docs) < 3:
+                                # Only include completed forms as last resort if no templates found
+                                if doc_dict not in template_docs:
+                                    template_docs.append(doc_dict)
+                            
+                    if len(blank_templates) >= 5:  # Stop if we have enough blank templates
                         break
                         
             except Exception as e:
                 logger.warning(f"Search term '{search_term}' failed: {e}")
                 continue
-                
-        # Sort by relevance score and return top results
-        template_docs.sort(key=lambda x: x.get('search_relevance', 0), reverse=True)
-        return template_docs[:8]  # Return top 8 most relevant
+        
+        # Combine results: blank templates first, then other documents
+        all_results = blank_templates + template_docs
+        
+        # Sort by relevance score and template priority
+        all_results.sort(key=lambda x: (x.get('is_blank_template', False), x.get('search_relevance', 0)), reverse=True)
+        
+        logger.info(f"Found {len(blank_templates)} blank templates, {len(template_docs)} other documents")
+        return all_results[:8]  # Return top 8 most relevant
     
     async def _search_ps1_templates(self) -> List[Dict]:
         """Specific search for PS1 templates with fallback guidance."""
