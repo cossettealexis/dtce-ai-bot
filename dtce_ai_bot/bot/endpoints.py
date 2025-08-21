@@ -155,11 +155,17 @@ async def messages_endpoint(request: Request):
         
         # Process activity with adapter
         try:
+            # TEMPORARILY BYPASS AUTH for debugging - this will be removed
+            if not auth_header.startswith("Bearer "):
+                logger.warning("No proper auth header - this is for debugging only")
+                return {"status": "error", "message": "Authentication required"}
+            
             await ADAPTER.process_activity(activity, auth_header, call_bot)
             logger.info("Activity processed successfully")
             return {"status": "ok"}
         except Exception as e:
             logger.error(f"Adapter processing failed: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
             # Return 200 but log the error - Teams expects 200 for most errors
             return {"status": "error", "message": str(e)}
         
@@ -167,6 +173,7 @@ async def messages_endpoint(request: Request):
         raise
     except Exception as e:
         logger.error(f"Unexpected error in messages endpoint: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
         # Return 200 to prevent 502 errors in Teams
         return {"status": "error", "message": "Internal server error"}
 
