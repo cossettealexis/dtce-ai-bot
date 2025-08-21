@@ -69,16 +69,29 @@ class RAGHandler:
                                doc.get('blobUrl') or 
                                doc.get('url') or 
                                doc.get('source_url') or 
-                               doc.get('metadata_storage_path') or '')
+                               doc.get('metadata_storage_path') or 
+                               doc.get('metadata_storage_name') or
+                               doc.get('sourcePage') or
+                               doc.get('source') or '')
+                    
+                    # Also try to extract project from filename if blob_url fails
+                    filename_for_project = filename if filename else ''
                     
                     # Debug logging to see what we're getting
                     logger.info("Document fields for project extraction", 
                                filename=filename,
                                blob_url=blob_url,
-                               doc_keys=list(doc.keys()))
+                               doc_keys=list(doc.keys()),
+                               all_doc_values={k: str(v)[:200] for k, v in doc.items()})  # Truncate long values
                     
-                    # Extract project information from blob_url
+                    # Extract project information from blob_url or fallback to filename
                     project_name = self._extract_project_name_from_blob_url(blob_url)
+                    if project_name == "Unknown Project":
+                        # Try to extract from filename if available
+                        project_from_filename = self._extract_project_from_filename(filename_for_project)
+                        if project_from_filename != "Unknown Project":
+                            project_name = project_from_filename
+                    
                     suitefiles_link = self._get_safe_suitefiles_url(blob_url)
                     
                     # Format document information in structured way for GPT
@@ -239,15 +252,29 @@ Example:
                 "/dtce-documents/Projects/",
                 "/dtce-ai-documents/Projects/", 
                 "/Projects/",
-                "Projects/"
+                "Projects/",
+                "/projects/",  # lowercase
+                "projects/"    # lowercase
             ]
             
             path_part = None
+            matched_pattern = None
             for pattern in patterns_to_try:
                 if pattern in blob_url:
                     path_part = blob_url.split(pattern)[1]
-                    logger.info(f"Found pattern '{pattern}'", path_part=path_part)
+                    matched_pattern = pattern
+                    logger.info(f"Found pattern '{pattern}'", path_part=path_part, blob_url=blob_url)
                     break
+            
+            if not path_part:
+                # Try regex patterns for more flexible matching
+                import re
+                # Look for any variation of Projects folder
+                match = re.search(r'/([Pp]rojects?)/(.+)', blob_url)
+                if match:
+                    path_part = match.group(2)
+                    matched_pattern = f"/{match.group(1)}/"
+                    logger.info(f"Found regex pattern '{matched_pattern}'", path_part=path_part, blob_url=blob_url)
             
             if path_part:
                 # Remove query parameters
@@ -281,6 +308,31 @@ Example:
             logger.warning("Failed to extract project name from blob URL", error=str(e), blob_url=blob_url)
             
         return "Unknown Project"
+
+    def _extract_project_from_filename(self, filename: str) -> str:
+        """Extract project number from filename if it contains project patterns."""
+        if not filename:
+            return "Unknown Project"
+        
+        try:
+            import re
+            # Look for patterns like: 220294, P-220294, Project220294, etc.
+            patterns = [
+                r'(?:^|[^0-9])([2-3][0-9]{5})(?:[^0-9]|$)',  # 6-digit project numbers starting with 2 or 3
+                r'P-([2-3][0-9]{5})',  # P-220294 format
+                r'Project\s*([2-3][0-9]{5})',  # Project 220294 format
+                r'([2-3][0-9]{4})',  # 5-digit project numbers
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, filename, re.IGNORECASE)
+                if match:
+                    project_number = match.group(1)
+                    logger.info("Extracted project from filename", filename=filename, project_number=project_number)
+                    return f"Project {project_number}"
+                    
+        except Exception as e:
+            logger.warning("Failed to extract project from filename", filename=filename, error=str(e))
             
         return "Unknown Project"
     
@@ -326,15 +378,12 @@ Example:
             return None
         
         try:
-            logger.info("Converting blob URL to SuiteFiles", blob_url=blob_url)
+            logger.info("Converting blob URL to SuiteFiles SharePoint URL", blob_url=blob_url)
             
             # Extract path from blob URL - handle different patterns
             path_part = None
             
-            if "/dtce-ai-documents/" in blob_url:
-                path_part = blob_url.split("/dtce-ai-documents/")[1]
-                logger.info("Found dtce-ai-documents in URL", path_part=path_part)
-            elif "/dtce-documents/" in blob_url:
+            if "/dtce-documents/" in blob_url:
                 path_part = blob_url.split("/dtce-documents/")[1]
                 logger.info("Found dtce-documents in URL", path_part=path_part)
             
@@ -343,14 +392,18 @@ Example:
                 if "?" in path_part:
                     path_part = path_part.split("?")[0]
                 
-                # Build SuiteFiles URL with the EXACT path from blob
-                base_url = "https://dtce.suitefiles.com/suitefileswebdav/DTCE%20SuiteFiles"
+                # Remove URL encoding
+                from urllib.parse import unquote
+                path_part = unquote(path_part)
+                
+                # Build SharePoint URL - use the documents.aspx format
+                base_url = "https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#"
                 suitefiles_url = f"{base_url}/{path_part}"
                 
-                logger.info("Converted to SuiteFiles URL", suitefiles_url=suitefiles_url)
+                logger.info("Converted to SharePoint SuiteFiles URL", suitefiles_url=suitefiles_url)
                 return suitefiles_url
             else:
-                logger.warning("Could not find dtce-documents or dtce-ai-documents in blob URL", blob_url=blob_url)
+                logger.warning("Could not find dtce-documents in blob URL", blob_url=blob_url)
                 
         except Exception as e:
             logger.error("Failed to convert blob URL to SuiteFiles", error=str(e), blob_url=blob_url)
@@ -381,14 +434,37 @@ Example:
     async def _generate_project_answer_with_links(self, prompt: str, context: str) -> str:
         """Generate answer using GPT with project context and SuiteFiles links."""
         try:
+            # Enhanced system prompt that emphasizes proper formatting
+            system_prompt = """You are a helpful structural engineering AI assistant for DTCE. 
+
+IMPORTANT FORMATTING INSTRUCTIONS:
+- When referencing documents, use this EXACT format with proper line breaks:
+  
+  **Referenced Document:** [Document Name]
+  **Project:** [Project Name]  
+  **SuiteFiles Link:** [Full Clickable Link]
+
+- Always include complete, clickable SuiteFiles links
+- Use proper line breaks between sections
+- Ensure links are not truncated
+- Maintain professional formatting throughout
+
+Provide practical, accurate engineering guidance for New Zealand conditions using the retrieved documents below."""
+
+            # Construct the full prompt with context
+            full_prompt = f"""Based on the following retrieved documents, please answer the user's question:
+
+{context}
+
+User Question: {prompt}
+
+Please provide a comprehensive answer using the documents above, and include properly formatted document references with complete SuiteFiles links."""
+
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {
-                        "role": "system", 
-                        "content": "You are a helpful structural engineering AI assistant for DTCE. Provide practical, accurate engineering guidance for New Zealand conditions. Include SuiteFiles links when referencing specific documents."
-                    },
-                    {"role": "user", "content": prompt}
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": full_prompt}
                 ],
                 max_tokens=1500,
                 temperature=0.3
