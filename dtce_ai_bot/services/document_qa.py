@@ -8168,10 +8168,12 @@ Context from DTCE documents:
 CRITICAL INSTRUCTIONS:
 - Provide a natural, conversational answer
 - ONLY use information that is explicitly provided in the context above
-- WHEN referencing a document, ALWAYS include its SuiteFiles link provided in the context
+- WHEN referencing a document by filename, you MUST include its SuiteFiles link from the context
+- EXAMPLE: "From the document 'example.pdf' ([Access in SuiteFiles](suitefiles_link_here))"
 - NEVER create or invent project numbers, job numbers, or file names
 - NEVER create or mention URLs unless they are explicitly provided in the context
 - If a document filename is mentioned in context, you can reference it AND include its SuiteFiles link
+- If you mention a document but don't include its SuiteFiles link, that's an error
 - If information is partial or missing, be honest about limitations
 - Focus on practical engineering guidance based on available information
 - Keep response professional but approachable
@@ -8198,12 +8200,48 @@ Answer:"""
                 logger.warning("Blob URL detected in GPT response, removing it")
                 answer = re.sub(blob_url_pattern, "[Document available in SuiteFiles]", answer)
             
+            # POST-PROCESSING: Check if documents are mentioned without SuiteFiles links
+            answer = self._ensure_suitefiles_links_in_response(answer, documents)
+            
             return answer
             
         except Exception as e:
             logger.error("Failed to generate intelligent natural answer", error=str(e))
             return f"I found relevant documents but encountered an error generating a response. Please try rephrasing your question."
     
+    def _ensure_suitefiles_links_in_response(self, answer: str, documents: List[Dict]) -> str:
+        """Ensure that when documents are mentioned, SuiteFiles links are included"""
+        import re
+        
+        # Create a mapping of filenames to SuiteFiles URLs
+        doc_links = {}
+        for doc in documents:
+            filename = doc.get('filename', '')
+            if filename:
+                blob_url = doc.get('blob_url', '')
+                suitefiles_url = self._get_safe_suitefiles_url(blob_url)
+                # Store both with and without extension for matching
+                base_name = filename.replace('.pdf', '').replace('.docx', '').replace('.txt', '')
+                doc_links[filename.lower()] = suitefiles_url
+                doc_links[base_name.lower()] = suitefiles_url
+        
+        # Find document references in the response that don't have links
+        modified_answer = answer
+        for filename, suitefiles_url in doc_links.items():
+            # Look for mentions of the filename that aren't already linked
+            pattern = re.compile(rf'(?<!\[)["\']?{re.escape(filename)}["\']?(?!\])', re.IGNORECASE)
+            
+            # Replace with linked version if not already linked
+            def replace_with_link(match):
+                matched_text = match.group(0)
+                return f'{matched_text} ([Access in SuiteFiles]({suitefiles_url}))'
+            
+            # Only replace if the filename appears but isn't already linked
+            if re.search(pattern, modified_answer) and suitefiles_url not in modified_answer:
+                modified_answer = re.sub(pattern, replace_with_link, modified_answer, count=1)
+        
+        return modified_answer
+
     async def _generate_no_documents_response(self, question: str, intent: Dict[str, Any]) -> str:
         """Generate helpful response when no documents found."""
         intent_type = intent.get('intent', 'GENERAL_ENGINEERING')
