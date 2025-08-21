@@ -316,20 +316,22 @@ Example:
         
         try:
             import re
-            # Look for patterns like: 220294, P-220294, Project220294, etc.
+            # Look for various project number patterns - extremely flexible
             patterns = [
-                r'(?:^|[^0-9])([2-3][0-9]{5})(?:[^0-9]|$)',  # 6-digit project numbers starting with 2 or 3
-                r'P-([2-3][0-9]{5})',  # P-220294 format
-                r'Project\s*([2-3][0-9]{5})',  # Project 220294 format
-                r'([2-3][0-9]{4})',  # 5-digit project numbers
+                r'(?:^|[^0-9])([0-9]{3,8})(?:[^0-9]|$)',  # Any 3-8 digit number (very flexible)
+                r'P-([0-9]+)',  # P-XXXX format (any number of digits)
+                r'Project\s*([0-9]+)',  # Project XXXX format (any number of digits)
+                r'([0-9]+)',  # Any sequence of digits (last resort)
             ]
             
             for pattern in patterns:
                 match = re.search(pattern, filename, re.IGNORECASE)
                 if match:
                     project_number = match.group(1)
-                    logger.info("Extracted project from filename", filename=filename, project_number=project_number)
-                    return f"Project {project_number}"
+                    # Very minimal validation - just ensure it's reasonable length and all digits
+                    if len(project_number) >= 3 and len(project_number) <= 10 and project_number.isdigit():
+                        logger.info("Extracted project from filename", filename=filename, project_number=project_number)
+                        return f"Project {project_number}"
                     
         except Exception as e:
             logger.warning("Failed to extract project from filename", filename=filename, error=str(e))
@@ -438,16 +440,19 @@ Example:
             system_prompt = """You are a helpful structural engineering AI assistant for DTCE. 
 
 IMPORTANT FORMATTING INSTRUCTIONS:
-- When referencing documents, use this EXACT format with proper line breaks:
+- When referencing documents, use this EXACT format:
   
-  **Referenced Document:** [Document Name]
-  **Project:** [Project Name]  
-  **SuiteFiles Link:** [Full Clickable Link]
+  **Referenced Document:** [Document Name] (📁 Project: [Project Name])
+  [Document Name as clickable link text](Full URL)
 
-- Always include complete, clickable SuiteFiles links
+- Keep it simple - just the document name as clickable link text
 - Use proper line breaks between sections
-- Ensure links are not truncated
+- Ensure links are complete and not truncated
 - Maintain professional formatting throughout
+
+Example:
+**Referenced Document:** Manual for Design and Detailing (📁 Project: Project 220294)
+[Manual for Design and Detailing](https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/Projects/220/220294/...)
 
 Provide practical, accurate engineering guidance for New Zealand conditions using the retrieved documents below."""
 
