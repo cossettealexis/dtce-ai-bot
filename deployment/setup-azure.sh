@@ -76,10 +76,10 @@ else
 fi
 
 # Check Form Recognizer
-if az cognitiveservices account show --name dtceai-formrecognizer --resource-group $RESOURCE_GROUP &> /dev/null; then
-    echo "✅ Form Recognizer 'dtceai-formrecognizer' found"
+if az cognitiveservices account show --name dtceai-form-recognizer --resource-group $RESOURCE_GROUP &> /dev/null; then
+    echo "✅ Form Recognizer 'dtceai-form-recognizer' found"
 else
-    echo "❌ Form Recognizer 'dtceai-formrecognizer' not found in resource group '$RESOURCE_GROUP'"
+    echo "❌ Form Recognizer 'dtceai-form-recognizer' not found in resource group '$RESOURCE_GROUP'"
     exit 1
 fi
 
@@ -115,8 +115,8 @@ az webapp config appsettings set \
     AZURE_OPENAI_ENDPOINT="$(az cognitiveservices account show --name dtceai-gpt --resource-group $RESOURCE_GROUP --query 'properties.endpoint' -o tsv)" \
     AZURE_OPENAI_API_KEY="$(az cognitiveservices account keys list --name dtceai-gpt --resource-group $RESOURCE_GROUP --query 'key1' -o tsv)" \
     AZURE_OPENAI_DEPLOYMENT_NAME=$OPENAI_DEPLOYMENT \
-    AZURE_FORM_RECOGNIZER_ENDPOINT="$(az cognitiveservices account show --name dtceai-formrecognizer --resource-group $RESOURCE_GROUP --query 'properties.endpoint' -o tsv)" \
-    AZURE_FORM_RECOGNIZER_API_KEY="$(az cognitiveservices account keys list --name dtceai-formrecognizer --resource-group $RESOURCE_GROUP --query 'key1' -o tsv)"
+    AZURE_FORM_RECOGNIZER_ENDPOINT="$(az cognitiveservices account show --name dtceai-form-recognizer --resource-group $RESOURCE_GROUP --query 'properties.endpoint' -o tsv)" \
+    AZURE_FORM_RECOGNIZER_API_KEY="$(az cognitiveservices account keys list --name dtceai-form-recognizer --resource-group $RESOURCE_GROUP --query 'key1' -o tsv)"
 
 echo "✅ Base environment variables configured!"
 

@@ -22,7 +22,7 @@ AZURE_STORAGE_ACCOUNT_KEY=your_storage_key_here
 AZURE_SEARCH_API_KEY=your_search_key_here
 AZURE_OPENAI_ENDPOINT=https://dtceai-gpt.openai.azure.com/
 AZURE_OPENAI_API_KEY=your_openai_key_here
-AZURE_FORM_RECOGNIZER_ENDPOINT=https://dtceai-formrecognizer.cognitiveservices.azure.com/
+AZURE_FORM_RECOGNIZER_ENDPOINT=https://dtceai-form-recognizer.cognitiveservices.azure.com/
 AZURE_FORM_RECOGNIZER_API_KEY=your_form_recognizer_key_here
 
 # Microsoft Graph/SharePoint (if needed)
@@ -53,7 +53,7 @@ AZURE_STORAGE_CONTAINER=documents
 - Go to `dtceai-gpt` → Keys and Endpoint → Copy KEY 1
 
 **Form Recognizer Key:**
-- Go to `dtceai-formrecognizer` → Keys and Endpoint → Copy KEY 1
+- Go to `dtceai-form-recognizer` → Keys and Endpoint → Copy KEY 1
 
 #### Option B: Use Azure CLI (if you have it installed)
 ```bash
@@ -67,7 +67,7 @@ az search admin-key show --resource-group AIChatBot --service-name dtceai-search
 az cognitiveservices account keys list --name dtceai-gpt --resource-group AIChatBot --query 'key1' -o tsv
 
 # Form Recognizer key
-az cognitiveservices account keys list --name dtceai-formrecognizer --resource-group AIChatBot --query 'key1' -o tsv
+az cognitiveservices account keys list --name dtceai-form-recognizer --resource-group AIChatBot --query 'key1' -o tsv
 ```
 
 ### Step 3: Deploy Using VS Code (Recommended)

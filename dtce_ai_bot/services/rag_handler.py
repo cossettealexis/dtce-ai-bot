@@ -242,16 +242,39 @@ class RAGHandler:
         documents = await self._search_documents(search_query, project_filter)
         
         if documents:
+            # Prepare document context WITH SuiteFiles links for project references
+            document_details = []
+            for doc in documents[:10]:
+                filename = doc.get('filename', 'Unknown')
+                content = doc.get('content', '')
+                blob_url = doc.get('blob_url', '')
+                suitefiles_link = self._get_safe_suitefiles_url(blob_url)
+                
+                doc_info = f"**Document: {filename}**\n"
+                if suitefiles_link and suitefiles_link != "Document available in SuiteFiles":
+                    doc_info += f"SuiteFiles Link: {suitefiles_link}\n"
+                doc_info += f"Content: {content[:800]}..."
+                document_details.append(doc_info)
+            
+            context_with_links = "\n\n".join(document_details)
+            
             # Use GPT to generate natural language answer about projects
             prompt = f"""Based on the project documents found, please answer this question about past DTCE projects: {question}
 
-Focus on:
-- Providing job numbers if found
-- Including SuiteFiles links when available
-- Describing relevant project scope and details
-- Matching the keywords from the question"""
+Project Documents Found:
+{context_with_links}
+
+INSTRUCTIONS:
+- Provide a comprehensive answer about past DTCE projects related to the keywords
+- INCLUDE the SuiteFiles links provided above for each relevant document
+- Focus on project scope, design details, and lessons learned
+- Include job numbers or project references when available
+- Make it clear users can access these documents through the provided SuiteFiles links
+- Organize the response by document/project for easy reference
+
+Format your response to help users access the actual project documents."""
             
-            answer = await self._generate_natural_answer(prompt, documents, "past DTCE projects")
+            answer = await self._generate_project_answer_with_links(prompt, context_with_links)
             
             return {
                 'answer': answer,
@@ -322,24 +345,39 @@ Focus on:
             template_docs = [doc for doc in documents if self._is_template_document(doc)]
             
             if template_docs:
+                # Prepare template context WITH SuiteFiles links
+                template_details = []
+                for doc in template_docs[:5]:
+                    filename = doc.get('filename', 'Unknown')
+                    content = doc.get('content', '')
+                    blob_url = doc.get('blob_url', '')
+                    suitefiles_link = self._get_safe_suitefiles_url(blob_url)
+                    
+                    template_info = f"**Template: {filename}**\n"
+                    if suitefiles_link and suitefiles_link != "Document available in SuiteFiles":
+                        template_info += f"SuiteFiles Link: {suitefiles_link}\n"
+                    template_info += f"Description: {content[:600]}..."
+                    template_details.append(template_info)
+                
+                context_with_links = "\n\n".join(template_details)
+                
                 # Use GPT to generate natural language answer about templates
-                # Include guidance for alternative sources when SuiteFiles isn't accessible
                 prompt = f"""Based on the templates and forms found, please answer: {question}
 
-Context: The user is asking about templates/forms, and we found relevant documents in SuiteFiles.
+Templates Found:
+{context_with_links}
 
 Instructions for your response:
-- Provide direct links to templates found in SuiteFiles
-- Explain what each template is for and its location
+- INCLUDE the SuiteFiles links provided above for each relevant template
+- Explain what each template is for and how to access it
 - If the user mentions they cannot access SuiteFiles or need alternatives, also suggest:
   * Engineering New Zealand (ENZ) website for official PS templates
   * MBIE website for government-approved templates  
   * Local council websites for council-specific formats
-- Focus primarily on the SuiteFiles documents found, but mention alternatives if accessibility is an issue
-
-Documents found: {len(template_docs)} templates"""
+- Focus primarily on the SuiteFiles documents found and their links
+- Make it clear users can directly access these templates through the provided links"""
                 
-                answer = await self._generate_natural_answer(prompt, template_docs, "templates and forms")
+                answer = await self._generate_project_answer_with_links(prompt, context_with_links)
                 
                 return {
                     'answer': answer,
@@ -478,6 +516,30 @@ Focus on providing genuine value even without internal documents."""
         
         suitefiles_url = self._convert_to_suitefiles_url(blob_url, link_type)
         return suitefiles_url or "Document available in SuiteFiles"
+    
+    async def _generate_project_answer_with_links(self, prompt: str, context: str) -> str:
+        """Generate project answer that includes SuiteFiles links"""
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "You are the DTCE AI Assistant. When responding about past projects, always include the SuiteFiles links provided so users can access the actual documents."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=1500,
+                temperature=0.7
+            )
+            
+            answer = response.choices[0].message.content.strip()
+            
+            # Apply safety filter to remove any blob URLs that might have been generated
+            answer = self._apply_blob_url_safety_filter(answer)
+            
+            return answer
+            
+        except Exception as e:
+            logger.error("Error generating project answer with links", error=str(e))
+            return f"I found relevant project documents but encountered an error generating the response. Please try your question again."
     
     def _format_sources(self, documents: List[Dict]) -> List[Dict]:
         """Format sources for response."""

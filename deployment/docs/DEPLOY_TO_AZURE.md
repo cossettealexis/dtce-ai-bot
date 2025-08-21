@@ -28,8 +28,8 @@
    - Go to `dtceai-gpt` → Resource Management → Keys and Endpoint
    - Copy **KEY 1**
 
-   **For Form Recognizer (dtceai-formrecognizer):**
-   - Go to `dtceai-formrecognizer` → Resource Management → Keys and Endpoint
+   **For Form Recognizer (dtceai-form-recognizer):**
+   - Go to `dtceai-form-recognizer` → Resource Management → Keys and Endpoint
    - Copy **KEY 1**
 
 3. **Edit your `.env` file** and paste the keys you copied
@@ -73,7 +73,7 @@ AZURE_SEARCH_API_KEY = [your search key]
 AZURE_OPENAI_ENDPOINT = https://dtceai-gpt.openai.azure.com/
 AZURE_OPENAI_API_KEY = [your openai key]
 AZURE_OPENAI_DEPLOYMENT_NAME = gpt-4
-AZURE_FORM_RECOGNIZER_ENDPOINT = https://dtceai-formrecognizer.cognitiveservices.azure.com/
+AZURE_FORM_RECOGNIZER_ENDPOINT = https://dtceai-form-recognizer.cognitiveservices.azure.com/
 AZURE_FORM_RECOGNIZER_API_KEY = [your form recognizer key]
 ENVIRONMENT = production
 API_HOST = 0.0.0.0

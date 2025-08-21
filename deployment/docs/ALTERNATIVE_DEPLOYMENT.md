@@ -97,10 +97,10 @@ Name: AZURE_OPENAI_DEPLOYMENT_NAME
 Value: gpt-4
 
 Name: AZURE_FORM_RECOGNIZER_ENDPOINT
-Value: https://dtceai-formrecognizer.cognitiveservices.azure.com/
+Value: https://dtceai-form-recognizer.cognitiveservices.azure.com/
 
 Name: AZURE_FORM_RECOGNIZER_API_KEY
-Value: [Get from dtceai-formrecognizer → Keys and Endpoint → KEY 1]
+Value: [Get from dtceai-form-recognizer → Keys and Endpoint → KEY 1]
 
 Name: ENVIRONMENT
 Value: production

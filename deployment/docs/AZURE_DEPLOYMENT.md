@@ -25,7 +25,7 @@ This guide will help you deploy the DTCE AI Bot to Azure App Service.
 - **Azure Storage**: `dtceaistorage`
 - **Azure Cognitive Search**: `dtceai-search` (Central US)
 - **Azure OpenAI**: `dtceai-gpt` (East US)
-- **Document Intelligence**: `dtceai-formrecognizer` (East US)
+- **Document Intelligence**: `dtceai-form-recognizer` (East US)
 
 Since your resources are already created, we'll skip to configuring your existing App Service for deployment.
 
@@ -59,8 +59,8 @@ az webapp config appsettings set \
     AZURE_OPENAI_ENDPOINT="$(az cognitiveservices account show --name dtceai-gpt --resource-group $RESOURCE_GROUP --query 'properties.endpoint' -o tsv)" \
     AZURE_OPENAI_API_KEY="$(az cognitiveservices account keys list --name dtceai-gpt --resource-group $RESOURCE_GROUP --query 'key1' -o tsv)" \
     AZURE_OPENAI_DEPLOYMENT_NAME=gpt-4 \
-    AZURE_FORM_RECOGNIZER_ENDPOINT="$(az cognitiveservices account show --name dtceai-formrecognizer --resource-group $RESOURCE_GROUP --query 'properties.endpoint' -o tsv)" \
-    AZURE_FORM_RECOGNIZER_API_KEY="$(az cognitiveservices account keys list --name dtceai-formrecognizer --resource-group $RESOURCE_GROUP --query 'key1' -o tsv)" \
+    AZURE_FORM_RECOGNIZER_ENDPOINT="$(az cognitiveservices account show --name dtceai-form-recognizer --resource-group $RESOURCE_GROUP --query 'properties.endpoint' -o tsv)" \
+    AZURE_FORM_RECOGNIZER_API_KEY="$(az cognitiveservices account keys list --name dtceai-form-recognizer --resource-group $RESOURCE_GROUP --query 'key1' -o tsv)" \
     MICROSOFT_TENANT_ID=your_tenant_id \
     MICROSOFT_CLIENT_ID=your_client_id \
     MICROSOFT_CLIENT_SECRET=your_client_secret
