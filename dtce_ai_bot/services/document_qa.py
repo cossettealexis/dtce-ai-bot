@@ -8104,7 +8104,7 @@ Respond with ONLY a JSON object:
     async def _generate_intelligent_natural_answer(self, question: str, documents: List[Dict], intent: Dict[str, Any]) -> str:
         """Generate natural answer using GPT with intent context."""
         try:
-            # Prepare context from documents
+            # Prepare context from documents WITH LINKS INCLUDED
             context_parts = []
             for doc in documents[:10]:  # Limit to top 10 documents
                 content = doc.get('content', '')
@@ -8114,7 +8114,10 @@ Respond with ONLY a JSON object:
                 if content:
                     # Include safe SuiteFiles link in context
                     suitefiles_link = self._get_safe_suitefiles_url(blob_url)
-                    context_part = f"**Document: {filename}**\nSuiteFiles Link: {suitefiles_link}\n{content[:1200]}..."
+                    if not suitefiles_link or suitefiles_link in ["Document available in SuiteFiles", "Access document through SuiteFiles"]:
+                        suitefiles_link = "https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx"
+                    
+                    context_part = f"**Document: {filename}**\n[📂 Access this document in SuiteFiles]({suitefiles_link})\n{content[:1200]}..."
                     context_parts.append(context_part)
             
             if not context_parts:
@@ -8165,16 +8168,13 @@ Respond with ONLY a JSON object:
 Context from DTCE documents:
 {context}
 
-CRITICAL INSTRUCTIONS FOR DOCUMENT REFERENCES:
+CRITICAL INSTRUCTIONS:
 - Provide a natural, conversational answer
-- ONLY use information that is explicitly provided in the context above
-- WHENEVER you mention a document filename (like "document.pdf" or "filename.txt"), you MUST immediately include its SuiteFiles link
-- MANDATORY FORMAT: "filename" ([Access in SuiteFiles](suitefiles_link))
-- EXAMPLE: "The document 'Builders contact detail.txt' ([Access in SuiteFiles](link_here)) contains..."
-- EXAMPLE: "Check the file '219292-SH-001-B CoA Schedule.pdf' ([Access in SuiteFiles](link_here)) for details..."
-- If you mention ANY document but don't include its SuiteFiles link, that's a CRITICAL ERROR
-- NEVER create or invent project numbers, job numbers, or file names not in the context
-- NEVER create or mention URLs unless they are explicitly provided in the context
+- WHEN you reference a document, COPY the exact SuiteFiles link from the context above
+- The context already contains clickable links like [📂 Access this document in SuiteFiles](url)
+- INCLUDE these exact links when mentioning documents
+- Example: "The document 'filename.pdf' [📂 Access this document in SuiteFiles](url) shows that..."
+- NEVER create or mention URLs unless they are explicitly provided in the context above
 - If information is partial or missing, be honest about limitations
 - Focus on practical engineering guidance based on available information
 - Keep response professional but approachable
@@ -8200,115 +8200,12 @@ Answer:"""
                 logger.warning("Blob URL detected in GPT response, removing it")
                 answer = re.sub(blob_url_pattern, "[Document available in SuiteFiles]", answer)
             
-            # POST-PROCESSING: Check if documents are mentioned without SuiteFiles links
-            original_answer = answer
-            answer = self._ensure_suitefiles_links_in_response(answer, documents)
-            
-            # FORCE ADD DOCUMENT LINKS - NO MATTER WHAT
-            if documents:
-                logger.warning("FORCING DOCUMENT LINKS REGARDLESS OF CONTENT")
-                answer += "\n\n**📁 Document Links:**\n"
-                for doc in documents[:5]:  # Top 5 documents
-                    filename = doc.get('filename', '')
-                    if filename:
-                        blob_url = doc.get('blob_url', '')
-                        
-                        # Try to get SuiteFiles URL
-                        suitefiles_url = self._get_safe_suitefiles_url(blob_url)
-                        
-                        # Log what we're getting
-                        logger.info("DOCUMENT LINK DEBUG", 
-                                   filename=filename,
-                                   blob_url=blob_url[:100] if blob_url else "None",
-                                   suitefiles_url=suitefiles_url[:100] if suitefiles_url else "None")
-                        
-                        # If we have a valid SuiteFiles URL, use it
-                        if suitefiles_url and suitefiles_url != "Document available in SuiteFiles" and suitefiles_url != "Access document through SuiteFiles" and "https://" in suitefiles_url:
-                            answer += f"• **{filename}** - [📂 Access in SuiteFiles]({suitefiles_url})\n"
-                        else:
-                            # FORCE a generic SuiteFiles link even if URL conversion fails
-                            generic_suitefiles = "https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx"
-                            answer += f"• **{filename}** - [📂 Open SuiteFiles]({generic_suitefiles}) (search for this file)\n"
-            
-            # DEBUG: Log final answer to check if links are present
-            logger.info("Final answer generated", 
-                       has_suitefiles_links="Access in SuiteFiles" in answer,
-                       answer_length=len(answer),
-                       num_documents=len(documents),
-                       answer_changed=answer != original_answer)
-            
             return answer
             
         except Exception as e:
             logger.error("Failed to generate intelligent natural answer", error=str(e))
             return f"I found relevant documents but encountered an error generating a response. Please try rephrasing your question."
     
-    def _ensure_suitefiles_links_in_response(self, answer: str, documents: List[Dict]) -> str:
-        """Ensure that when documents are mentioned, SuiteFiles links are included"""
-        import re
-        
-        logger.info("POST-PROCESSING: Starting aggressive SuiteFiles link replacement", 
-                   answer_preview=answer[:200],
-                   num_docs=len(documents))
-        
-        # Create a mapping of filenames to SuiteFiles URLs
-        doc_links = {}
-        
-        for doc in documents:
-            filename = doc.get('filename', '')
-            if filename:
-                blob_url = doc.get('blob_url', '')
-                suitefiles_url = self._get_safe_suitefiles_url(blob_url)
-                logger.info("Processing document for links", 
-                           filename=filename,
-                           suitefiles_url=suitefiles_url[:50] + "..." if suitefiles_url else "None")
-                           
-                if suitefiles_url and suitefiles_url != "Document available in SuiteFiles":
-                    doc_links[filename] = suitefiles_url
-        
-        logger.info("Built document links mapping", doc_links_count=len(doc_links))
-        
-        # NUCLEAR REPLACEMENT: Replace ALL mentions with linked versions
-        modified_answer = answer
-        replacements_made = 0
-        
-        for original_filename, suitefiles_url in doc_links.items():
-            # Escape the filename for regex
-            escaped_filename = re.escape(original_filename)
-            
-            # Find ALL occurrences of this filename and replace with links
-            patterns_to_replace = [
-                (rf'\b{escaped_filename}\b', f'{original_filename} ([🔗 Access in SuiteFiles]({suitefiles_url}))'),
-                (rf'titled\s+["\']?{escaped_filename}["\']?', f'titled "{original_filename}" ([🔗 Access in SuiteFiles]({suitefiles_url}))'),
-                (rf'document\s+["\']?{escaped_filename}["\']?', f'document "{original_filename}" ([🔗 Access in SuiteFiles]({suitefiles_url}))'),
-                (rf'file\s+["\']?{escaped_filename}["\']?', f'file "{original_filename}" ([🔗 Access in SuiteFiles]({suitefiles_url}))'),
-                (rf'named\s+["\']?{escaped_filename}["\']?', f'named "{original_filename}" ([🔗 Access in SuiteFiles]({suitefiles_url}))'),
-            ]
-            
-            for pattern, replacement in patterns_to_replace:
-                # Only replace if this area doesn't already have a SuiteFiles link
-                before_count = len(re.findall(pattern, modified_answer, re.IGNORECASE))
-                if before_count > 0:
-                    # Check if any matches are already linked
-                    matches = list(re.finditer(pattern, modified_answer, re.IGNORECASE))
-                    for match in reversed(matches):  # Replace from end to start
-                        start = max(0, match.start() - 30)
-                        end = min(len(modified_answer), match.end() + 30)
-                        context = modified_answer[start:end]
-                        
-                        if 'Access in SuiteFiles' not in context:
-                            modified_answer = modified_answer[:match.start()] + replacement + modified_answer[match.end():]
-                            replacements_made += 1
-                            logger.info("REPLACED filename mention", 
-                                       filename=original_filename,
-                                       replacement_made=True)
-        
-        logger.info("POST-PROCESSING: Completed aggressive replacement", 
-                   replacements_made=replacements_made,
-                   final_has_links="Access in SuiteFiles" in modified_answer)
-        
-        return modified_answer
-
     async def _generate_no_documents_response(self, question: str, intent: Dict[str, Any]) -> str:
         """Generate helpful response when no documents found."""
         intent_type = intent.get('intent', 'GENERAL_ENGINEERING')
