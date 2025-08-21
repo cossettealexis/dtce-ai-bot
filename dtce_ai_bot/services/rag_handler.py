@@ -201,6 +201,11 @@ class RAGHandler:
             # STEP 2: Get documents from Azure index
             documents = await self._search_documents(search_query, project_filter)
             
+            logger.info("Search results summary", 
+                       search_query=search_query,
+                       documents_found=len(documents),
+                       sample_filenames=[doc.get('filename', 'Unknown') for doc in documents[:3]])
+            
             if documents:
                 # STEP 3: Prepare document context WITH SuiteFiles links
                 document_details = []
@@ -224,17 +229,44 @@ class RAGHandler:
 Documents found in Azure search index:
 {context_with_links}
 
-Instructions:
-- Provide a comprehensive answer based on the documents found
-- INCLUDE the SuiteFiles links provided above for relevant documents
-- Format the response based on the user's question intent:
-  * If asking for templates/forms: prioritize documents that appear to be templates
-  * If asking about past projects: organize by project when possible
-  * If asking about products/materials: include specifications and supplier info
-  * If asking for calculations: focus on spreadsheets and technical documents
-- Present the information in a helpful, organized way
-- Make it clear users can access documents through the provided SuiteFiles links
-- Focus on practical engineering guidance for New Zealand conditions"""
+CRITICAL INSTRUCTIONS - READ CAREFULLY:
+
+1. UNDERSTAND THE USER'S QUESTION FIRST:
+   - What is the user actually asking for?
+   - Are they asking for templates/forms, technical standards, past projects, products, or general engineering advice?
+   - What specific information do they need?
+
+2. ANALYZE THE SEARCH RESULTS:
+   - Look through ALL the documents provided
+   - Find documents that ACTUALLY answer the user's question
+   - Don't just say "none of the documents discuss..." - LOOK HARDER
+   - If documents contain relevant technical information, extract and present it
+   - Prioritize documents with titles/content that match the user's intent
+
+3. PROVIDE INTELLIGENT ANSWERS:
+   - If asking for "PS3 template" and you find "PS3 template.pdf" → THAT'S THE ANSWER!
+   - If asking for "NZS clear cover requirements" and documents mention concrete standards → EXTRACT THE SPECIFIC REQUIREMENTS
+   - If asking for past projects about timber → Find and present actual timber project examples
+   - If asking for product specifications → Extract actual specs and supplier info
+
+4. FORMAT YOUR RESPONSE BASED ON INTENT:
+   - Templates/Forms: Provide the actual template files with SuiteFiles links
+   - Technical Questions: Extract specific technical information from documents
+   - Past Projects: Organize by project number and scope
+   - Products: Include specifications, suppliers, and contact details
+   - Standards/Codes: Extract specific clauses, values, and requirements
+
+5. INCLUDE SUITEFILES LINKS:
+   - Always provide the SuiteFiles links for relevant documents
+   - Make it easy for users to access the actual files
+
+6. BE PRACTICAL AND HELPFUL:
+   - Don't say documents don't contain information if they actually do
+   - Extract specific values, requirements, project details
+   - If no perfect match, explain what related information was found
+   - Suggest external sources only if internal documents truly don't help
+
+REMEMBER: You are an intelligent AI assistant. THINK about what the user needs and provide it from the documents found."""
                 
                 answer = await self._generate_project_answer_with_links(prompt, context_with_links)
                 
@@ -653,6 +685,8 @@ Provide a helpful response that:
                               doc_types: Optional[List[str]] = None) -> List[Dict]:
         """Search for relevant documents."""
         try:
+            logger.info("Searching Azure index", search_query=search_query, doc_types=doc_types)
+            
             # Build search parameters
             search_params = {
                 'search_text': search_query,
@@ -664,12 +698,19 @@ Provide a helpful response that:
             if doc_types:
                 doc_filter = ' or '.join([f"search.ismatch('*.{ext}', 'filename')" for ext in doc_types])
                 search_params['filter'] = doc_filter
+                logger.info("Added document type filter", filter=doc_filter)
             
             results = self.search_client.search(**search_params)
-            return [dict(result) for result in results]
+            documents = [dict(result) for result in results]
+            
+            logger.info("Azure search completed", 
+                       documents_found=len(documents),
+                       filenames=[doc.get('filename', 'Unknown') for doc in documents[:5]])
+            
+            return documents
             
         except Exception as e:
-            logger.error("Document search failed", error=str(e))
+            logger.error("Document search failed", error=str(e), search_query=search_query)
             return []
     
     def _get_safe_suitefiles_url(self, blob_url: str, link_type: str = "file") -> str:
