@@ -8204,20 +8204,31 @@ Answer:"""
             original_answer = answer
             answer = self._ensure_suitefiles_links_in_response(answer, documents)
             
-            # AGGRESSIVE EMERGENCY FALLBACK: Always add document links if any documents exist
+            # FORCE ADD DOCUMENT LINKS - NO MATTER WHAT
             if documents:
-                # ALWAYS add document links regardless - no more checking
-                logger.warning("FORCE ADDING DOCUMENT LINKS - NO EXCEPTIONS")
+                logger.warning("FORCING DOCUMENT LINKS REGARDLESS OF CONTENT")
                 answer += "\n\n**📁 Document Links:**\n"
                 for doc in documents[:5]:  # Top 5 documents
                     filename = doc.get('filename', '')
                     if filename:
                         blob_url = doc.get('blob_url', '')
+                        
+                        # Try to get SuiteFiles URL
                         suitefiles_url = self._get_safe_suitefiles_url(blob_url)
-                        if suitefiles_url and suitefiles_url != "Document available in SuiteFiles":
+                        
+                        # Log what we're getting
+                        logger.info("DOCUMENT LINK DEBUG", 
+                                   filename=filename,
+                                   blob_url=blob_url[:100] if blob_url else "None",
+                                   suitefiles_url=suitefiles_url[:100] if suitefiles_url else "None")
+                        
+                        # If we have a valid SuiteFiles URL, use it
+                        if suitefiles_url and suitefiles_url != "Document available in SuiteFiles" and suitefiles_url != "Access document through SuiteFiles" and "https://" in suitefiles_url:
                             answer += f"• **{filename}** - [📂 Access in SuiteFiles]({suitefiles_url})\n"
                         else:
-                            answer += f"• **{filename}** - Document in SuiteFiles (URL generation failed)\n"
+                            # FORCE a generic SuiteFiles link even if URL conversion fails
+                            generic_suitefiles = "https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx"
+                            answer += f"• **{filename}** - [📂 Open SuiteFiles]({generic_suitefiles}) (search for this file)\n"
             
             # DEBUG: Log final answer to check if links are present
             logger.info("Final answer generated", 
