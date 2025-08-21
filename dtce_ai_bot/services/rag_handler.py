@@ -65,21 +65,16 @@ class RAGHandler:
             },
             'online_references': {
                 'patterns': [
-                    r'composite beam.*haunched.tapered.*online threads.*tapered composite beam',
-                    r'reinforced concrete column.*seismic and gravity.*legitimate link',
-                    r'online threads.*references.*structural design',
-                    r'design guidelines.*legitimate link',
-                    r'online.*references.*forums.*NZ',
-                    r'look for.*online.*threads',
-                    r'online.*discussions.*public',
-                    r'forums.*references.*public',
-                    r'legitimate link.*direct access',
-                    r'external.*references.*online',
-                    r'public.*forums.*engineering',
-                    r'anonymous.*structural engineers',
-                    r'online.*communities.*design',
-                    r'web.*resources.*structural',
-                    r'internet.*references.*design'
+                    r'online threads.*mentioning.*keyword.*tapered composite beam.*anonymous',
+                    r'online threads.*references.*preferably.*anonymous.*structural engineers',
+                    r'provide.*online threads.*mentioning.*keyword',
+                    r'anonymous.*structural engineers.*online.*forum',
+                    r'external.*online threads.*structural.*forum',
+                    r'want.*from.*online thread',
+                    r'online.*discussions.*anonymous.*engineers',
+                    r'forum.*discussion.*anonymous.*professional',
+                    r'need.*external.*forum.*reference',
+                    r'online.*community.*discussion.*anonymous'
                 ],
                 'handler': self._handle_online_references
             },
@@ -1329,51 +1324,151 @@ Answer:"""
     
     # Update placeholder methods to use natural language generation
     async def _handle_online_references(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
-        """Handle online reference queries - Provide both DTCE knowledge and external resources"""
+        """Handle online reference queries - Intelligently determine internal vs external vs both"""
         logger.info("Processing online references", question=question)
+        
+        # Determine user intent: internal documents, external resources, or both
+        user_intent = self._analyze_reference_intent(question)
         
         keywords = self._extract_online_reference_keywords(question)
         documents = await self._search_documents(' OR '.join(keywords), project_filter)
         
-        # Prepare context from internal documents if available
-        internal_context = ""
-        if documents:
-            doc_summaries = []
-            for doc in documents[:5]:
-                filename = doc.get('filename', 'Unknown')
-                content = doc.get('content', '')[:500]
-                doc_summaries.append(f"**DTCE Document: {filename}**\n{content}...")
-            internal_context = f"\n\nRelevant DTCE Documents:\n" + "\n\n".join(doc_summaries)
+        # Prepare response based on user intent
+        if user_intent == "internal_only":
+            return await self._handle_internal_documents_only(question, documents)
+        elif user_intent == "external_only":
+            return await self._handle_external_resources_only(question)
+        else:  # both or unclear
+            return await self._handle_both_internal_and_external(question, documents)
+
+    def _analyze_reference_intent(self, question: str) -> str:
+        """Analyze what type of references the user wants"""
+        q_lower = question.lower()
         
-        # Generate response that includes both internal knowledge and external resources
-        prompt = f"""You are the DTCE AI Assistant. The user is asking for online references and external resources: {question}
+        # Strong indicators for external only
+        external_indicators = [
+            'online thread', 'forum', 'anonymous', 'external', 'public',
+            'community', 'discussion', 'reddit', 'eng-tips',
+            'legitimate link', 'direct access', 'online reference'
+        ]
+        
+        # Strong indicators for internal only  
+        internal_indicators = [
+            'dtce', 'our project', 'past project', 'internal', 'suitefiles',
+            'company', 'in-house', 'proprietary'
+        ]
+        
+        # Count indicators
+        external_count = sum(1 for indicator in external_indicators if indicator in q_lower)
+        internal_count = sum(1 for indicator in internal_indicators if indicator in q_lower)
+        
+        # Decision logic
+        if external_count > 0 and internal_count == 0:
+            return "external_only"
+        elif internal_count > 0 and external_count == 0:
+            return "internal_only"
+        else:
+            return "both"  # Default to both when unclear
+    
+    async def _handle_internal_documents_only(self, question: str, documents: List[Dict]) -> Dict[str, Any]:
+        """Handle requests for internal documents only"""
+        if documents:
+            # Use existing general query handler for internal docs
+            return await self._handle_general_query(question)
+        else:
+            prompt = f"""The user asked: {question}
 
-{internal_context}
+We don't have specific internal DTCE documents matching this query. Provide a helpful response that:
+1. Acknowledges we searched our internal documents
+2. Suggests they might want to check our project database or contact our engineers
+3. Offers to help with related topics we do have information about"""
+            
+            answer = await self._generate_natural_answer(prompt, [], "internal search")
+            return {
+                'answer': answer,
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'rag_type': 'internal_only'
+            }
+    
+    async def _handle_external_resources_only(self, question: str) -> Dict[str, Any]:
+        """Handle requests for external resources only"""
+        prompt = f"""The user is specifically asking for external online resources: {question}
 
-INSTRUCTIONS:
-- Provide both DTCE's internal knowledge (if available above) AND external online resources
-- For online resources, suggest legitimate websites, forums, and technical communities
-- Include specific NZ engineering forums and standards websites when relevant
-- Suggest search keywords for finding relevant discussions
-- Recommend reputable structural engineering forums and communities
-- Include links to standards bodies, professional organizations, and technical resources
-- Be honest about what you can and cannot access directly
+Provide ONLY external resources including:
+- Specific engineering forums (Eng-Tips, Reddit r/StructuralEngineering)
+- Professional organizations (NZSEE, Engineering New Zealand)
+- Standards websites (Standards New Zealand)
+- University repositories
+- Industry websites and technical resources
 
-EXTERNAL RESOURCES TO CONSIDER:
-- New Zealand Society for Earthquake Engineering (NZSEE)
-- Engineering New Zealand forums
-- Structural engineering communities like Eng-Tips, Reddit r/StructuralEngineering
-- Standards New Zealand (SNZ) website
-- University research repositories
-- Professional engineering websites and technical papers
-
-Focus on practical guidance for New Zealand engineering practice while acknowledging the user's need for external validation and community discussions."""
+Do NOT mention DTCE internal documents or search keywords. Focus on legitimate external sources where they can find community discussions and professional guidance."""
         
         try:
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {"role": "system", "content": "You are an expert engineering assistant for DTCE. Provide comprehensive answers that combine internal knowledge with external resource recommendations."},
+                    {"role": "system", "content": "You are helping users find external engineering resources. Focus only on legitimate external sources."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.4,
+                max_tokens=600
+            )
+            
+            answer = response.choices[0].message.content.strip()
+            
+            return {
+                'answer': answer,
+                'sources': [],
+                'confidence': 'high',
+                'documents_searched': 0,
+                'rag_type': 'external_only'
+            }
+        except Exception as e:
+            logger.error("Error generating external resources answer", error=str(e))
+            return {
+                'answer': "For external engineering resources, I recommend checking Eng-Tips Forums, Reddit r/StructuralEngineering, New Zealand Society for Earthquake Engineering (NZSEE), and Engineering New Zealand's professional networks.",
+                'sources': [],
+                'confidence': 'medium',
+                'documents_searched': 0,
+                'rag_type': 'external_only'
+            }
+    
+    async def _handle_both_internal_and_external(self, question: str, documents: List[Dict]) -> Dict[str, Any]:
+        """Handle requests that need both internal and external resources"""
+        # Prepare context from internal documents if available
+        internal_context = ""
+        if documents:
+            doc_summaries = []
+            for doc in documents[:3]:  # Limit to 3 for balance
+                filename = doc.get('filename', 'Unknown')
+                content = doc.get('content', '')[:400]
+                suitefiles_url = self._get_safe_suitefiles_url(doc.get('blob_url', ''))
+                doc_summaries.append(f"**DTCE Document: {filename}**\n{content}...\nAccess: {suitefiles_url}")
+            internal_context = f"\n\nInternal DTCE Resources:\n" + "\n\n".join(doc_summaries)
+        
+        prompt = f"""The user is asking: {question}
+
+{internal_context}
+
+Provide a balanced response with:
+1. DTCE internal knowledge (if available above)
+2. External engineering resources and communities
+
+For external resources, include:
+- Engineering forums (Eng-Tips, Reddit r/StructuralEngineering)
+- Professional organizations (NZSEE, Engineering New Zealand)  
+- Standards websites and technical resources
+- University repositories
+
+Do NOT include a "Search Keywords" section. Focus on actionable resources and guidance."""
+        
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "You are the DTCE AI Assistant providing comprehensive engineering guidance using both internal and external resources."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.4,
@@ -1385,18 +1480,18 @@ Focus on practical guidance for New Zealand engineering practice while acknowled
             return {
                 'answer': answer,
                 'sources': self._format_sources(documents) if documents else [],
-                'confidence': 'medium',
+                'confidence': 'high',
                 'documents_searched': len(documents),
-                'rag_type': 'online_references'
+                'rag_type': 'both_internal_external'
             }
         except Exception as e:
-            logger.error("Error generating online references answer", error=str(e))
+            logger.error("Error generating combined answer", error=str(e))
             return {
-                'answer': "I encountered an error while processing your request for online references. You may want to search engineering forums like Eng-Tips, Reddit r/StructuralEngineering, or Engineering New Zealand's professional networks for community discussions on your topic.",
+                'answer': "I encountered an error while processing your request. For external resources, try Eng-Tips Forums or Reddit r/StructuralEngineering for community discussions.",
                 'sources': [],
                 'confidence': 'low',
                 'documents_searched': 0,
-                'rag_type': 'online_references'
+                'rag_type': 'both_internal_external'
             }
     
     async def _handle_contact_lookup(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
