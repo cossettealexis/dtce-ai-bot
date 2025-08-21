@@ -63,7 +63,19 @@ class RAGHandler:
                 for doc in documents[:10]:  # Top 10 most relevant
                     filename = doc.get('filename', 'Unknown')
                     content = doc.get('content', '')
-                    blob_url = doc.get('blob_url', '')
+                    
+                    # Try different possible field names for blob URL
+                    blob_url = (doc.get('blob_url') or 
+                               doc.get('blobUrl') or 
+                               doc.get('url') or 
+                               doc.get('source_url') or 
+                               doc.get('metadata_storage_path') or '')
+                    
+                    # Debug logging to see what we're getting
+                    logger.info("Document fields for project extraction", 
+                               filename=filename,
+                               blob_url=blob_url,
+                               doc_keys=list(doc.keys()))
                     
                     # Extract project information from blob_url
                     project_name = self._extract_project_name_from_blob_url(blob_url)
@@ -216,16 +228,28 @@ Example:
     def _extract_project_name_from_blob_url(self, blob_url: str) -> str:
         """Extract project name/number from blob URL path."""
         if not blob_url:
+            logger.warning("No blob URL provided for project extraction")
             return "Unknown Project"
         
         try:
             logger.info("Extracting project name from blob URL", blob_url=blob_url)
             
-            # Check for dtce-documents pattern (the correct one)
-            if "/dtce-documents/Projects/" in blob_url:
-                path_part = blob_url.split("/dtce-documents/Projects/")[1]
-                logger.info("Found dtce-documents pattern", path_part=path_part)
-                
+            # Try different patterns that might exist in the blob URLs
+            patterns_to_try = [
+                "/dtce-documents/Projects/",
+                "/dtce-ai-documents/Projects/", 
+                "/Projects/",
+                "Projects/"
+            ]
+            
+            path_part = None
+            for pattern in patterns_to_try:
+                if pattern in blob_url:
+                    path_part = blob_url.split(pattern)[1]
+                    logger.info(f"Found pattern '{pattern}'", path_part=path_part)
+                    break
+            
+            if path_part:
                 # Remove query parameters
                 if "?" in path_part:
                     path_part = path_part.split("?")[0]
@@ -237,22 +261,26 @@ Example:
                 logger.info("Clean path part", path_part=path_part)
                 
                 # Split path and get project info - typically 220/220294/... 
-                path_segments = path_part.split('/')
+                path_segments = [seg for seg in path_part.split('/') if seg]  # Filter out empty segments
                 logger.info("Path segments", segments=path_segments)
                 
                 if len(path_segments) >= 2:
                     # Get project number (second segment, like "220294")
                     project_number = path_segments[1]
-                    logger.info("Extracted project number", project_number=project_number)
+                    logger.info("Extracted project number from second segment", project_number=project_number)
                     return f"Project {project_number}"
                 elif len(path_segments) >= 1:
                     # Get first segment if available
                     project_number = path_segments[0]
                     logger.info("Extracted project number from first segment", project_number=project_number)
                     return f"Project {project_number}"
+            else:
+                logger.warning("No recognized project pattern found in blob URL", blob_url=blob_url)
                     
         except Exception as e:
             logger.warning("Failed to extract project name from blob URL", error=str(e), blob_url=blob_url)
+            
+        return "Unknown Project"
             
         return "Unknown Project"
     
