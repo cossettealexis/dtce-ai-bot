@@ -8204,18 +8204,27 @@ Answer:"""
             original_answer = answer
             answer = self._ensure_suitefiles_links_in_response(answer, documents)
             
-            # EMERGENCY FALLBACK: If still no links, force add them
-            if documents and "Access in SuiteFiles" not in answer:
-                logger.warning("EMERGENCY: No SuiteFiles links detected, forcing addition")
-                # Add links at the end as a fallback
-                answer += "\n\n**📁 Related Documents:**\n"
-                for doc in documents[:3]:  # Top 3 documents
+            # AGGRESSIVE EMERGENCY FALLBACK: Always add document links if any documents exist
+            if documents:
+                # Check if we have actual SuiteFiles links to documents (not just the word "SuiteFiles")
+                has_actual_document_links = False
+                for doc in documents[:3]:
                     filename = doc.get('filename', '')
-                    if filename:
-                        blob_url = doc.get('blob_url', '')
-                        suitefiles_url = self._get_safe_suitefiles_url(blob_url)
-                        if suitefiles_url and suitefiles_url != "Document available in SuiteFiles":
-                            answer += f"• {filename} ([Access in SuiteFiles]({suitefiles_url}))\n"
+                    if filename and f"([Access in SuiteFiles](" in answer and filename in answer:
+                        has_actual_document_links = True
+                        break
+                
+                if not has_actual_document_links:
+                    logger.warning("EMERGENCY: No actual document links detected, forcing addition")
+                    # Force add links at the end
+                    answer += "\n\n**📁 Related Documents:**\n"
+                    for doc in documents[:3]:  # Top 3 documents
+                        filename = doc.get('filename', '')
+                        if filename:
+                            blob_url = doc.get('blob_url', '')
+                            suitefiles_url = self._get_safe_suitefiles_url(blob_url)
+                            if suitefiles_url and suitefiles_url != "Document available in SuiteFiles":
+                                answer += f"• **{filename}** ([Access in SuiteFiles]({suitefiles_url}))\n"
             
             # DEBUG: Log final answer to check if links are present
             logger.info("Final answer generated", 
@@ -8240,7 +8249,6 @@ Answer:"""
         
         # Create a mapping of filenames to SuiteFiles URLs
         doc_links = {}
-        filename_variations = {}
         
         for doc in documents:
             filename = doc.get('filename', '')
@@ -8253,59 +8261,63 @@ Answer:"""
                            suitefiles_url=suitefiles_url[:50] + "..." if suitefiles_url else "None")
                            
                 if suitefiles_url and suitefiles_url != "Document available in SuiteFiles":
-                    # Store exact filename
                     doc_links[filename] = suitefiles_url
-                    # Store variations: without extension, different cases
-                    base_name = filename.replace('.pdf', '').replace('.docx', '').replace('.txt', '').replace('.xlsx', '').replace('.xls', '')
-                    filename_variations[filename.lower()] = (filename, suitefiles_url)
-                    filename_variations[base_name.lower()] = (filename, suitefiles_url)
         
         logger.info("Built document links mapping", doc_links_count=len(doc_links))
         
-        # Look for document mentions that don't have SuiteFiles links
+        # AGGRESSIVE REPLACEMENT: Replace ALL mentions of filenames with linked versions
         modified_answer = answer
         replacements_made = 0
         
-        # First pass: Find exact filename matches
         for original_filename, suitefiles_url in doc_links.items():
-            # Multiple patterns to catch different mention styles
+            # Create multiple patterns to catch ALL possible mentions
             patterns = [
-                rf'\b{re.escape(original_filename)}\b',  # Exact match
-                rf'titled\s+["\']?{re.escape(original_filename)}["\']?',  # "titled filename"
-                rf'document\s+["\']?{re.escape(original_filename)}["\']?',  # "document filename"
-                rf'file\s+["\']?{re.escape(original_filename)}["\']?',  # "file filename"
+                # Quoted versions
+                rf'"{re.escape(original_filename)}"',
+                rf"'{re.escape(original_filename)}'",
+                # With descriptive text
+                rf'document titled "{re.escape(original_filename)}"',
+                rf'document titled \'{re.escape(original_filename)}\'',
+                rf'document "{re.escape(original_filename)}"',
+                rf"document '{re.escape(original_filename)}'",
+                rf'file "{re.escape(original_filename)}"',
+                rf"file '{re.escape(original_filename)}'",
+                # Plain mentions
+                rf'\b{re.escape(original_filename)}\b',
             ]
             
             for pattern in patterns:
+                # Find all matches for this pattern
                 matches = list(re.finditer(pattern, modified_answer, re.IGNORECASE))
                 logger.info("Pattern matching", 
                            filename=original_filename,
                            pattern=pattern,
                            matches_found=len(matches))
-                           
-                if matches:
-                    # Check if this filename mention already has a SuiteFiles link nearby
-                    context_window = 100  # characters around the match
+                
+                # Replace from last to first to maintain positions
+                for match in reversed(matches):
+                    # Check if this area already has a SuiteFiles link
+                    start = max(0, match.start() - 50)
+                    end = min(len(modified_answer), match.end() + 50)
+                    context = modified_answer[start:end]
                     
-                    for match in matches:
-                        start = max(0, match.start() - context_window)
-                        end = min(len(modified_answer), match.end() + context_window)
-                        context = modified_answer[start:end]
-                        
-                        logger.info("Checking context for existing links",
-                                   context=context,
-                                   has_suitefiles="Access in SuiteFiles" in context)
-                        
-                        # If no SuiteFiles link in context, add one
-                        if 'Access in SuiteFiles' not in context:
-                            matched_text = match.group(0)
+                    if 'Access in SuiteFiles' not in context:
+                        matched_text = match.group(0)
+                        # Create replacement with link
+                        if matched_text.startswith('document titled'):
+                            replacement = f'document titled {matched_text.split("titled ")[-1]} ([Access in SuiteFiles]({suitefiles_url}))'
+                        elif matched_text.startswith('document'):
                             replacement = f'{matched_text} ([Access in SuiteFiles]({suitefiles_url}))'
-                            modified_answer = modified_answer[:match.start()] + replacement + modified_answer[match.end():]
-                            replacements_made += 1
-                            logger.info("Added SuiteFiles link", 
-                                       original_text=matched_text,
-                                       replacement=replacement)
-                            break  # Only replace first occurrence
+                        elif matched_text.startswith('file'):
+                            replacement = f'{matched_text} ([Access in SuiteFiles]({suitefiles_url}))'
+                        else:
+                            replacement = f'{matched_text} ([Access in SuiteFiles]({suitefiles_url}))'
+                        
+                        modified_answer = modified_answer[:match.start()] + replacement + modified_answer[match.end():]
+                        replacements_made += 1
+                        logger.info("Replaced document mention", 
+                                   original_text=matched_text,
+                                   replacement=replacement)
         
         logger.info("POST-PROCESSING: Completed", 
                    replacements_made=replacements_made,
