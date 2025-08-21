@@ -190,7 +190,14 @@ IMPORTANT GUIDELINES:
 - For questions about standards/codes: Include BOTH SuiteFiles documents AND official online sources
 - If intent is unclear or could be both: Default to providing BOTH types of resources
 - Your goal is to be informative and context-aware, not robotic or overly reliant on past formats
-- Focus on practical engineering guidance for New Zealand conditions when applicable"""
+- Focus on practical engineering guidance for New Zealand conditions when applicable
+
+🚫 CRITICAL: DO NOT MENTION YOUR INTENT ANALYSIS TO THE USER
+- Never say "Based on the user's query..." or "The user's question appears to require..."
+- Never explain your reasoning about intent determination 
+- Never mention that you are analyzing what type of knowledge is needed
+- Just answer the question naturally and directly
+- Start with helpful information, not meta-commentary about the question type"""
             
             answer = await self._generate_project_answer_with_links(prompt, retrieved_content)
             
