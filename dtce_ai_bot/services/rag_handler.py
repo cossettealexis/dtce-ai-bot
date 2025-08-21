@@ -26,8 +26,8 @@ class RAGHandler:
         
         The user has asked the following question: "{user_question}"
         You will now perform the following steps:
-        1. Search the user's question in the document index using semantic + OR-based keyword query
-        2. From the index, retrieve the most relevant documents or excerpts related to the question
+        1. Search the user's question in SuiteFiles using semantic + OR-based keyword query
+        2. From SuiteFiles, retrieve the most relevant documents or excerpts related to the question
         3. Read and understand the user's intent
         4. Use the retrieved content to construct a helpful and natural-sounding answer, only if the content is relevant to the user's query
         5. If the retrieved documents are not relevant, answer the question based on your general knowledge instead
@@ -74,16 +74,16 @@ class RAGHandler:
                 
                 retrieved_content = "\n\n".join(index_results)
             else:
-                retrieved_content = "No relevant documents found in the index."
+                retrieved_content = "No relevant documents found in SuiteFiles."
             
             # STEP 3: GPT analyzes user intent and constructs natural answer
             prompt = f"""The user has asked the following question: "{question}"
 
-I have ALREADY searched the document index and retrieved the most relevant content for you.
+I have ALREADY searched SuiteFiles and retrieved the most relevant content for you.
 
 Your task is to:
 1. Read and understand the user's intent from their question
-2. Analyze the retrieved content I'm providing below 
+2. Analyze the retrieved content I'm providing below from SuiteFiles
 3. Use the retrieved content to construct a helpful and natural-sounding answer, ONLY if the content is relevant to the user's query
 4. If the retrieved documents are not relevant to the user's question, answer based on your general engineering knowledge instead
 
@@ -91,11 +91,11 @@ Your task is to:
 You may refer to the following example file — rag.txt — which contains example question-answer formats showing how the AI could respond to different structural engineering and project-related queries.
 However, do not copy from this file or rely on its content directly. It is only a reference to help you understand the style and expectations of the response. You must still follow the actual question, the user's intent, and the retrieved documents.
 
-📎 Retrieved content from the index:
+📎 Retrieved content from SuiteFiles:
 {retrieved_content}
 
 ✅ Final Task:
-Based on the above retrieved content and the user's intent, provide a helpful, relevant, and human-like response.
+Based on the above retrieved content from SuiteFiles and the user's intent, provide a helpful, relevant, and human-like response.
 - Use content from the retrieved documents only if applicable and relevant
 - If documents do not help answer the user's specific question, use your own general knowledge
 - Include SuiteFiles links when documents are relevant
