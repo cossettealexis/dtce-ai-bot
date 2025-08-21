@@ -69,7 +69,17 @@ class RAGHandler:
                     r'reinforced concrete column.*seismic and gravity.*legitimate link',
                     r'online threads.*references.*structural design',
                     r'design guidelines.*legitimate link',
-                    r'online.*references.*forums.*NZ'
+                    r'online.*references.*forums.*NZ',
+                    r'look for.*online.*threads',
+                    r'online.*discussions.*public',
+                    r'forums.*references.*public',
+                    r'legitimate link.*direct access',
+                    r'external.*references.*online',
+                    r'public.*forums.*engineering',
+                    r'anonymous.*structural engineers',
+                    r'online.*communities.*design',
+                    r'web.*resources.*structural',
+                    r'internet.*references.*design'
                 ],
                 'handler': self._handle_online_references
             },
@@ -915,11 +925,22 @@ Answer:"""
         if 'composite beam' in question.lower():
             technical_terms.extend(['composite beam', 'steel concrete composite'])
         if 'haunched' in question.lower() or 'tapered' in question.lower():
-            technical_terms.extend(['haunched beam', 'tapered beam'])
+            technical_terms.extend(['haunched beam', 'tapered beam', 'variable depth'])
         if 'concrete column' in question.lower():
             technical_terms.extend(['concrete column', 'reinforced concrete'])
         if 'seismic' in question.lower():
-            technical_terms.append('seismic design')
+            technical_terms.extend(['seismic design', 'earthquake engineering'])
+        if 'design guideline' in question.lower():
+            technical_terms.extend(['design guidelines', 'design procedures'])
+        if 'structural design' in question.lower():
+            technical_terms.extend(['structural design', 'structural engineering'])
+        
+        # Add general engineering terms if no specific ones found
+        if not technical_terms:
+            engineering_keywords = ['structural', 'design', 'engineering', 'construction']
+            for keyword in engineering_keywords:
+                if keyword in question.lower():
+                    technical_terms.append(keyword)
         
         return technical_terms if technical_terms else [question]
     
@@ -1308,31 +1329,70 @@ Answer:"""
     
     # Update placeholder methods to use natural language generation
     async def _handle_online_references(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
-        """Handle online reference queries - Use GPT for natural language answers"""
+        """Handle online reference queries - Provide both DTCE knowledge and external resources"""
         logger.info("Processing online references", question=question)
         
         keywords = self._extract_online_reference_keywords(question)
         documents = await self._search_documents(' OR '.join(keywords), project_filter)
         
+        # Prepare context from internal documents if available
+        internal_context = ""
         if documents:
-            prompt = f"""Based on the documents found, please answer: {question}
+            doc_summaries = []
+            for doc in documents[:5]:
+                filename = doc.get('filename', 'Unknown')
+                content = doc.get('content', '')[:500]
+                doc_summaries.append(f"**DTCE Document: {filename}**\n{content}...")
+            internal_context = f"\n\nRelevant DTCE Documents:\n" + "\n\n".join(doc_summaries)
+        
+        # Generate response that includes both internal knowledge and external resources
+        prompt = f"""You are the DTCE AI Assistant. The user is asking for online references and external resources: {question}
 
-Focus on:
-- Providing relevant references and design guidance
-- Including links when available
-- Explaining design procedures and best practices"""
+{internal_context}
+
+INSTRUCTIONS:
+- Provide both DTCE's internal knowledge (if available above) AND external online resources
+- For online resources, suggest legitimate websites, forums, and technical communities
+- Include specific NZ engineering forums and standards websites when relevant
+- Suggest search keywords for finding relevant discussions
+- Recommend reputable structural engineering forums and communities
+- Include links to standards bodies, professional organizations, and technical resources
+- Be honest about what you can and cannot access directly
+
+EXTERNAL RESOURCES TO CONSIDER:
+- New Zealand Society for Earthquake Engineering (NZSEE)
+- Engineering New Zealand forums
+- Structural engineering communities like Eng-Tips, Reddit r/StructuralEngineering
+- Standards New Zealand (SNZ) website
+- University research repositories
+- Professional engineering websites and technical papers
+
+Focus on practical guidance for New Zealand engineering practice while acknowledging the user's need for external validation and community discussions."""
+        
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "You are an expert engineering assistant for DTCE. Provide comprehensive answers that combine internal knowledge with external resource recommendations."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.4,
+                max_tokens=800
+            )
             
-            answer = await self._generate_natural_answer(prompt, documents, "design references")
+            answer = response.choices[0].message.content.strip()
+            
             return {
                 'answer': answer,
-                'sources': self._format_sources(documents),
+                'sources': self._format_sources(documents) if documents else [],
                 'confidence': 'medium',
                 'documents_searched': len(documents),
                 'rag_type': 'online_references'
             }
-        else:
+        except Exception as e:
+            logger.error("Error generating online references answer", error=str(e))
             return {
-                'answer': "I couldn't find relevant design references in our database. You may need to search engineering forums or technical communities directly.",
+                'answer': "I encountered an error while processing your request for online references. You may want to search engineering forums like Eng-Tips, Reddit r/StructuralEngineering, or Engineering New Zealand's professional networks for community discussions on your topic.",
                 'sources': [],
                 'confidence': 'low',
                 'documents_searched': 0,
