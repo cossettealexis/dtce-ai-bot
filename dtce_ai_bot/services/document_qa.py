@@ -8112,8 +8112,9 @@ Respond with ONLY a JSON object:
                 blob_url = doc.get('blob_url', '')
                 
                 if content:
-                    context_part = f"**Document: {filename}**\n{content[:1200]}..."
-                    # Do NOT include any URLs in context sent to GPT to prevent blob URL leakage
+                    # Include safe SuiteFiles link in context
+                    suitefiles_link = self._get_safe_suitefiles_url(blob_url)
+                    context_part = f"**Document: {filename}**\nSuiteFiles Link: {suitefiles_link}\n{content[:1200]}..."
                     context_parts.append(context_part)
             
             if not context_parts:
@@ -8167,9 +8168,10 @@ Context from DTCE documents:
 CRITICAL INSTRUCTIONS:
 - Provide a natural, conversational answer
 - ONLY use information that is explicitly provided in the context above
+- WHEN referencing a document, ALWAYS include its SuiteFiles link provided in the context
 - NEVER create or invent project numbers, job numbers, or file names
 - NEVER create or mention URLs unless they are explicitly provided in the context
-- If a document filename is mentioned in context, you can reference it
+- If a document filename is mentioned in context, you can reference it AND include its SuiteFiles link
 - If information is partial or missing, be honest about limitations
 - Focus on practical engineering guidance based on available information
 - Keep response professional but approachable
