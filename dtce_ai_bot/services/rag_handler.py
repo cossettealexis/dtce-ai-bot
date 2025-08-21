@@ -41,7 +41,14 @@ class RAGHandler:
                     r'2.storey concrete precast panel building.*timber.framed',
                     r'past projects.*scope.*keywords',
                     r'DTCE has done.*in the past.*for',
-                    r'provide.*example past projects'
+                    r'provide.*example past projects',
+                    r'tell me.*past project.*scope.*keywords',
+                    r'all past project.*scope.*about',
+                    r'past project.*has.*scope',
+                    r'projects.*similar.*scope',
+                    r'show me.*past project',
+                    r'list.*past project',
+                    r'find.*past project'
                 ],
                 'handler': self._handle_project_reference
             },
@@ -242,39 +249,76 @@ class RAGHandler:
         documents = await self._search_documents(search_query, project_filter)
         
         if documents:
-            # Prepare document context WITH SuiteFiles links for project references
-            document_details = []
-            for doc in documents[:10]:
+            # Group documents by project number for better organization
+            projects_dict = {}
+            other_docs = []
+            
+            for doc in documents[:20]:  # Process more documents
                 filename = doc.get('filename', 'Unknown')
                 content = doc.get('content', '')
                 blob_url = doc.get('blob_url', '')
                 suitefiles_link = self._get_safe_suitefiles_url(blob_url)
                 
-                doc_info = f"**Document: {filename}**\n"
-                if suitefiles_link and suitefiles_link != "Document available in SuiteFiles":
-                    doc_info += f"SuiteFiles Link: {suitefiles_link}\n"
-                doc_info += f"Content: {content[:800]}..."
-                document_details.append(doc_info)
+                # Try to extract project number from blob URL or filename
+                project_number = self._extract_project_from_blob_url(blob_url)
+                
+                doc_info = {
+                    'filename': filename,
+                    'content': content[:500] + "..." if len(content) > 500 else content,
+                    'suitefiles_link': suitefiles_link,
+                    'blob_url': blob_url
+                }
+                
+                if project_number:
+                    if project_number not in projects_dict:
+                        projects_dict[project_number] = []
+                    projects_dict[project_number].append(doc_info)
+                else:
+                    other_docs.append(doc_info)
             
-            context_with_links = "\n\n".join(document_details)
+            # Prepare organized context for GPT
+            organized_context = []
+            
+            # Add projects grouped by project number
+            for project_num, docs in projects_dict.items():
+                project_section = f"**PROJECT {project_num}:**\n"
+                for doc in docs:
+                    project_section += f"- Document: {doc['filename']}\n"
+                    if doc['suitefiles_link'] and doc['suitefiles_link'] != "Document link not available":
+                        project_section += f"  SuiteFiles Link: {doc['suitefiles_link']}\n"
+                    project_section += f"  Content: {doc['content']}\n\n"
+                organized_context.append(project_section)
+            
+            # Add other relevant documents
+            if other_docs:
+                other_section = "**OTHER RELEVANT DOCUMENTS:**\n"
+                for doc in other_docs[:5]:  # Limit other docs
+                    other_section += f"- Document: {doc['filename']}\n"
+                    if doc['suitefiles_link'] and doc['suitefiles_link'] != "Document link not available":
+                        other_section += f"  SuiteFiles Link: {doc['suitefiles_link']}\n"
+                    other_section += f"  Content: {doc['content']}\n\n"
+                organized_context.append(other_section)
+            
+            context_with_projects = "\n".join(organized_context)
             
             # Use GPT to generate natural language answer about projects
             prompt = f"""Based on the project documents found, please answer this question about past DTCE projects: {question}
 
-Project Documents Found:
-{context_with_links}
+Project Documents Found (organized by project):
+{context_with_projects}
 
 INSTRUCTIONS:
 - Provide a comprehensive answer about past DTCE projects related to the keywords
+- When projects are grouped by project numbers, organize your response by project
 - INCLUDE the SuiteFiles links provided above for each relevant document
 - Focus on project scope, design details, and lessons learned
-- Include job numbers or project references when available
+- Include project numbers when available
 - Make it clear users can access these documents through the provided SuiteFiles links
-- Organize the response by document/project for easy reference
+- For queries asking about "all past projects" or "projects with scope", organize by project number first
 
-Format your response to help users access the actual project documents."""
+Format your response to help users understand which projects are relevant and how to access the documents."""
             
-            answer = await self._generate_project_answer_with_links(prompt, context_with_links)
+            answer = await self._generate_project_answer_with_links(prompt, context_with_projects)
             
             return {
                 'answer': answer,
@@ -456,6 +500,31 @@ Focus on providing genuine value even without internal documents."""
                 keywords.append(term)
         
         return keywords if keywords else [question]
+    
+    def _extract_project_from_blob_url(self, blob_url: str) -> Optional[str]:
+        """Extract project number from blob URL."""
+        if not blob_url:
+            return None
+        
+        import re
+        
+        # Try to extract project number from common patterns
+        # Pattern 1: /Projects/219/219392/... -> "219"
+        match = re.search(r'/Projects/(\d+)/(\d+)/', blob_url)
+        if match:
+            return match.group(1)
+        
+        # Pattern 2: /Projects/219/... -> "219"  
+        match = re.search(r'/Projects/(\d+)/', blob_url)
+        if match:
+            return match.group(1)
+        
+        # Pattern 3: Look for project-like numbers in path
+        match = re.search(r'/(\d{3,4})/', blob_url)
+        if match:
+            return match.group(1)
+        
+        return None
     
     def _extract_product_terms(self, question: str) -> List[str]:
         """Extract product-related terms."""
