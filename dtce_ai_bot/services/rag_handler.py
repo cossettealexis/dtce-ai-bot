@@ -347,16 +347,41 @@ Format your response to help users understand which projects are relevant and ho
         documents = await self._search_documents(search_query, project_filter)
         
         if documents:
+            # Prepare document context WITH SuiteFiles links for product lookups
+            document_details = []
+            for doc in documents[:10]:
+                filename = doc.get('filename', 'Unknown')
+                content = doc.get('content', '')
+                blob_url = doc.get('blob_url', '')
+                suitefiles_link = self._get_safe_suitefiles_url(blob_url)
+                
+                doc_info = f"**Document: {filename}**\n"
+                if suitefiles_link and suitefiles_link != "Document link not available":
+                    doc_info += f"SuiteFiles Link: {suitefiles_link}\n"
+                doc_info += f"Content: {content[:800]}..."
+                document_details.append(doc_info)
+            
+            context_with_links = "\n\n".join(document_details)
+            
             # Use GPT to generate natural language answer about products
             prompt = f"""Based on the documents found, please answer this question about products: {question}
 
-Focus on:
-- Product specifications and details
-- Prioritizing information from SuiteFiles documents
-- Including supplier information when available
-- Mentioning alternative products if found"""
+Product Documents Found:
+{context_with_links}
+
+INSTRUCTIONS:
+- Provide comprehensive product specifications and details
+- INCLUDE the SuiteFiles links provided above for each relevant document
+- Prioritize information from DTCE's SuiteFiles documents
+- Include supplier information and contact details when available
+- Mention alternative products if found
+- For queries asking for "all links" or "list all links", make sure to include the SuiteFiles links
+- Make it clear users can access these documents through the provided SuiteFiles links
+- When users ask for sizes, pricing, or supplier locations, extract this information from the documents
+
+Format your response to help users access the product documents and specifications."""
             
-            answer = await self._generate_natural_answer(prompt, documents, "product specifications")
+            answer = await self._generate_project_answer_with_links(prompt, context_with_links)
             
             return {
                 'answer': answer,
@@ -534,10 +559,23 @@ Focus on providing genuine value even without internal documents."""
             product_terms.extend(['waterproofing', 'membrane', 'sealant'])
         if 'timber connection' in question.lower():
             product_terms.extend(['timber connector', 'bracket', 'bolt', 'screw'])
-        if 'LVL' in question:
+        if 'LVL' in question or 'laminated veneer lumber' in question.lower():
             product_terms.extend(['LVL', 'laminated veneer lumber', 'engineered timber'])
+        if 'sizes' in question.lower() and 'timber' in question.lower():
+            product_terms.extend(['timber', 'sizes', 'dimensions', 'specifications'])
+        if 'proprietary product' in question.lower():
+            product_terms.extend(['proprietary', 'product', 'manufacturer', 'brand'])
+        if 'supplier' in question.lower():
+            product_terms.extend(['supplier', 'manufacturer', 'distributor'])
         
-        return product_terms
+        # If no specific terms found, extract general product keywords
+        if not product_terms:
+            product_keywords = ['product', 'material', 'specification', 'timber', 'steel', 'concrete']
+            for keyword in product_keywords:
+                if keyword in question.lower():
+                    product_terms.append(keyword)
+        
+        return product_terms if product_terms else [question]
     
     def _extract_template_terms(self, question: str) -> List[str]:
         """Extract template-related terms."""
