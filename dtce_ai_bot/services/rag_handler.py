@@ -190,115 +190,85 @@ class RAGHandler:
         }
     
     async def process_rag_query(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
-        """Process ANY query by searching Azure index directly and letting GPT format results."""
+        """
+        Process query using the exact flow specified:
+        1. Search user's question in document index using OR-based keyword query
+        2. Retrieve most relevant documents  
+        3. GPT reads user intent and constructs natural answer
+        4. Use retrieved content if relevant, otherwise general knowledge
+        """
         try:
             logger.info("Processing query", question=question)
             
-            # STEP 1: Search user's question directly in Azure index (word by word OR query)
+            # STEP 1: Search user's question in document index using OR-based keyword query
             search_words = [word.strip() for word in question.split() if len(word.strip()) > 2]
             search_query = ' OR '.join(search_words)
             
-            # STEP 2: Get documents from Azure index
+            # STEP 2: Retrieve most relevant documents from index
             documents = await self._search_documents(search_query, project_filter)
             
-            logger.info("Search results summary", 
+            logger.info("Search results", 
                        search_query=search_query,
                        documents_found=len(documents),
                        sample_filenames=[doc.get('filename', 'Unknown') for doc in documents[:3]])
             
+            # STEP 3: Prepare retrieved content from index
             if documents:
-                # STEP 3: Prepare document context WITH SuiteFiles links
-                document_details = []
-                for doc in documents[:10]:  # Get top 10 results
+                # Format retrieved content from the index
+                index_results = []
+                for doc in documents[:10]:  # Top 10 most relevant
                     filename = doc.get('filename', 'Unknown')
                     content = doc.get('content', '')
                     blob_url = doc.get('blob_url', '')
                     suitefiles_link = self._get_safe_suitefiles_url(blob_url)
                     
-                    doc_info = f"**Document: {filename}**\n"
+                    doc_result = f"**Document: {filename}**\n"
                     if suitefiles_link and suitefiles_link != "Document available in SuiteFiles":
-                        doc_info += f"SuiteFiles Link: {suitefiles_link}\n"
-                    doc_info += f"Content: {content[:800]}..."
-                    document_details.append(doc_info)
+                        doc_result += f"SuiteFiles Link: {suitefiles_link}\n"
+                    doc_result += f"Content: {content[:800]}..."
+                    index_results.append(doc_result)
                 
-                context_with_links = "\n\n".join(document_details)
-                
-                # STEP 4: Let GPT format the results based on user's intent
-                prompt = f"""User asked: {question}
-
-Documents found in Azure search index:
-{context_with_links}
-
-CRITICAL INSTRUCTIONS - READ CAREFULLY:
-
-1. UNDERSTAND THE USER'S QUESTION FIRST:
-   - What is the user actually asking for?
-   - Are they asking for templates/forms, technical standards, past projects, products, or general engineering advice?
-   - What specific information do they need?
-
-2. ANALYZE THE SEARCH RESULTS:
-   - Look through ALL the documents provided
-   - Find documents that ACTUALLY answer the user's question
-   - Don't just say "none of the documents discuss..." - LOOK HARDER
-   - If documents contain relevant technical information, extract and present it
-   - Prioritize documents with titles/content that match the user's intent
-
-3. PROVIDE INTELLIGENT ANSWERS:
-   - If asking for "PS3 template" and you find "PS3 template.pdf" → THAT'S THE ANSWER!
-   - If asking for "NZS clear cover requirements" and documents mention concrete standards → EXTRACT THE SPECIFIC REQUIREMENTS
-   - If asking for past projects about timber → Find and present actual timber project examples
-   - If asking for product specifications → Extract actual specs and supplier info
-
-4. FORMAT YOUR RESPONSE BASED ON INTENT:
-   - Templates/Forms: Provide the actual template files with SuiteFiles links
-   - Technical Questions: Extract specific technical information from documents
-   - Past Projects: Organize by project number and scope
-   - Products: Include specifications, suppliers, and contact details
-   - Standards/Codes: Extract specific clauses, values, and requirements
-
-5. INCLUDE SUITEFILES LINKS:
-   - Always provide the SuiteFiles links for relevant documents
-   - Make it easy for users to access the actual files
-
-6. BE PRACTICAL AND HELPFUL:
-   - Don't say documents don't contain information if they actually do
-   - Extract specific values, requirements, project details
-   - If no perfect match, explain what related information was found
-   - Suggest external sources only if internal documents truly don't help
-
-REMEMBER: You are an intelligent AI assistant. THINK about what the user needs and provide it from the documents found."""
-                
-                answer = await self._generate_project_answer_with_links(prompt, context_with_links)
-                
-                return {
-                    'answer': answer,
-                    'sources': self._format_sources(documents),
-                    'confidence': 'high',
-                    'documents_searched': len(documents),
-                    'rag_type': 'direct_search'
-                }
+                retrieved_content = "\n\n".join(index_results)
             else:
-                # STEP 5: No documents found - provide helpful guidance
-                prompt = f"""User asked: {question}
+                retrieved_content = "No relevant documents found in the index."
+            
+            # STEP 4: GPT analyzes user intent and constructs natural answer
+            prompt = f"""You will now perform the following steps:
 
-No documents were found in our Azure search index for this query.
+Search the user's question in the document index (from SuiteFiles or internal knowledge base) using an OR-based keyword query.
+From the index, retrieve the most relevant documents or excerpts related to the question.
 
-Provide a helpful response that:
-1. Acknowledges we couldn't find specific documents for this question
-2. Suggests alternative approaches or external resources if relevant
-3. For engineering questions, provide general guidance based on New Zealand engineering practices
-4. If asking for templates, suggest official sources like Engineering New Zealand or MBIE
-5. Maintains a helpful, professional tone"""
-                
-                answer = await self._generate_natural_answer(prompt, [], "general guidance")
-                
-                return {
-                    'answer': answer,
-                    'sources': [],
-                    'confidence': 'low',
-                    'documents_searched': 0,
-                    'rag_type': 'no_results'
-                }
+GPT WILL NOW:
+- Read and understand the user's intent.
+- Use the retrieved content to construct a helpful and natural-sounding answer, only if the content is relevant to the user's query.
+- If the retrieved documents are not relevant, answer the question based on your general knowledge instead.
+
+ℹ️ Reference Example (rag.txt)
+You may refer to the following example file — rag.txt — which contains example question-answer formats showing how the AI could respond to different structural engineering and project-related queries.
+However, do not copy from this file or rely on its content directly. It is only a reference to help you understand the style and expectations of the response. You must still follow the actual question, the user's intent, and the retrieved documents.
+
+USER'S QUESTION: {question}
+
+📎 Retrieved content from the index:
+{retrieved_content}
+
+✅ Final Task:
+Based on the above and the user's intent, provide a helpful, relevant, and human-like response.
+- Use content from the retrieved documents only if applicable.
+- If documents do not help, use your own general knowledge.
+- Include SuiteFiles links when documents are relevant.
+- Your goal is to be informative and context-aware, not robotic or overly reliant on past formats.
+- Focus on practical engineering guidance for New Zealand conditions when applicable."""
+            
+            answer = await self._generate_project_answer_with_links(prompt, retrieved_content)
+            
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents) if documents else [],
+                'confidence': 'high' if documents else 'medium',
+                'documents_searched': len(documents),
+                'rag_type': 'intelligent_search'
+            }
                 
         except Exception as e:
             logger.error("RAG processing failed", error=str(e), question=question)
@@ -323,209 +293,19 @@ Provide a helpful response that:
         return None
     
     async def _handle_nzs_code_lookup(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
-        """Handle NZ Standards code lookup queries - Use GPT for natural language answers"""
+        """Handle NZ Standards code lookup - Search Azure index for NZS documents per RAG.TXT"""
         logger.info("Processing NZS code lookup", question=question)
         
-        # Search for NZ Standards documents
-        search_query = self._extract_nzs_search_terms(question)
-        documents = await self._search_documents(search_query, project_filter, doc_types=['pdf', 'standard'])
-        
-        if documents:
-            # Use GPT to generate natural language answer from documents
-            answer = await self._generate_natural_answer(question, documents, "NZ Standards")
-            
-            return {
-                'answer': answer,
-                'sources': self._format_sources_with_clauses(documents),
-                'confidence': 'high' if len(documents) >= 2 else 'medium',
-                'documents_searched': len(documents),
-                'rag_type': 'nzs_code_lookup'
-            }
-        else:
-            return {
-                'answer': "I couldn't find the specific NZ Standard information in our database. This information may not be uploaded to our system, or you may need to refer to the physical NZ Standards documents.",
-                'sources': [],
-                'confidence': 'low',
-                'documents_searched': 0,
-                'rag_type': 'nzs_code_lookup'
-            }
-    
-    async def _handle_project_reference(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
-        """Handle past project reference queries - Use GPT for natural language answers"""
-        logger.info("Processing project reference", question=question)
-        
-        # Extract keywords from question
-        keywords = self._extract_project_keywords(question)
-        search_query = ' OR '.join(keywords)
-        
-        documents = await self._search_documents(search_query, project_filter)
-        
-        if documents:
-            # Group documents by project number for better organization
-            projects_dict = {}
-            other_docs = []
-            
-            for doc in documents[:20]:  # Process more documents
-                filename = doc.get('filename', 'Unknown')
-                content = doc.get('content', '')
-                blob_url = doc.get('blob_url', '')
-                suitefiles_link = self._get_safe_suitefiles_url(blob_url)
-                
-                # Try to extract project number from blob URL or filename
-                project_number = self._extract_project_from_blob_url(blob_url)
-                
-                doc_info = {
-                    'filename': filename,
-                    'content': content[:500] + "..." if len(content) > 500 else content,
-                    'suitefiles_link': suitefiles_link,
-                    'blob_url': blob_url
-                }
-                
-                if project_number:
-                    if project_number not in projects_dict:
-                        projects_dict[project_number] = []
-                    projects_dict[project_number].append(doc_info)
-                else:
-                    other_docs.append(doc_info)
-            
-            # Prepare organized context for GPT
-            organized_context = []
-            
-            # Add projects grouped by project number
-            for project_num, docs in projects_dict.items():
-                project_section = f"**PROJECT {project_num}:**\n"
-                for doc in docs:
-                    project_section += f"- Document: {doc['filename']}\n"
-                    if doc['suitefiles_link'] and doc['suitefiles_link'] != "Document link not available":
-                        project_section += f"  SuiteFiles Link: {doc['suitefiles_link']}\n"
-                    project_section += f"  Content: {doc['content']}\n\n"
-                organized_context.append(project_section)
-            
-            # Add other relevant documents
-            if other_docs:
-                other_section = "**OTHER RELEVANT DOCUMENTS:**\n"
-                for doc in other_docs[:5]:  # Limit other docs
-                    other_section += f"- Document: {doc['filename']}\n"
-                    if doc['suitefiles_link'] and doc['suitefiles_link'] != "Document link not available":
-                        other_section += f"  SuiteFiles Link: {doc['suitefiles_link']}\n"
-                    other_section += f"  Content: {doc['content']}\n\n"
-                organized_context.append(other_section)
-            
-            context_with_projects = "\n".join(organized_context)
-            
-            # Use GPT to generate natural language answer about projects
-            prompt = f"""Based on the project documents found, please answer this question about past DTCE projects: {question}
-
-Project Documents Found (organized by project):
-{context_with_projects}
-
-INSTRUCTIONS:
-- Provide a comprehensive answer about past DTCE projects related to the keywords
-- When projects are grouped by project numbers, organize your response by project
-- INCLUDE the SuiteFiles links provided above for each relevant document
-- Focus on project scope, design details, and lessons learned
-- Include project numbers when available
-- Make it clear users can access these documents through the provided SuiteFiles links
-- For queries asking about "all past projects" or "projects with scope", organize by project number first
-
-Format your response to help users understand which projects are relevant and how to access the documents."""
-            
-            answer = await self._generate_project_answer_with_links(prompt, context_with_projects)
-            
-            return {
-                'answer': answer,
-                'sources': self._format_sources(documents),
-                'confidence': 'high' if len(documents) >= 3 else 'medium',
-                'documents_searched': len(documents),
-                'rag_type': 'project_reference'
-            }
-        else:
-            return {
-                'answer': f"I couldn't find past DTCE projects matching your specific keywords in our database.",
-                'sources': [],
-                'confidence': 'low',
-                'documents_searched': 0,
-                'rag_type': 'project_reference'
-            }
-    
-    async def _handle_product_lookup(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
-        """Handle proprietary product lookup queries - Use GPT for natural language answers"""
-        logger.info("Processing product lookup", question=question)
-        
-        # Extract product keywords
-        product_terms = self._extract_product_terms(question)
-        search_query = ' AND '.join(product_terms)
-        
-        documents = await self._search_documents(search_query, project_filter)
-        
-        if documents:
-            # Prepare document context WITH SuiteFiles links for product lookups
-            document_details = []
-            for doc in documents[:10]:
-                filename = doc.get('filename', 'Unknown')
-                content = doc.get('content', '')
-                blob_url = doc.get('blob_url', '')
-                suitefiles_link = self._get_safe_suitefiles_url(blob_url)
-                
-                doc_info = f"**Document: {filename}**\n"
-                if suitefiles_link and suitefiles_link != "Document link not available":
-                    doc_info += f"SuiteFiles Link: {suitefiles_link}\n"
-                doc_info += f"Content: {content[:800]}..."
-                document_details.append(doc_info)
-            
-            context_with_links = "\n\n".join(document_details)
-            
-            # Use GPT to generate natural language answer about products
-            prompt = f"""Based on the documents found, please answer this question about products: {question}
-
-Product Documents Found:
-{context_with_links}
-
-INSTRUCTIONS:
-- Provide comprehensive product specifications and details
-- INCLUDE the SuiteFiles links provided above for each relevant document
-- Prioritize information from DTCE's SuiteFiles documents
-- Include supplier information and contact details when available
-- Mention alternative products if found
-- For queries asking for "all links" or "list all links", make sure to include the SuiteFiles links
-- Make it clear users can access these documents through the provided SuiteFiles links
-- When users ask for sizes, pricing, or supplier locations, extract this information from the documents
-
-Format your response to help users access the product documents and specifications."""
-            
-            answer = await self._generate_project_answer_with_links(prompt, context_with_links)
-            
-            return {
-                'answer': answer,
-                'sources': self._format_sources(documents),
-                'confidence': 'high',
-                'documents_searched': len(documents),
-                'rag_type': 'product_lookup'
-            }
-        else:
-            return {
-                'answer': "I couldn't find specific proprietary product information in our SuiteFiles database for your query.",
-                'sources': [],
-                'confidence': 'low',
-                'documents_searched': 0,
-                'rag_type': 'product_lookup'
-            }
-    
-    async def _handle_template_request(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
-        """Handle template and form requests - Simple flow: search question directly, let GPT format results"""
-        logger.info("Processing template request", question=question)
-        
-        # Search the user's question directly in Azure index (word by word OR query)
-        # Extract meaningful words from the question for search
+        # Search Azure index with user's question directly
         search_words = [word.strip() for word in question.split() if len(word.strip()) > 2]
         search_query = ' OR '.join(search_words)
         
-        documents = await self._search_documents(search_query, project_filter, doc_types=['xlsx', 'xls', 'pdf', 'doc', 'docx'])
+        documents = await self._search_documents(search_query, project_filter)
         
         if documents:
-            # Prepare document context WITH SuiteFiles links
+            # Prepare context WITH SuiteFiles links
             document_details = []
-            for doc in documents[:10]:  # Get more results to let GPT decide what's relevant
+            for doc in documents[:10]:
                 filename = doc.get('filename', 'Unknown')
                 content = doc.get('content', '')
                 blob_url = doc.get('blob_url', '')
@@ -539,22 +319,207 @@ Format your response to help users access the product documents and specificatio
             
             context_with_links = "\n\n".join(document_details)
             
-            # Let GPT format the results based on user's intent
-            prompt = f"""User asked: {question}
+            # Use RAG.TXT OUTPUT specification for NZS code queries
+            prompt = f"""User asked about NZ Standards: {question}
 
 Documents found in Azure search index:
 {context_with_links}
 
-Instructions:
-- Format the response based on the user's intent from their question
-- INCLUDE the SuiteFiles links provided above for relevant documents
-- If the user is asking for templates/forms, prioritize documents that appear to be templates
-- If user mentions they can't access SuiteFiles or need alternatives, suggest:
-  * Engineering New Zealand (ENZ) website for official PS templates
+INSTRUCTIONS (per RAG.TXT for NZS code lookup):
+- Give an accurate response directly obtained from the NZ Standard documents found
+- Extract specific clauses, values, and requirements from the documents
+- Look for clear cover requirements, strength reduction factors, design clauses, etc.
+- If NZS documents are found, extract the exact technical specifications
+- INCLUDE the SuiteFiles links provided above for each relevant document
+- If no NZS standards found in our database, acknowledge this and suggest official Standards New Zealand sources
+- Focus on practical engineering values and requirements"""
+            
+            answer = await self._generate_project_answer_with_links(prompt, context_with_links)
+            
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high',
+                'documents_searched': len(documents),
+                'rag_type': 'nzs_code_lookup'
+            }
+        else:
+            return {
+                'answer': "I couldn't find the specific NZ Standard information in our database. This information may not be uploaded to our system. For official NZS standards like NZS 3101 (Concrete Structures) or NZS 3404 (Steel Structures), please refer to Standards New Zealand's official website or consult with a chartered professional engineer.",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'rag_type': 'nzs_code_lookup'
+            }
+    
+    async def _handle_project_reference(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle past project reference queries per RAG.TXT - Search Azure index for projects"""
+        logger.info("Processing project reference", question=question)
+        
+        # Search Azure index with user's question directly
+        search_words = [word.strip() for word in question.split() if len(word.strip()) > 2]
+        search_query = ' OR '.join(search_words)
+        
+        documents = await self._search_documents(search_query, project_filter)
+        
+        if documents:
+            # Prepare context WITH SuiteFiles links and project organization
+            document_details = []
+            for doc in documents[:15]:  # Get more for project analysis
+                filename = doc.get('filename', 'Unknown')
+                content = doc.get('content', '')
+                blob_url = doc.get('blob_url', '')
+                suitefiles_link = self._get_safe_suitefiles_url(blob_url)
+                
+                # Try to extract project number
+                project_number = self._extract_project_from_blob_url(blob_url)
+                
+                doc_info = f"**Document: {filename}**\n"
+                if project_number:
+                    doc_info += f"Project Number: {project_number}\n"
+                if suitefiles_link and suitefiles_link != "Document available in SuiteFiles":
+                    doc_info += f"SuiteFiles Link: {suitefiles_link}\n"
+                doc_info += f"Content: {content[:600]}..."
+                document_details.append(doc_info)
+            
+            context_with_links = "\n\n".join(document_details)
+            
+            # Use RAG.TXT OUTPUT specification for project queries
+            prompt = f"""User asked about past projects: {question}
+
+Documents found in Azure search index:
+{context_with_links}
+
+INSTRUCTIONS (per RAG.TXT for project references):
+- Provide job numbers that include the keywords from the user
+- Organize projects by project number when available
+- Include project scope, design details, and relevant information
+- INCLUDE direct SuiteFiles links to corresponding folders/documents
+- Focus on matching the specific keywords mentioned by the user
+- Present projects that are most relevant to the user's design scenario
+- If multiple projects found, prioritize by relevance to user's requirements"""
+            
+            answer = await self._generate_project_answer_with_links(prompt, context_with_links)
+            
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high',
+                'documents_searched': len(documents),
+                'rag_type': 'project_reference'
+            }
+        else:
+            return {
+                'answer': f"I couldn't find past DTCE projects matching your specific keywords in our database. The requested scope or keywords may not be present in our indexed documents.",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'rag_type': 'project_reference'
+            }
+    
+    async def _handle_product_lookup(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle proprietary product lookup per RAG.TXT - Search Azure index for products"""
+        logger.info("Processing product lookup", question=question)
+        
+        # Search Azure index with user's question directly
+        search_words = [word.strip() for word in question.split() if len(word.strip()) > 2]
+        search_query = ' OR '.join(search_words)
+        
+        documents = await self._search_documents(search_query, project_filter)
+        
+        if documents:
+            # Prepare context WITH SuiteFiles links
+            document_details = []
+            for doc in documents[:10]:
+                filename = doc.get('filename', 'Unknown')
+                content = doc.get('content', '')
+                blob_url = doc.get('blob_url', '')
+                suitefiles_link = self._get_safe_suitefiles_url(blob_url)
+                
+                doc_info = f"**Document: {filename}**\n"
+                if suitefiles_link and suitefiles_link != "Document available in SuiteFiles":
+                    doc_info += f"SuiteFiles Link: {suitefiles_link}\n"
+                doc_info += f"Content: {content[:800]}..."
+                document_details.append(doc_info)
+            
+            context_with_links = "\n\n".join(document_details)
+            
+            # Use RAG.TXT OUTPUT specification for product queries
+            prompt = f"""User asked about products: {question}
+
+Documents found in Azure search index:
+{context_with_links}
+
+INSTRUCTIONS (per RAG.TXT for product lookup):
+- Provide relevant product specifications, prioritizing SuiteFiles documents
+- Include supplier information and contact details when available
+- Mention alternative products and options found in documents
+- INCLUDE SuiteFiles links for each relevant document
+- Extract sizes, pricing, specifications from the documents
+- Focus on products DTCE has used in past projects
+- If asking for suppliers near Wellington, include location information"""
+            
+            answer = await self._generate_project_answer_with_links(prompt, context_with_links)
+            
+            return {
+                'answer': answer,
+                'sources': self._format_sources(documents),
+                'confidence': 'high',
+                'documents_searched': len(documents),
+                'rag_type': 'product_lookup'
+            }
+        else:
+            return {
+                'answer': "I couldn't find specific proprietary product information in our SuiteFiles database for your query. You may need to contact suppliers directly or check manufacturer websites.",
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'rag_type': 'product_lookup'
+            }
+    
+    async def _handle_template_request(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
+        """Handle template requests per RAG.TXT - Search Azure index for templates"""
+        logger.info("Processing template request", question=question)
+        
+        # Search Azure index with user's question directly
+        search_words = [word.strip() for word in question.split() if len(word.strip()) > 2]
+        search_query = ' OR '.join(search_words)
+        
+        documents = await self._search_documents(search_query, project_filter, doc_types=['xlsx', 'xls', 'pdf', 'doc', 'docx'])
+        
+        if documents:
+            # Prepare context WITH SuiteFiles links
+            document_details = []
+            for doc in documents[:10]:
+                filename = doc.get('filename', 'Unknown')
+                content = doc.get('content', '')
+                blob_url = doc.get('blob_url', '')
+                suitefiles_link = self._get_safe_suitefiles_url(blob_url)
+                
+                doc_info = f"**Document: {filename}**\n"
+                if suitefiles_link and suitefiles_link != "Document available in SuiteFiles":
+                    doc_info += f"SuiteFiles Link: {suitefiles_link}\n"
+                doc_info += f"Content: {content[:800]}..."
+                document_details.append(doc_info)
+            
+            context_with_links = "\n\n".join(document_details)
+            
+            # Use RAG.TXT OUTPUT specification for template queries
+            prompt = f"""User asked for template: {question}
+
+Documents found in Azure search index:
+{context_with_links}
+
+INSTRUCTIONS (per RAG.TXT for template requests):
+- Retrieve and provide the correct document or template
+- INCLUDE direct SuiteFiles links for each relevant template
+- If PS1/PS2/PS3/PS4 templates are found, provide them directly
+- If calculation spreadsheets are found, include them with links
+- If user can't find template in SuiteFiles, suggest legitimate external sources:
+  * Engineering New Zealand (ENZ) for official PS templates
   * MBIE website for government-approved templates
   * Local council websites for council-specific formats
-- Present the information in a helpful, organized way
-- Make it clear users can access documents through the provided SuiteFiles links"""
+- Focus on providing actual working templates with access links"""
             
             answer = await self._generate_project_answer_with_links(prompt, context_with_links)
             
@@ -566,24 +531,8 @@ Instructions:
                 'rag_type': 'template_request'
             }
         else:
-            # No documents found - provide helpful guidance
-            prompt = f"""User asked: {question}
-
-No documents were found in our Azure search index for this query.
-
-Provide a helpful response that:
-1. Acknowledges we couldn't find documents in our database
-2. Suggests official alternative sources:
-   - Engineering New Zealand (ENZ) for official Producer Statement templates
-   - MBIE website for government-approved building templates
-   - Local council websites for council-specific formats
-3. Explains what the template/document is typically used for
-4. Maintains a helpful, professional tone"""
-            
-            answer = await self._generate_natural_answer(prompt, [], "external sources")
-            
             return {
-                'answer': answer,
+                'answer': "I couldn't find the specific template in our SuiteFiles database. For official templates, please check: Engineering New Zealand (ENZ) for Producer Statement templates, MBIE website for government-approved building templates, or your local council website for council-specific formats.",
                 'sources': [],
                 'confidence': 'medium',
                 'documents_searched': 0,
