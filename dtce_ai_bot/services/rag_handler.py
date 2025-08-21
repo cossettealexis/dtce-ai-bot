@@ -96,11 +96,16 @@ However, do not copy from this file or rely on its content directly. It is only 
 
 ✅ Final Task:
 Based on the above retrieved content from SuiteFiles and the user's intent, provide a helpful, relevant, and human-like response.
+
+🔗 CRITICAL: When you mention ANY document from the retrieved content, you MUST include its clickable SuiteFiles link immediately after mentioning the document name. The links are provided in the retrieved content above - USE THEM!
+
+Example: "According to the Manual for Design (SuiteFiles Link: https://dtce.suitefiles.com/...)"
+
 - Use content from the retrieved documents only if applicable and relevant
+- ALWAYS include the actual SuiteFiles links when referencing specific documents
 - If documents do not help answer the user's specific question, use your own general knowledge
-- Include SuiteFiles links when documents are relevant
-- Your goal is to be informative and context-aware, not robotic or overly reliant on past formats.
-- Focus on practical engineering guidance for New Zealand conditions when applicable."""
+- Your goal is to be informative and context-aware, not robotic or overly reliant on past formats
+- Focus on practical engineering guidance for New Zealand conditions when applicable"""
             
             answer = await self._generate_project_answer_with_links(prompt, retrieved_content)
             
