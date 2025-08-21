@@ -517,6 +517,19 @@ Focus on providing genuine value even without internal documents."""
         suitefiles_url = self._convert_to_suitefiles_url(blob_url, link_type)
         return suitefiles_url or "Document available in SuiteFiles"
     
+    def _remove_blob_urls_from_text(self, text: str) -> str:
+        """Remove any Azure blob URLs from text for safety."""
+        if not text:
+            return text
+        
+        # Pattern to match Azure blob storage URLs
+        blob_url_pattern = r'https://[a-zA-Z0-9]+\.blob\.core\.windows\.net/[^\s]+'
+        
+        # Replace blob URLs with a safe message
+        cleaned_text = re.sub(blob_url_pattern, "Document available in SuiteFiles", text)
+        
+        return cleaned_text
+    
     async def _generate_project_answer_with_links(self, prompt: str, context: str) -> str:
         """Generate project answer that includes SuiteFiles links"""
         try:
@@ -533,7 +546,7 @@ Focus on providing genuine value even without internal documents."""
             answer = response.choices[0].message.content.strip()
             
             # Apply safety filter to remove any blob URLs that might have been generated
-            answer = self._apply_blob_url_safety_filter(answer)
+            answer = self._remove_blob_urls_from_text(answer)
             
             return answer
             
