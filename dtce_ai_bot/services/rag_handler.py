@@ -58,21 +58,28 @@ class RAGHandler:
             
             # STEP 2: Retrieve most relevant documents from index
             if documents:
-                # Format retrieved content from the index
+                # Format retrieved content from SuiteFiles with proper structure
                 index_results = []
                 for doc in documents[:10]:  # Top 10 most relevant
                     filename = doc.get('filename', 'Unknown')
                     content = doc.get('content', '')
                     blob_url = doc.get('blob_url', '')
+                    
+                    # Extract project information from blob_url
+                    project_name = self._extract_project_name_from_blob_url(blob_url)
                     suitefiles_link = self._get_safe_suitefiles_url(blob_url)
                     
-                    doc_result = f"**Document: {filename}**\n"
-                    if suitefiles_link and suitefiles_link != "Document available in SuiteFiles":
-                        doc_result += f"SuiteFiles Link: {suitefiles_link}\n"
-                    doc_result += f"Content: {content[:800]}..."
+                    # Format document information in structured way for GPT
+                    doc_result = f"""📄 **DOCUMENT FOUND:**
+- **File Name:** {filename}
+- **Project:** {project_name}
+- **SuiteFiles Link:** {suitefiles_link}
+- **Content Preview:** {content[:800]}...
+
+"""
                     index_results.append(doc_result)
                 
-                retrieved_content = "\n\n".join(index_results)
+                retrieved_content = "\n".join(index_results)
             else:
                 retrieved_content = "No relevant documents found in SuiteFiles."
             
@@ -97,12 +104,18 @@ However, do not copy from this file or rely on its content directly. It is only 
 ✅ Final Task:
 Based on the above retrieved content from SuiteFiles and the user's intent, provide a helpful, relevant, and human-like response.
 
-🔗 CRITICAL: When you mention ANY document from the retrieved content, you MUST include its clickable SuiteFiles link immediately after mentioning the document name. The links are provided in the retrieved content above - USE THEM!
+🔗 CRITICAL FORMATTING INSTRUCTIONS:
+When you reference ANY document from the retrieved content above, you MUST format it exactly like this:
 
-Example: "According to the Manual for Design (SuiteFiles Link: https://dtce.suitefiles.com/...)"
+**Referenced Document:** [Document Name] (📁 Project: [Project Name])
+**SuiteFiles Link:** [The actual clickable link provided above]
+
+Example:
+**Referenced Document:** Manual for Design and Detailing (📁 Project: Project 220294)
+**SuiteFiles Link:** https://dtce.suitefiles.com/suitefileswebdav/DTCE%20SuiteFiles/Projects/220/220294/...
 
 - Use content from the retrieved documents only if applicable and relevant
-- ALWAYS include the actual SuiteFiles links when referencing specific documents
+- ALWAYS format document references with the project name and clickable link as shown above
 - If documents do not help answer the user's specific question, use your own general knowledge
 - Your goal is to be informative and context-aware, not robotic or overly reliant on past formats
 - Focus on practical engineering guidance for New Zealand conditions when applicable"""
@@ -199,6 +212,39 @@ Example: "According to the Manual for Design (SuiteFiles Link: https://dtce.suit
         
         suitefiles_url = self._convert_to_suitefiles_url(blob_url, link_type)
         return suitefiles_url or "Document available in SuiteFiles"
+    
+    def _extract_project_name_from_blob_url(self, blob_url: str) -> str:
+        """Extract project name/number from blob URL path."""
+        if not blob_url:
+            return "Unknown Project"
+        
+        try:
+            # Extract path from blob URL - format is typically: Projects/220/220294/...
+            if "/dtce-ai-documents/Projects/" in blob_url or "/dtce-documents/Projects/" in blob_url:
+                # Split and get the project parts
+                if "/dtce-ai-documents/Projects/" in blob_url:
+                    path_part = blob_url.split("/dtce-ai-documents/Projects/")[1]
+                else:
+                    path_part = blob_url.split("/dtce-documents/Projects/")[1]
+                
+                # Remove query parameters
+                if "?" in path_part:
+                    path_part = path_part.split("?")[0]
+                
+                # Split path and get project info - typically Projects/220/220294/...
+                path_segments = path_part.split('/')
+                if len(path_segments) >= 2:
+                    # Get project number (second segment, like "220294")
+                    project_number = path_segments[1]
+                    return f"Project {project_number}"
+                elif len(path_segments) >= 1:
+                    # Get first segment if available
+                    return f"Project {path_segments[0]}"
+                    
+        except Exception as e:
+            logger.warning("Failed to extract project name from blob URL", error=str(e), blob_url=blob_url)
+            
+        return "Unknown Project"
     
     def _convert_to_suitefiles_url(self, blob_url: str, link_type: str = "file") -> Optional[str]:
         """Convert Azure blob URL to SuiteFiles URL."""
