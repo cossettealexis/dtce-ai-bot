@@ -126,11 +126,12 @@ BEFORE answering, you must first determine the user's intent:
 - Does this question require knowledge from SuiteFiles (specific projects, templates, past work, company documents)?
 - Does this question require general engineering knowledge (standards, best practices, theory, calculations)?
 - Does this question require BOTH SuiteFiles knowledge AND general knowledge?
+- Is the user's intent UNCLEAR or does it fall into NEITHER category clearly?
 
 Based on your determination, follow these linking guidelines:
 
-📁 IF SUITEFILES KNOWLEDGE: Use the retrieved SuiteFiles content and ALWAYS include SuiteFiles links as formatted below
-🌐 IF GENERAL KNOWLEDGE: Provide general engineering knowledge and include relevant online links to:
+📁 IF SUITEFILES KNOWLEDGE ONLY: Use the retrieved SuiteFiles content and ALWAYS include SuiteFiles links as formatted below
+🌐 IF GENERAL KNOWLEDGE ONLY: Provide general engineering knowledge and include relevant online links to:
    - Official standards organizations (Standards New Zealand, ISO, AISC, ASCE, etc.)
    - Research institutions and technical papers  
    - Professional engineering bodies (Engineering New Zealand, etc.)
@@ -142,12 +143,15 @@ Based on your determination, follow these linking guidelines:
 ❓ IF NEITHER/UNCLEAR: Provide both SuiteFiles links (if relevant documents found) AND general knowledge with online resources
 
 Your task is to:
-1. FIRST determine the user's intent (SuiteFiles, General, Both, or Neither/Unclear)
+1. FIRST determine the user's intent (SuiteFiles Only, General Only, Both, or Neither/Unclear)
 2. Analyze the retrieved content I'm providing below from SuiteFiles
-3. Use the retrieved content to construct a helpful answer if relevant to the user's query
-4. If the retrieved documents are not sufficient, supplement with general knowledge and appropriate online resources
-5. Apply the correct linking strategy based on your intent determination
-6. If intent is unclear, provide comprehensive answer with both SuiteFiles links (if relevant) and online resources
+3. Based on your intent determination:
+   - SuiteFiles Only: Use only SuiteFiles documents and links
+   - General Only: Use general knowledge and include online resources/links
+   - Both: Use SuiteFiles documents + general knowledge + both types of links
+   - Neither/Unclear: Default to providing BOTH SuiteFiles links AND online resources
+4. Apply the correct linking strategy consistently throughout your response
+5. Always be comprehensive - if in doubt, include both types of resources
 
 ℹ️ Reference Example (rag.txt)
 You may refer to the following example file — rag.txt — which contains example question-answer formats showing how the AI could respond to different structural engineering and project-related queries.
@@ -172,7 +176,7 @@ When you use general knowledge, include relevant online links like this:
 - [Resource Name]: [URL or description]
 - [Study/Paper Name]: [URL if available]
 
-Example Combined Response:
+Example Combined Response (for Both/Neither/Unclear cases):
 **Referenced Document:** Manual for Design and Detailing (📁 Project: Project 220294)
 **SuiteFiles Link:** https://dtce.suitefiles.com/suitefileswebdav/DTCE%20SuiteFiles/Projects/220/220294/...
 
@@ -180,9 +184,11 @@ Example Combined Response:
 - Standards New Zealand: https://www.standards.govt.nz/
 - NZS 3101 Concrete Structures Standard: [Official publication]
 
+IMPORTANT GUIDELINES:
 - Use content from the retrieved documents only if applicable and relevant
 - ALWAYS include appropriate links based on your intent determination
-- If documents do not help answer the user's specific question, use your own general knowledge with online resources
+- For questions about standards/codes: Include BOTH SuiteFiles documents AND official online sources
+- If intent is unclear or could be both: Default to providing BOTH types of resources
 - Your goal is to be informative and context-aware, not robotic or overly reliant on past formats
 - Focus on practical engineering guidance for New Zealand conditions when applicable"""
             
@@ -358,7 +364,7 @@ Example Combined Response:
         except Exception as e:
             logger.warning("Failed to extract project from filename", filename=filename, error=str(e))
             
-        return "Unknown Project"
+        return ""  # Return empty string instead of "Unknown Project"
     
     def _convert_to_suitefiles_url(self, blob_url: str, link_type: str = "file") -> Optional[str]:
         """Convert Azure blob URL to SuiteFiles SharePoint URL."""
