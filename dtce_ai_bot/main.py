@@ -36,7 +36,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(documents_router, prefix="/documents", tags=["Documents"])
-app.include_router(bot_router, prefix="/api/teams", tags=["Bot"])
+app.include_router(bot_router, prefix="/api", tags=["Bot"])
 
 @app.get("/")
 async def root():
