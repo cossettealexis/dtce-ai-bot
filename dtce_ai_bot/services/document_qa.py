@@ -8201,13 +8201,28 @@ Answer:"""
                 answer = re.sub(blob_url_pattern, "[Document available in SuiteFiles]", answer)
             
             # POST-PROCESSING: Check if documents are mentioned without SuiteFiles links
+            original_answer = answer
             answer = self._ensure_suitefiles_links_in_response(answer, documents)
+            
+            # EMERGENCY FALLBACK: If still no links, force add them
+            if documents and "Access in SuiteFiles" not in answer:
+                logger.warning("EMERGENCY: No SuiteFiles links detected, forcing addition")
+                # Add links at the end as a fallback
+                answer += "\n\n**📁 Related Documents:**\n"
+                for doc in documents[:3]:  # Top 3 documents
+                    filename = doc.get('filename', '')
+                    if filename:
+                        blob_url = doc.get('blob_url', '')
+                        suitefiles_url = self._get_safe_suitefiles_url(blob_url)
+                        if suitefiles_url and suitefiles_url != "Document available in SuiteFiles":
+                            answer += f"• {filename} ([Access in SuiteFiles]({suitefiles_url}))\n"
             
             # DEBUG: Log final answer to check if links are present
             logger.info("Final answer generated", 
                        has_suitefiles_links="Access in SuiteFiles" in answer,
                        answer_length=len(answer),
-                       num_documents=len(documents))
+                       num_documents=len(documents),
+                       answer_changed=answer != original_answer)
             
             return answer
             
@@ -8219,6 +8234,10 @@ Answer:"""
         """Ensure that when documents are mentioned, SuiteFiles links are included"""
         import re
         
+        logger.info("POST-PROCESSING: Starting SuiteFiles link check", 
+                   answer_preview=answer[:200],
+                   num_docs=len(documents))
+        
         # Create a mapping of filenames to SuiteFiles URLs
         doc_links = {}
         filename_variations = {}
@@ -8228,6 +8247,11 @@ Answer:"""
             if filename:
                 blob_url = doc.get('blob_url', '')
                 suitefiles_url = self._get_safe_suitefiles_url(blob_url)
+                logger.info("Processing document for links", 
+                           filename=filename,
+                           blob_url=blob_url[:50] + "..." if blob_url else "None",
+                           suitefiles_url=suitefiles_url[:50] + "..." if suitefiles_url else "None")
+                           
                 if suitefiles_url and suitefiles_url != "Document available in SuiteFiles":
                     # Store exact filename
                     doc_links[filename] = suitefiles_url
@@ -8236,8 +8260,11 @@ Answer:"""
                     filename_variations[filename.lower()] = (filename, suitefiles_url)
                     filename_variations[base_name.lower()] = (filename, suitefiles_url)
         
+        logger.info("Built document links mapping", doc_links_count=len(doc_links))
+        
         # Look for document mentions that don't have SuiteFiles links
         modified_answer = answer
+        replacements_made = 0
         
         # First pass: Find exact filename matches
         for original_filename, suitefiles_url in doc_links.items():
@@ -8250,22 +8277,39 @@ Answer:"""
             ]
             
             for pattern in patterns:
-                if re.search(pattern, modified_answer, re.IGNORECASE):
+                matches = list(re.finditer(pattern, modified_answer, re.IGNORECASE))
+                logger.info("Pattern matching", 
+                           filename=original_filename,
+                           pattern=pattern,
+                           matches_found=len(matches))
+                           
+                if matches:
                     # Check if this filename mention already has a SuiteFiles link nearby
                     context_window = 100  # characters around the match
-                    matches = list(re.finditer(pattern, modified_answer, re.IGNORECASE))
                     
                     for match in matches:
                         start = max(0, match.start() - context_window)
                         end = min(len(modified_answer), match.end() + context_window)
                         context = modified_answer[start:end]
                         
+                        logger.info("Checking context for existing links",
+                                   context=context,
+                                   has_suitefiles="Access in SuiteFiles" in context)
+                        
                         # If no SuiteFiles link in context, add one
                         if 'Access in SuiteFiles' not in context:
                             matched_text = match.group(0)
                             replacement = f'{matched_text} ([Access in SuiteFiles]({suitefiles_url}))'
                             modified_answer = modified_answer[:match.start()] + replacement + modified_answer[match.end():]
+                            replacements_made += 1
+                            logger.info("Added SuiteFiles link", 
+                                       original_text=matched_text,
+                                       replacement=replacement)
                             break  # Only replace first occurrence
+        
+        logger.info("POST-PROCESSING: Completed", 
+                   replacements_made=replacements_made,
+                   final_has_links="Access in SuiteFiles" in modified_answer)
         
         return modified_answer
 
