@@ -68,36 +68,11 @@ class RAGHandler:
                 # Generate answer with folder understanding
                 retrieved_content = self._format_documents_with_folder_context(documents, folder_context)
                 
-                # Enhanced prompt with folder structure awareness
-                prompt = f"""You are a DTCE engineering assistant with deep understanding of the company's folder structure and document organization.
-
-**User Question:** {question}
-
-**Folder Context:**
-{ai_folder_context}
-
-**Retrieved Documents:**
-{retrieved_content}
-
-**Instructions:**
-Based on the above documents and your understanding of DTCE's folder structure, provide a helpful and accurate response.
-
-- If the user asked about a specific year (e.g., "2025 projects"), focus on documents from the relevant folder (e.g., "225" folder)
-- Ignore any documents from "superseded", "archive", or "old" folders
-- If the query is about policies, focus on policy documents
-- If it's about technical standards, focus on engineering documents
-- If it's about procedures, focus on H2H (How-to Handbooks) and procedure documents
-- Reference the folder structure when helpful (e.g., "In your 2025 projects folder (225)...")
-
-Be specific about which documents you're referencing and include SuiteFiles links when available."""
+                # Use the complete intelligent prompt system instead of simple prompt
+                result = await self._process_rag_with_full_prompt(question, retrieved_content, documents)
                 
-                answer = await self._generate_project_answer_with_links(prompt, retrieved_content)
-                
-                return {
-                    'answer': answer,
-                    'sources': self._format_sources(documents) if documents else [],
-                    'confidence': 'high' if documents else 'medium',
-                    'documents_searched': len(documents),
+                # Add folder context to the result
+                result.update({
                     'rag_type': 'folder_aware_semantic_search',
                     'folder_context': folder_context,
                     'query_interpretation': {
@@ -106,7 +81,9 @@ Be specific about which documents you're referencing and include SuiteFiles link
                         'year_context': folder_context.get('year_context'),
                         'enhanced_query': enhanced_query
                     }
-                }
+                })
+                
+                return result
             else:
                 # No documents found - provide general response with folder guidance
                 return await self._handle_no_documents_with_folder_guidance(question, folder_context)
@@ -175,11 +152,11 @@ Be specific about which documents you're referencing and include SuiteFiles link
             suitefiles_link = self._get_safe_suitefiles_url(blob_url)
             
             doc_info = f"""📄 **DOCUMENT: {filename}**
-Folder: {folder_info['folder_path']}
-Year: {folder_info['year']} | Project: {folder_info['project']}
-Link: {suitefiles_link}
-Content: {content[:600]}...
----"""
+                Folder: {folder_info['folder_path']}
+                Year: {folder_info['year']} | Project: {folder_info['project']}
+                Link: {suitefiles_link}
+                Content: {content[:600]}...
+                ---"""
             
             formatted_docs.append(doc_info)
         
@@ -250,15 +227,15 @@ Content: {content[:600]}...
         # Generate a helpful response with folder guidance
         fallback_prompt = f"""The user asked: "{question}"
 
-{guidance}
+                {guidance}
 
-Based on DTCE's folder structure and general engineering knowledge, provide a helpful response that:
-1. Acknowledges that specific documents weren't found
-2. Provides general guidance based on the question type
-3. Suggests where they might look in SuiteFiles (mention relevant folder types)
-4. Offers to help with related questions
+                Based on DTCE's folder structure and general engineering knowledge, provide a helpful response that:
+                1. Acknowledges that specific documents weren't found
+                2. Provides general guidance based on the question type
+                3. Suggests where they might look in SuiteFiles (mention relevant folder types)
+                4. Offers to help with related questions
 
-Be helpful and specific about DTCE's document organization."""
+                Be helpful and specific about DTCE's document organization."""
         
         answer = await self._generate_fallback_response(fallback_prompt)
         
@@ -292,11 +269,11 @@ Be helpful and specific about DTCE's document organization."""
                         doc_result = "[DOCUMENT] **DOCUMENT FOUND:**\n- **File Name:** " + filename + "\n- **Project:** " + project_name + "\n- **SuiteFiles Link:** " + suitefiles_link + "\n- **Content Preview:** " + content[:800] + "...\n\n"
                     else:
                         doc_result = f"""📄 **DOCUMENT FOUND:**
-- **File Name:** {filename}
-- **SuiteFiles Link:** {suitefiles_link}
-- **Content Preview:** {content[:800]}...
+                        - **File Name:** {filename}
+                        - **SuiteFiles Link:** {suitefiles_link}
+                        - **Content Preview:** {content[:800]}...
 
-"""
+                        """
                     index_results.append(doc_result)
                 
                 retrieved_content = "\n".join(index_results)
