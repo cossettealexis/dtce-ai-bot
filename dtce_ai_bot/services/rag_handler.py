@@ -399,7 +399,8 @@ class RAGHandler:
             }
 
     async def _search_documents(self, search_query: str, project_filter: Optional[str] = None, 
-                              doc_types: Optional[List[str]] = None, use_semantic: bool = True) -> List[Dict]:
+                              doc_types: Optional[List[str]] = None, use_semantic: bool = True, 
+                              folder_filter: Optional[str] = None) -> List[Dict]:
         """Search for relevant documents using both semantic and keyword search."""
         try:
             logger.info("Searching Azure index", search_query=search_query, doc_types=doc_types, use_semantic=use_semantic)
@@ -421,11 +422,24 @@ class RAGHandler:
                 })
                 logger.info("Using semantic search for better intent understanding")
             
+            # Build filters
+            filters = []
+            
             # Add document type filter if specified
             if doc_types:
                 doc_filter = ' or '.join([f"search.ismatch('*.{ext}', 'filename')" for ext in doc_types])
-                search_params['filter'] = doc_filter
+                filters.append(f"({doc_filter})")
                 logger.info("Added document type filter", filter=doc_filter)
+            
+            # Add folder filter if specified
+            if folder_filter:
+                folder_filter_clause = f"search.ismatch('*{folder_filter}*', 'folder')"
+                filters.append(folder_filter_clause)
+                logger.info("Added folder filter", folder_filter=folder_filter)
+            
+            # Combine filters with AND logic
+            if filters:
+                search_params['filter'] = ' and '.join(filters)
             
             # Try semantic search first, fallback to keyword if it fails
             try:
