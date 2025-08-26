@@ -151,7 +151,7 @@ class RAGHandler:
             blob_url = self._get_blob_url_from_doc(doc)
             suitefiles_link = self._get_safe_suitefiles_url(blob_url)
             
-            doc_info = f"""📄 **DOCUMENT: {filename}**
+            doc_info = f"""DOCUMENT: {filename}
                 Folder: {folder_info['folder_path']}
                 Year: {folder_info['year']} | Project: {folder_info['project']}
                 Link: {suitefiles_link}
@@ -248,6 +248,25 @@ class RAGHandler:
             'folder_guidance': guidance_parts
         }
 
+    async def _generate_fallback_response(self, prompt: str) -> str:
+        """Generate fallback response when no documents are found."""
+        try:
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "You are a helpful structural engineering AI assistant for DTCE. Provide practical guidance for New Zealand conditions."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=800,
+                temperature=0.3
+            )
+            
+            return response.choices[0].message.content.strip()
+            
+        except Exception as e:
+            logger.error("Fallback response generation failed", error=str(e))
+            return "I'm having trouble generating a response at the moment. Please try rephrasing your question or contact support if the issue persists."
+
     async def _search_index_with_context(self, search_query: str, project_filter: Optional[str] = None) -> str:
         """Enhanced search that includes project and document context."""
         try:
@@ -268,7 +287,7 @@ class RAGHandler:
                     if project_name and project_name != 'Unknown Project':
                         doc_result = "[DOCUMENT] **DOCUMENT FOUND:**\n- **File Name:** " + filename + "\n- **Project:** " + project_name + "\n- **SuiteFiles Link:** " + suitefiles_link + "\n- **Content Preview:** " + content[:800] + "...\n\n"
                     else:
-                        doc_result = f"""📄 **DOCUMENT FOUND:**
+                        doc_result = f"""DOCUMENT FOUND:
                         - **File Name:** {filename}
                         - **SuiteFiles Link:** {suitefiles_link}
                         - **Content Preview:** {content[:800]}...
@@ -431,11 +450,11 @@ class RAGHandler:
                 filters.append(f"({doc_filter})")
                 logger.info("Added document type filter", filter=doc_filter)
             
-            # Add folder filter if specified
+            # Add folder filter if specified (simplified to avoid syntax errors)
             if folder_filter:
-                folder_filter_clause = f"search.ismatch('*{folder_filter}*', 'folder')"
-                filters.append(folder_filter_clause)
-                logger.info("Added folder filter", folder_filter=folder_filter)
+                # For now, skip complex folder filters to avoid Azure Search syntax errors
+                # TODO: Fix folder filter syntax in folder_structure_service.py
+                logger.info("Skipping complex folder filter to avoid syntax errors", folder_filter=folder_filter)
             
             # Combine filters with AND logic
             if filters:
@@ -634,7 +653,7 @@ class RAGHandler:
 IMPORTANT FORMATTING INSTRUCTIONS:
 - When referencing documents, use this EXACT format:
   
-  **Referenced Document:** [Document Name] (📁 Project: [Project Name])
+  **Referenced Document:** [Document Name] (Project: [Project Name])
   [Document Name as clickable link text](Full URL)
 
 - Keep it simple - just the document name as clickable link text
@@ -643,7 +662,7 @@ IMPORTANT FORMATTING INSTRUCTIONS:
 - Maintain professional formatting throughout
 
 Example:
-**Referenced Document:** Manual for Design and Detailing (📁 Project: Project 220294)
+**Referenced Document:** Manual for Design and Detailing (Project: Project 220294)
 [Manual for Design and Detailing](https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/Projects/220/220294/...)
 
 Provide practical, accurate engineering guidance for New Zealand conditions using the retrieved documents below."""
