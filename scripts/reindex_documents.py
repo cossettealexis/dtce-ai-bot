@@ -126,8 +126,13 @@ def has_good_content(content, filename):
             if len(content) > 100:  # If we already have substantial content from code files
                 return True
     
-    # Need at least 3 good indicators for content to be considered "good"
-    return sum(good_indicators) >= 3
+    # Be more lenient - if content has reasonable length and basic structure, consider it good
+    # Only reindex if content is truly poor (very short, no structure, or obvious failures)
+    if len(content) > 100 and content.count(' ') > 20:  # Has reasonable length and word count
+        return True
+    
+    # Need at least 2 good indicators for content to be considered "good" (more lenient)
+    return sum(good_indicators) >= 2
 
 def is_low_value_file(filename, content=""):
     """Check if file is likely to be expensive to process but low value for search."""

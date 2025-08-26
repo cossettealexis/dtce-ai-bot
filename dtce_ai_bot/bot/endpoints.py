@@ -1,19 +1,5 @@
 """
-Bot API endpoints for@router.get("/config-status")
-async def check_bot_config():
-    """Check if the bot is properly configured."""
-    settings = get_settings()
-    
-    config_status = {
-        "microsoft_app_id_configured": bool(settings.microsoft_app_id),
-        "microsoft_app_password_configured": bool(settings.microsoft_app_password),
-        "microsoft_app_tenant_id_configured": bool(settings.microsoft_app_tenant_id),
-        "bot_ready": bool(settings.microsoft_app_id and settings.microsoft_app_password),
-        "messaging_endpoint": "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net/api/messages",
-        "app_id_preview": settings.microsoft_app_id[:8] + "..." if settings.microsoft_app_id else "NOT_SET"
-    }
-    
-    return config_statusg.
+Bot API endpoints for Teams integration.
 Version 1.0.2 - Fixed duplicate paths
 """
 

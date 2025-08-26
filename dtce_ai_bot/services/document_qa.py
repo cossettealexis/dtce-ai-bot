@@ -39,7 +39,9 @@ class DocumentQAService:
         
         # Initialize RAG handler for specification-compliant responses
         from .rag_handler import RAGHandler
+        from .folder_structure_service import FolderStructureService
         self.rag_handler = RAGHandler(self.search_client, self.openai_client, self.model_name)
+        self.folder_service = FolderStructureService()
         
         # Project scoping and analysis configuration
         self.project_analysis_enabled = True
@@ -129,9 +131,27 @@ What would you like to know?""",
                     'search_type': 'clarification'
                 }
             
+            # Interpret folder structure context for better search
+            logger.info("Interpreting folder structure context", question=question)
+            folder_context = self.folder_service.interpret_user_query(question)
+            
+            # Add folder context to project filter if applicable
+            enhanced_project_filter = project_filter
+            if folder_context.get('year_context') and not project_filter:
+                # If user mentioned a year but no specific project filter, use year context
+                year_folders = folder_context['year_context'].get('folder_codes', [])
+                if year_folders:
+                    enhanced_project_filter = f"year:{','.join(year_folders)}"
+            
+            logger.info("Folder context interpretation",
+                       query_type=folder_context['query_type'],
+                       suggested_folders=folder_context['suggested_folders'],
+                       year_context=folder_context.get('year_context'),
+                       enhanced_filter=enhanced_project_filter)
+            
             # First try RAG pattern matching for specification-compliant responses
             logger.info("Checking RAG patterns", question=question)
-            rag_response = await self.rag_handler.process_rag_query(question, project_filter)
+            rag_response = await self.rag_handler.process_rag_query(question, enhanced_project_filter)
             
             # If RAG handler found a specific pattern, use its response
             if rag_response.get('rag_type') != 'general_query':
@@ -1351,8 +1371,11 @@ The documents contain relevant information but may require further analysis. Con
             return "Multiple documents were found with relevant information."
 
     def _search_relevant_documents(self, question: str, project_filter: Optional[str] = None) -> List[Dict]:
-        """Search for documents relevant to the question."""
+        """Search for documents relevant to the question with folder structure awareness."""
         try:
+            # Get folder context for enhanced search
+            folder_context = self.folder_service.interpret_user_query(question)
+            
             # Auto-detect project from question if not provided
             if not project_filter:
                 project_filter = self._extract_project_from_question(question)
@@ -1364,6 +1387,11 @@ The documents contain relevant information but may require further analysis. Con
             # Enhanced intent detection for specific document types
             search_text = self._enhance_search_query_with_intent(question)
             
+            # Enhance search with folder context
+            if folder_context.get('enhanced_search_terms'):
+                additional_terms = ' '.join(folder_context['enhanced_search_terms'])
+                search_text = f"{search_text} {additional_terms}"
+            
             # For project-specific queries, broaden the search terms
             if project_filter and ("project" in question.lower() or project_filter in question):
                 # For project questions, search for common terms that might be in the files
@@ -1372,30 +1400,57 @@ The documents contain relevant information but may require further analysis. Con
             # Convert date formats in the question to match filename patterns
             search_text = self._convert_date_formats(search_text)
             
+            # Build search parameters with folder filtering
+            search_params = {
+                'search_text': search_text,
+                'top': 50,  # Get more results for filtering
+                'highlight_fields': "file_name,project_title,extracted_text",
+                'select': ["id", "file_name", "extracted_text", "blob_url", "project_title",
+                          "folder_path", "modified_date", "created_date", "file_size"],
+            }
+            
+            # Add folder filtering if we have specific folder suggestions
+            if folder_context.get('suggested_folders'):
+                # Create filter for relevant folders
+                folder_filters = []
+                for folder in folder_context['suggested_folders']:
+                    folder_filters.append(f"search.ismatch('{folder}', 'folder_path')")
+                
+                if folder_filters:
+                    search_params['filter'] = f"({' or '.join(folder_filters)})"
+            
+            # Exclude superseded/archive folders
+            excluded_folders = ['superseded', 'superceded', 'archive', 'old', 'backup', 'obsolete', 'draft', 'temp']
+            exclude_filters = []
+            for folder in excluded_folders:
+                exclude_filters.append(f"not search.ismatch('{folder}', 'folder_path')")
+            
+            if exclude_filters:
+                existing_filter = search_params.get('filter', '')
+                exclude_filter = f"({' and '.join(exclude_filters)})"
+                
+                if existing_filter:
+                    search_params['filter'] = f"({existing_filter}) and {exclude_filter}"
+                else:
+                    search_params['filter'] = exclude_filter
+            
             # Search without project filter initially since project_id field might be empty
             # Try semantic search first, with fallback to simple search
             try:
-                results = self.search_client.search(
-                    search_text=search_text,
-                    top=50,  # Get more results for filtering
-                    highlight_fields="file_name,project_title,extracted_text",  # Use correct field names
-                    select=["id", "file_name", "extracted_text", "blob_url", "project_title",  # Use correct field names
-                           "folder_path", "modified_date", "created_date", "file_size"],  # Use correct field names
-                    query_type="semantic",  # Always use semantic search for better results
-                    semantic_configuration_name="default"  # Use the semantic configuration we defined
-                )
+                search_params.update({
+                    'query_type': "semantic",
+                    'semantic_configuration_name': "default"
+                })
+                results = self.search_client.search(**search_params)
                 search_type = "semantic"
             except Exception as semantic_error:
                 logger.warning("Semantic search failed, falling back to simple search", error=str(semantic_error))
                 # Fallback to simple search
-                results = self.search_client.search(
-                    search_text=search_text,
-                    top=50,  # Get more results for filtering
-                    highlight_fields="file_name,project_title,extracted_text",  # Use correct field names
-                    select=["id", "file_name", "extracted_text", "blob_url", "project_title",  # Use correct field names
-                           "folder_path", "modified_date", "created_date", "file_size"],  # Use correct field names
-                    query_type="simple"  # Use simple search as fallback
-                )
+                search_params.update({
+                    'query_type': "simple"
+                })
+                search_params.pop('semantic_configuration_name', None)
+                results = self.search_client.search(**search_params)
                 search_type = "simple"
             
             logger.info("Document search completed", search_type=search_type, query=search_text)

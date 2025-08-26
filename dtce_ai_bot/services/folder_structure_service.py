@@ -1,0 +1,376 @@
+"""
+Folder Structure Service for DTCE AI Bot
+Maps folder naming conventions and provides context for better search results
+"""
+
+import re
+from typing import Dict, List, Optional, Tuple, Any
+import structlog
+
+logger = structlog.get_logger(__name__)
+
+
+class FolderStructureService:
+    """Service to understand DTCE folder structure and naming conventions."""
+    
+    def __init__(self):
+        """Initialize folder structure mappings."""
+        self.folder_mappings = self._initialize_folder_mappings()
+        self.excluded_folders = self._initialize_excluded_folders()
+        self.year_mappings = self._initialize_year_mappings()
+        
+    def _initialize_folder_mappings(self) -> Dict[str, Dict[str, str]]:
+        """Define folder structure and what each folder contains."""
+        return {
+            # Project folder structure
+            "projects": {
+                "225": "2025 Projects",
+                "224": "2024 Projects", 
+                "223": "2023 Projects",
+                "222": "2022 Projects",
+                "221": "2021 Projects",
+                "220": "2020 Projects",
+                "219": "2019 Projects",
+                "218": "2018 Projects",
+                "217": "2017 Projects",
+                "216": "2016 Projects",
+                "215": "2015 Projects"
+            },
+            
+            # Standard project subfolders
+            "project_subfolders": {
+                "01 Admin Documents": "Administrative documents, contracts, briefs",
+                "01 Fees & Invoice": "Fee schedules, invoices, billing documents",
+                "02 Quality Assurance": "QA documents, reviews, compliance checks",
+                "02 Emails": "Email communications and correspondence",
+                "03 RFI": "Requests for Information and responses",
+                "04 Reports": "Final reports, analysis reports, assessment reports",
+                "05 Calculations": "Structural calculations, engineering analysis",
+                "06 Drawings": "Technical drawings, plans, sections, details",
+                "07 Specifications": "Material specifications, technical requirements",
+                "08 Site Photos": "Site photographs and visual documentation",
+                "09 Reference": "Reference materials, standards, guidelines"
+            },
+            
+            # Company policies and procedures
+            "policies": {
+                "Health & Safety": "H&S policies, safety procedures, compliance documents",
+                "IT Policy": "IT policies, computer use, security guidelines",
+                "Employment": "Employment policies, onboarding, HR procedures",
+                "Quality": "Quality management, procedures, standards",
+                "Operations": "Operational procedures, business processes"
+            },
+            
+            # Technical resources
+            "technical": {
+                "Engineering Standards": "NZ Standards, building codes, technical references",
+                "Design Guidelines": "DTCE design methodologies, best practices",
+                "Templates": "Calculation templates, report templates, forms",
+                "Software Resources": "Software tools, spreadsheets, utilities",
+                "Training Materials": "Technical training, CPD materials"
+            },
+            
+            # H2H (How to Handbooks)
+            "procedures": {
+                "H2H": "How to Handbooks - DTCE procedures and best practices",
+                "Technical Procedures": "Technical step-by-step procedures",
+                "Admin Procedures": "Administrative and office procedures",
+                "Engineering Procedures": "Engineering workflow and processes"
+            }
+        }
+    
+    def _initialize_excluded_folders(self) -> List[str]:
+        """Define folders that should be excluded from search."""
+        return [
+            "superseded",
+            "superceded",  # Common misspelling
+            "archive", 
+            "archived",
+            "old",
+            "backup",
+            "temp",
+            "temporary",
+            "draft",
+            "drafts",
+            "obsolete",
+            "deprecated",
+            "legacy",
+            "trash",
+            "deleted",
+            "recycle",
+            "_old",
+            "_archive",
+            "_superseded",
+            "_superceded",
+            "00 Archive",
+            "00 Superseded",
+            "00 Superceded",
+            "99 Archive",
+            "99 Superseded",
+            "99 Superceded",
+            "archive - superseded",
+            "superseded - archive",
+            "superceded - archive",
+            "old version",
+            "old versions",
+            "previous version",
+            "previous versions"
+        ]
+    
+    def _initialize_year_mappings(self) -> Dict[str, str]:
+        """Map folder codes to years."""
+        return {
+            "225": "2025",
+            "224": "2024", 
+            "223": "2023",
+            "222": "2022",
+            "221": "2021",
+            "220": "2020",
+            "219": "2019",
+            "218": "2018",
+            "217": "2017",
+            "216": "2016",
+            "215": "2015"
+        }
+    
+    def interpret_user_query(self, question: str) -> Dict[str, Any]:
+        """
+        Interpret user query and provide folder context.
+        
+        Args:
+            question: User's question
+            
+        Returns:
+            Dictionary with interpreted context including:
+            - suggested_folders: List of folders to search
+            - excluded_folders: List of folders to exclude
+            - year_context: Detected year information
+            - query_type: Type of query (project, policy, technical, etc.)
+            - enhanced_search_terms: Additional search terms based on folder context
+        """
+        context = {
+            "suggested_folders": [],
+            "excluded_folders": self.excluded_folders,
+            "year_context": None,
+            "query_type": "general",
+            "enhanced_search_terms": [],
+            "folder_context": ""
+        }
+        
+        question_lower = question.lower()
+        
+        # Detect year references
+        year_info = self._detect_year_references(question)
+        if year_info:
+            context["year_context"] = year_info
+            context["suggested_folders"].extend(year_info["folder_codes"])
+            context["enhanced_search_terms"].extend(year_info["search_terms"])
+        
+        # Detect query type and suggest relevant folders
+        query_analysis = self._analyze_query_type(question_lower)
+        context["query_type"] = query_analysis["type"]
+        context["suggested_folders"].extend(query_analysis["folders"])
+        context["enhanced_search_terms"].extend(query_analysis["search_terms"])
+        context["folder_context"] = query_analysis["context"]
+        
+        # Remove duplicates
+        context["suggested_folders"] = list(set(context["suggested_folders"]))
+        context["enhanced_search_terms"] = list(set(context["enhanced_search_terms"]))
+        
+        logger.info("Folder structure interpretation", 
+                   question=question,
+                   query_type=context["query_type"],
+                   suggested_folders=context["suggested_folders"],
+                   year_context=context["year_context"])
+        
+        return context
+    
+    def _detect_year_references(self, question: str) -> Optional[Dict[str, Any]]:
+        """Detect year references in the question."""
+        year_patterns = [
+            r'\b(202[0-9])\b',  # 2020-2029
+            r'\b(201[5-9])\b',  # 2015-2019
+            r'\b(22[0-9])\b',   # Folder codes like 225, 224
+        ]
+        
+        detected_years = []
+        folder_codes = []
+        
+        for pattern in year_patterns:
+            matches = re.findall(pattern, question)
+            for match in matches:
+                if len(match) == 4 and match.startswith('20'):  # Full year
+                    detected_years.append(match)
+                    # Convert to folder code
+                    if match in ['2025', '2024', '2023', '2022', '2021', '2020', '2019', '2018', '2017', '2016', '2015']:
+                        folder_code = match[2:]  # 2025 -> 25, but we use 225
+                        if match >= '2020':
+                            folder_code = '2' + match[2:]  # 2025 -> 225
+                        else:
+                            folder_code = '2' + match[2:]  # 2019 -> 219
+                        folder_codes.append(folder_code)
+                elif len(match) == 3 and match.startswith('2'):  # Folder code like 225
+                    folder_codes.append(match)
+                    # Convert to full year
+                    if match in self.year_mappings:
+                        detected_years.append(self.year_mappings[match])
+        
+        if detected_years or folder_codes:
+            return {
+                "years": list(set(detected_years)),
+                "folder_codes": list(set(folder_codes)),
+                "search_terms": detected_years + folder_codes
+            }
+        
+        return None
+    
+    def _analyze_query_type(self, question_lower: str) -> Dict[str, Any]:
+        """Analyze the type of query and suggest relevant folders."""
+        
+        # Policy-related queries
+        policy_keywords = [
+            'policy', 'policies', 'h&s', 'health and safety', 'safety', 'it policy',
+            'employment', 'onboarding', 'hr', 'human resources', 'quality policy',
+            'procedures', 'guidelines', 'compliance', 'rules'
+        ]
+        
+        # Technical queries
+        technical_keywords = [
+            'calculation', 'calculations', 'design', 'engineering', 'structural',
+            'seismic', 'wind load', 'foundation', 'beam', 'column', 'slab',
+            'nz standard', 'nzs', 'building code', 'standard', 'specification'
+        ]
+        
+        # Project queries
+        project_keywords = [
+            'project', 'job', 'client', 'report', 'drawing', 'site', 'building',
+            'assessment', 'analysis', 'construction', 'development'
+        ]
+        
+        # H2H (How-to) procedure queries
+        procedure_keywords = [
+            'how to', 'procedure', 'process', 'workflow', 'method', 'approach',
+            'steps', 'guide', 'handbook', 'h2h', 'best practice'
+        ]
+        
+        # Template/Form queries
+        template_keywords = [
+            'template', 'form', 'spreadsheet', 'checklist', 'format',
+            'example', 'sample', 'blank'
+        ]
+        
+        if any(keyword in question_lower for keyword in policy_keywords):
+            return {
+                "type": "policy",
+                "folders": ["Health & Safety", "IT Policy", "Employment", "Quality", "Operations"],
+                "search_terms": ["policy", "procedure", "guideline"],
+                "context": "Searching in company policy and procedure documents"
+            }
+        
+        elif any(keyword in question_lower for keyword in technical_keywords):
+            return {
+                "type": "technical",
+                "folders": ["Engineering Standards", "Design Guidelines", "05 Calculations", "07 Specifications"],
+                "search_terms": ["engineering", "design", "calculation", "standard"],
+                "context": "Searching in technical and engineering documents"
+            }
+        
+        elif any(keyword in question_lower for keyword in procedure_keywords):
+            return {
+                "type": "procedure",
+                "folders": ["H2H", "Technical Procedures", "Admin Procedures"],
+                "search_terms": ["procedure", "how to", "process", "method"],
+                "context": "Searching in DTCE procedures and how-to handbooks"
+            }
+        
+        elif any(keyword in question_lower for keyword in template_keywords):
+            return {
+                "type": "template",
+                "folders": ["Templates", "Forms"],
+                "search_terms": ["template", "form", "example"],
+                "context": "Searching in templates and forms"
+            }
+        
+        elif any(keyword in question_lower for keyword in project_keywords):
+            return {
+                "type": "project",
+                "folders": ["225", "224", "223", "222", "221", "220", "219"],  # Recent project years
+                "search_terms": ["project", "job", "client"],
+                "context": "Searching in project documents and reports"
+            }
+        
+        else:
+            return {
+                "type": "general",
+                "folders": [],
+                "search_terms": [],
+                "context": "General search across all document types"
+            }
+    
+    def should_exclude_folder(self, folder_path: str) -> bool:
+        """Check if a folder should be excluded from search."""
+        folder_path_lower = folder_path.lower()
+        
+        return any(excluded.lower() in folder_path_lower for excluded in self.excluded_folders)
+    
+    def enhance_search_query(self, original_query: str, context: Dict[str, Any]) -> str:
+        """Enhance the search query with folder structure context."""
+        enhanced_terms = context.get("enhanced_search_terms", [])
+        
+        if enhanced_terms:
+            # Add folder-specific terms to improve search relevance
+            enhanced_query = original_query + " " + " ".join(enhanced_terms)
+            return enhanced_query
+        
+        return original_query
+    
+    def get_folder_filter_query(self, context: Dict[str, Any]) -> Optional[str]:
+        """Generate Azure Search filter query based on folder context."""
+        suggested_folders = context.get("suggested_folders", [])
+        excluded_folders = context.get("excluded_folders", [])
+        
+        filters = []
+        
+        # Include specific folders if suggested
+        if suggested_folders:
+            folder_conditions = []
+            for folder in suggested_folders:
+                # Use search.ismatch for partial path matching
+                folder_conditions.append(f"search.ismatch('{folder}', 'blob_name')")
+            
+            if folder_conditions:
+                filters.append(f"({' or '.join(folder_conditions)})")
+        
+        # Exclude superseded/archive folders
+        if excluded_folders:
+            exclude_conditions = []
+            for folder in excluded_folders:
+                exclude_conditions.append(f"not search.ismatch('{folder}', 'blob_name')")
+            
+            if exclude_conditions:
+                filters.append(f"({' and '.join(exclude_conditions)})")
+        
+        if filters:
+            return " and ".join(filters)
+        
+        return None
+    
+    def format_folder_context_for_ai(self, context: Dict[str, Any]) -> str:
+        """Format folder context information for AI prompts."""
+        context_parts = []
+        
+        if context.get("query_type") != "general":
+            context_parts.append(f"Query Type: {context['query_type'].title()}")
+        
+        if context.get("year_context"):
+            years = context["year_context"]["years"]
+            context_parts.append(f"Year Context: Looking for documents from {', '.join(years)}")
+        
+        if context.get("folder_context"):
+            context_parts.append(f"Search Context: {context['folder_context']}")
+        
+        if context.get("suggested_folders"):
+            folders = ", ".join(context["suggested_folders"])
+            context_parts.append(f"Relevant Folders: {folders}")
+        
+        return "\n".join(context_parts) if context_parts else ""

@@ -340,7 +340,7 @@ class SharePointClient:
         non_engineering_keywords = [
             "photo", "image", "picture", "christmas", "party", "event", 
             "culture", "workplace", "trash", "temp", "temporary",
-            "superseded", "archive", "old", "backup",
+            "superseded", "superceded", "archive", "old", "backup",
             # IT Support and software installation folders
             "it support", "software resources", "mathcad", "install cd",
             "program files", "microsoft", "microsft", "bin", "lib", 

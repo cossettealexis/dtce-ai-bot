@@ -159,8 +159,8 @@ class Settings(BaseSettings):
     # Folder exclusion settings
     excluded_folders: List[str] = [
         "09_Photos", "Photos", "Christmas", "Awards", "Past events", 
-        "Company Culture", "Workplace Essentials", "Trash", "00_Superseded",
-        "0_SS", "00_SS", "Superseded", "Archive", "0_Archive"
+        "Company Culture", "Workplace Essentials", "Trash", "00_Superseded", "00_Superceded",
+        "0_SS", "00_SS", "Superseded", "Superceded", "Archive", "0_Archive"
     ]
     
     class Config:
