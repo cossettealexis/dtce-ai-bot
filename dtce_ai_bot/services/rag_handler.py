@@ -151,9 +151,18 @@ class RAGHandler:
             blob_url = self._get_blob_url_from_doc(doc)
             suitefiles_link = self._get_safe_suitefiles_url(blob_url)
             
-            doc_info = f"""DOCUMENT: {filename}
+            # Format document info - only show project info if it exists
+            if folder_info['project'] and folder_info['year']:
+                doc_info = f"""DOCUMENT: {filename}
                 Folder: {folder_info['folder_path']}
                 Year: {folder_info['year']} | Project: {folder_info['project']}
+                Link: {suitefiles_link}
+                Content: {content[:600]}...
+                ---"""
+            else:
+                # Non-project document - don't show project info
+                doc_info = f"""DOCUMENT: {filename}
+                Folder: {folder_info['folder_path']}
                 Link: {suitefiles_link}
                 Content: {content[:600]}...
                 ---"""
@@ -165,26 +174,28 @@ class RAGHandler:
     def _extract_folder_info(self, blob_name: str) -> Dict[str, str]:
         """Extract folder information from blob name."""
         if not blob_name:
-            return {"folder_path": "Unknown", "year": "Unknown", "project": "Unknown"}
+            return {"folder_path": "Unknown", "year": "", "project": ""}
         
         # Parse blob name like "suitefiles/Projects/225/225001/04 Reports/filename.pdf"
         parts = blob_name.split('/')
         
         folder_path = "/".join(parts[:-1]) if len(parts) > 1 else blob_name
-        year = "Unknown"
-        project = "Unknown"
+        year = ""
+        project = ""
         
-        # Try to extract year from folder code
-        for part in parts:
-            if part in self.folder_service.year_mappings:
-                year = self.folder_service.year_mappings[part]
-                break
-        
-        # Try to extract project number
-        for part in parts:
-            if re.match(r'^\d{6}$', part):  # 6-digit project number
-                project = part
-                break
+        # Only extract project info if this is actually in a Projects folder
+        if 'Projects' in parts or 'projects' in parts:
+            # Try to extract year from folder code
+            for part in parts:
+                if hasattr(self.folder_service, 'year_mappings') and part in self.folder_service.year_mappings:
+                    year = self.folder_service.year_mappings[part]
+                    break
+            
+            # Try to extract project number
+            for part in parts:
+                if re.match(r'^\d{6}$', part):  # 6-digit project number
+                    project = part
+                    break
         
         return {
             "folder_path": folder_path,
@@ -278,15 +289,17 @@ class RAGHandler:
                 for doc in documents[:5]:  # Limit to top 5 results
                     filename = doc.get('filename', 'Unknown')
                     content = doc.get('content', '')
-                    project_name = doc.get('project_name', 'Unknown Project')
+                    project_name = doc.get('project_name', '')
                     blob_url = doc.get('blob_url', '')
                     
                     # Convert blob URL to SuiteFiles URL
                     suitefiles_link = self._convert_to_suitefiles_url(blob_url)
                     
-                    if project_name and project_name != 'Unknown Project':
+                    # Only show project name if it's not empty/None and not from non-project folders
+                    if project_name and project_name.strip():
                         doc_result = "[DOCUMENT] **DOCUMENT FOUND:**\n- **File Name:** " + filename + "\n- **Project:** " + project_name + "\n- **SuiteFiles Link:** " + suitefiles_link + "\n- **Content Preview:** " + content[:800] + "...\n\n"
                     else:
+                        # Don't show project info for non-project documents
                         doc_result = f"""DOCUMENT FOUND:
                         - **File Name:** {filename}
                         - **SuiteFiles Link:** {suitefiles_link}
@@ -313,6 +326,11 @@ class RAGHandler:
             prompt += "I have ALREADY searched SuiteFiles and retrieved the most relevant content for you.\n\n"
             prompt += "CRITICAL FIRST STEP - DETERMINE USER INTENT:\n"
             prompt += "BEFORE answering, you must first determine the user's intent:\n\n"
+            prompt += "SPECIAL NOTE FOR POLICY DOCUMENTS:\n"
+            prompt += "- Some policy documents (e.g., Wellbeing Policy) may appear in search results but have minimal extracted content\n"
+            prompt += "- If you find policy documents with limited content, acknowledge the document exists and provide general guidance about the topic\n"
+            prompt += "- For wellbeing/wellness queries: Explain that DTCE has wellbeing policies and suggest contacting HR for detailed information\n"
+            prompt += "- Always provide the SuiteFiles link even if content is limited\n\n"
             prompt += "SUITEFILES KNOWLEDGE INDICATORS - Questions that REQUIRE SuiteFiles data:\n"
             prompt += "- Contains pronouns: \"we\", \"we've\", \"our\", \"us\", \"DTCE has\", \"company\", \"past projects\"\n"
             prompt += "- Scenario-based technical queries: \"Show me examples of...\", \"What have we used for...\", \"Find projects where...\"\n"

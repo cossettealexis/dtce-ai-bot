@@ -231,7 +231,8 @@ class FolderStructureService:
         policy_keywords = [
             'policy', 'policies', 'h&s', 'health and safety', 'safety', 'it policy',
             'employment', 'onboarding', 'hr', 'human resources', 'quality policy',
-            'procedures', 'guidelines', 'compliance', 'rules'
+            'procedures', 'guidelines', 'compliance', 'rules', 'wellbeing', 'wellness',
+            'mental health', 'employee assistance', 'eap', 'work life balance'
         ]
         
         # Technical queries
@@ -314,12 +315,27 @@ class FolderStructureService:
         return any(excluded.lower() in folder_path_lower for excluded in self.excluded_folders)
     
     def enhance_search_query(self, original_query: str, context: Dict[str, Any]) -> str:
-        """Enhance the search query with folder structure context."""
+        """Enhance the search query with folder structure context and synonyms."""
         enhanced_terms = context.get("enhanced_search_terms", [])
         
-        if enhanced_terms:
-            # Add folder-specific terms to improve search relevance
-            enhanced_query = original_query + " " + " ".join(enhanced_terms)
+        query_lower = original_query.lower()
+        synonym_terms = []
+        
+        if 'wellbeing' in query_lower or 'well-being' in query_lower:
+            synonym_terms.extend(['wellness', 'mental health', 'employee assistance'])
+        elif 'wellness' in query_lower:
+            synonym_terms.extend(['wellbeing', 'well-being', 'mental health'])
+        
+        if 'health' in query_lower and 'safety' in query_lower:
+            synonym_terms.extend(['h&s', 'workplace safety', 'occupational health'])
+        
+        if 'policy' in query_lower:
+            synonym_terms.extend(['procedure', 'guideline', 'rules'])
+        
+        all_enhanced_terms = enhanced_terms + synonym_terms
+        
+        if all_enhanced_terms:
+            enhanced_query = original_query + " " + " ".join(set(all_enhanced_terms))
             return enhanced_query
         
         return original_query
