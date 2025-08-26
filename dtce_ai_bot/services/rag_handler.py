@@ -270,11 +270,26 @@ Be helpful and specific about DTCE's document organization."""
             'rag_type': 'folder_aware_fallback',
             'folder_guidance': guidance_parts
         }
-- **Project:** {project_name}
-- **SuiteFiles Link:** {suitefiles_link}
-- **Content Preview:** {content[:800]}...
 
-"""
+    async def _search_index_with_context(self, search_query: str, project_filter: Optional[str] = None) -> str:
+        """Enhanced search that includes project and document context."""
+        try:
+            # First search for documents
+            documents = await self._search_documents(search_query, project_filter)
+            
+            if documents:
+                index_results = []
+                for doc in documents[:5]:  # Limit to top 5 results
+                    filename = doc.get('filename', 'Unknown')
+                    content = doc.get('content', '')
+                    project_name = doc.get('project_name', 'Unknown Project')
+                    blob_url = doc.get('blob_url', '')
+                    
+                    # Convert blob URL to SuiteFiles URL
+                    suitefiles_link = self._convert_to_suitefiles_url(blob_url)
+                    
+                    if project_name and project_name != 'Unknown Project':
+                        doc_result = "[DOCUMENT] **DOCUMENT FOUND:**\n- **File Name:** " + filename + "\n- **Project:** " + project_name + "\n- **SuiteFiles Link:** " + suitefiles_link + "\n- **Content Preview:** " + content[:800] + "...\n\n"
                     else:
                         doc_result = f"""📄 **DOCUMENT FOUND:**
 - **File Name:** {filename}
@@ -288,115 +303,103 @@ Be helpful and specific about DTCE's document organization."""
             else:
                 retrieved_content = "No relevant documents found in SuiteFiles."
             
-            # STEP 3: GPT analyzes user intent and constructs natural answer
-            prompt = f"""The user has asked the following question: "{question}"
+            return retrieved_content
+                
+        except Exception as e:
+            logger.error("Search index failed", error=str(e), search_query=search_query)
+            return f"Error searching documents: {str(e)}"
 
-I have ALREADY searched SuiteFiles and retrieved the most relevant content for you.
-
-🎯 CRITICAL FIRST STEP - DETERMINE USER INTENT:
-BEFORE answering, you must first determine the user's intent:
-
-🔍 SUITEFILES KNOWLEDGE INDICATORS - Questions that REQUIRE SuiteFiles data:
-- Contains pronouns: "we", "we've", "our", "us", "DTCE has", "company", "past projects"
-- Scenario-based technical queries: "Show me examples of...", "What have we used for...", "Find projects where..."
-- Problem-solving & lessons learned: "What issues have we run into...", "lessons learned from projects..."
-- Regulatory & consent precedents: "projects where council questioned...", "How have we approached..."
-- Cost & time insights: "How long does it typically take...", "What's the typical cost range..."
-- Best practices & templates: "What's our standard approach...", "Show me our best example..."
-- Materials & methods comparisons: "When have we chosen...", "What have we specified..."
-- Internal knowledge mapping: "Which engineers have experience...", "Who has documented expertise..."
-
-🌐 GENERAL KNOWLEDGE INDICATORS - Questions requiring external/standards knowledge:
-- Standards and codes references: "NZS requirements", "building code", "AS/NZS standards"
-- General engineering theory: "How do I calculate...", "What is the formula for..."
-- Industry best practices (not DTCE specific): "Best practices for...", "Standard approach to..."
-
-🔄 MIXED REQUIREMENTS - Questions needing BOTH SuiteFiles AND general knowledge:
-- DTCE experience + standards compliance
-- Past projects + current code requirements
-- Company templates + industry standards
-
-Based on your determination, follow these linking guidelines:
-
-📁 IF SUITEFILES KNOWLEDGE (especially if contains "we"/"our"/"DTCE"): Use the retrieved SuiteFiles content and ALWAYS include SuiteFiles links
-🌐 IF GENERAL KNOWLEDGE ONLY: Provide general engineering knowledge and include relevant online links
-🔄 IF BOTH: Include both SuiteFiles links for relevant documents AND online links for general knowledge aspects
-❓ IF NEITHER/UNCLEAR: Default to providing BOTH SuiteFiles links AND online resources
-
-Your task is to:
-1. FIRST determine the user's intent based on language indicators above
-2. Analyze the retrieved content I'm providing below from SuiteFiles
-3. For COMPLEX ANALYSIS QUESTIONS (scenarios, lessons learned, cost insights, comparisons):
-   - Search across multiple projects to find patterns and examples
-   - Aggregate information from similar projects or situations
-   - Summarize trends, common issues, and solutions
-   - Provide specific project examples with SuiteFiles links
-   - Extract quantitative data when available (costs, timelines, specifications)
-4. Apply the correct linking strategy consistently throughout your response
-5. Always be comprehensive - if in doubt, include both types of resources
-
-🚨 SPECIAL HANDLING FOR COMPLEX QUERIES:
-When users ask for cross-project analysis (examples, patterns, comparisons, lessons learned):
-- Look for multiple relevant documents across different projects
-- Identify common themes, solutions, and approaches
-- Provide specific examples with project numbers and SuiteFiles links
-- Summarize patterns and trends from the retrieved documents
-- Extract specific technical details (materials, methods, costs, timelines)
-- If limited SuiteFiles data, acknowledge limitations and provide general guidance
-
-ℹ️ Reference Example (rag.txt)
-You may refer to the following example file — rag.txt — which contains example question-answer formats showing how the AI could respond to different structural engineering and project-related queries.
-However, do not copy from this file or rely on its content directly. It is only a reference to help you understand the style and expectations of the response. You must still follow the actual question, the user's intent, and the retrieved documents.
-
-📎 Retrieved content from SuiteFiles:
-{retrieved_content}
-
-✅ Final Task:
-Based on your intent determination and the above content, provide a helpful, relevant, and human-like response.
-
-🔗 CRITICAL FORMATTING INSTRUCTIONS:
-
-FOR SUITEFILES REFERENCES:
-When you reference ANY document from the retrieved content above, you MUST format it exactly like this:
-**Referenced Document:** [Document Name] (📁 Project: [Project Name])
-**SuiteFiles Link:** [The actual clickable link provided above]
-
-FOR GENERAL KNOWLEDGE REFERENCES:
-When you use general knowledge, include relevant online links like this:
-**Additional Resources:**
-- [Resource Name]: [URL or description]
-- [Study/Paper Name]: [URL if available]
-
-Example Combined Response (for Both/Neither/Unclear cases):
-**Referenced Document:** Manual for Design and Detailing (📁 Project: Project 220294)
-**SuiteFiles Link:** https://dtce.suitefiles.com/suitefileswebdav/DTCE%20SuiteFiles/Projects/220/220294/...
-
-**Additional Resources:**
-- Standards New Zealand: https://www.standards.govt.nz/
-- NZS 3101 Concrete Structures Standard: [Official publication]
-
-IMPORTANT GUIDELINES:
-- Use content from the retrieved documents only if applicable and relevant
-- ALWAYS include appropriate links based on your intent determination
-- For questions about standards/codes: Include BOTH SuiteFiles documents AND official online sources
-- If intent is unclear or could be both: Default to providing BOTH types of resources
-- Your goal is to be informative and context-aware, not robotic or overly reliant on past formats
-- Focus on practical engineering guidance for New Zealand conditions when applicable
-
-🚫 CRITICAL: DO NOT MENTION YOUR INTENT ANALYSIS TO THE USER
-- Never say "Based on the user's query..." or "The user's question appears to require..."
-- Never explain your reasoning about intent determination 
-- Never mention that you are analyzing what type of knowledge is needed
-- Just answer the question naturally and directly
-- Start with helpful information, not meta-commentary about the question type
-
-🎯 RESPONSE GUIDELINES FOR COMPLEX QUERIES:
-- For "Show me examples..." → Provide specific project examples with numbers and links
-- For "What have we used..." → List specific materials/methods with project references  
-- For "What issues have we run into..." → Summarize problems and solutions from multiple projects
-- For "How long does it typically take..." → Extract timeline data from project documents
-- For "Which engineers have experience..." → Look for author/engineer names in documents
-- For cross-project comparisons → Analyze multiple projects and highlight differences/similarities"""
+    async def _process_rag_with_full_prompt(self, question: str, retrieved_content: str, documents: List[Dict]) -> Dict[str, Any]:
+        """Process RAG query with the complete intelligent prompt system."""
+        try:
+            # Build the complete intelligent prompt
+            prompt = "The user has asked the following question: \"" + question + "\"\n\n"
+            prompt += "I have ALREADY searched SuiteFiles and retrieved the most relevant content for you.\n\n"
+            prompt += "CRITICAL FIRST STEP - DETERMINE USER INTENT:\n"
+            prompt += "BEFORE answering, you must first determine the user's intent:\n\n"
+            prompt += "SUITEFILES KNOWLEDGE INDICATORS - Questions that REQUIRE SuiteFiles data:\n"
+            prompt += "- Contains pronouns: \"we\", \"we've\", \"our\", \"us\", \"DTCE has\", \"company\", \"past projects\"\n"
+            prompt += "- Scenario-based technical queries: \"Show me examples of...\", \"What have we used for...\", \"Find projects where...\"\n"
+            prompt += "- Problem-solving & lessons learned: \"What issues have we run into...\", \"lessons learned from projects...\"\n"
+            prompt += "- Regulatory & consent precedents: \"projects where council questioned...\", \"How have we approached...\"\n"
+            prompt += "- Cost & time insights: \"How long does it typically take...\", \"What's the typical cost range...\"\n"
+            prompt += "- Best practices & templates: \"What's our standard approach...\", \"Show me our best example...\"\n"
+            prompt += "- Materials & methods comparisons: \"When have we chosen...\", \"What have we specified...\"\n"
+            prompt += "- Internal knowledge mapping: \"Which engineers have experience...\", \"Who has documented expertise...\"\n\n"
+            prompt += "GENERAL KNOWLEDGE INDICATORS - Questions requiring external/standards knowledge:\n"
+            prompt += "- Standards and codes references: \"NZS requirements\", \"building code\", \"AS/NZS standards\"\n"
+            prompt += "- General engineering theory: \"How do I calculate...\", \"What is the formula for...\"\n"
+            prompt += "- Industry best practices (not DTCE specific): \"Best practices for...\", \"Standard approach to...\"\n\n"
+            prompt += "MIXED REQUIREMENTS - Questions needing BOTH SuiteFiles AND general knowledge:\n"
+            prompt += "- DTCE experience + standards compliance\n"
+            prompt += "- Past projects + current code requirements\n"
+            prompt += "- Company templates + industry standards\n\n"
+            prompt += "Based on your determination, follow these linking guidelines:\n\n"
+            prompt += "IF SUITEFILES KNOWLEDGE (especially if contains \"we\"/\"our\"/\"DTCE\"): Use the retrieved SuiteFiles content and ALWAYS include SuiteFiles links\n"
+            prompt += "IF GENERAL KNOWLEDGE ONLY: Provide general engineering knowledge and include relevant online links\n"
+            prompt += "IF BOTH: Include both SuiteFiles links for relevant documents AND online links for general knowledge aspects\n"
+            prompt += "IF NEITHER/UNCLEAR: Default to providing BOTH SuiteFiles links AND online resources\n\n"
+            prompt += "Your task is to:\n"
+            prompt += "1. FIRST determine the user's intent based on language indicators above\n"
+            prompt += "2. Analyze the retrieved content I'm providing below from SuiteFiles\n"
+            prompt += "3. For COMPLEX ANALYSIS QUESTIONS (scenarios, lessons learned, cost insights, comparisons):\n"
+            prompt += "   - Search across multiple projects to find patterns and examples\n"
+            prompt += "   - Aggregate information from similar projects or situations\n"
+            prompt += "   - Summarize trends, common issues, and solutions\n"
+            prompt += "   - Provide specific project examples with SuiteFiles links\n"
+            prompt += "   - Extract quantitative data when available (costs, timelines, specifications)\n"
+            prompt += "4. Apply the correct linking strategy consistently throughout your response\n"
+            prompt += "5. Always be comprehensive - if in doubt, include both types of resources\n\n"
+            prompt += "SPECIAL HANDLING FOR COMPLEX QUERIES:\n"
+            prompt += "When users ask for cross-project analysis (examples, patterns, comparisons, lessons learned):\n"
+            prompt += "- Look for multiple relevant documents across different projects\n"
+            prompt += "- Identify common themes, solutions, and approaches\n"
+            prompt += "- Provide specific examples with project numbers and SuiteFiles links\n"
+            prompt += "- Summarize patterns and trends from the retrieved documents\n"
+            prompt += "- Extract specific technical details (materials, methods, costs, timelines)\n"
+            prompt += "- If limited SuiteFiles data, acknowledge limitations and provide general guidance\n\n"
+            prompt += "Reference Example (rag.txt)\n"
+            prompt += "You may refer to the following example file — rag.txt — which contains example question-answer formats showing how the AI could respond to different structural engineering and project-related queries.\n"
+            prompt += "However, do not copy from this file or rely on its content directly. It is only a reference to help you understand the style and expectations of the response. You must still follow the actual question, the user's intent, and the retrieved documents.\n\n"
+            prompt += "Retrieved content from SuiteFiles:\n" + retrieved_content + "\n\n"
+            prompt += "Final Task:\n"
+            prompt += "Based on your intent determination and the above content, provide a helpful, relevant, and human-like response.\n\n"
+            prompt += "CRITICAL FORMATTING INSTRUCTIONS:\n\n"
+            prompt += "FOR SUITEFILES REFERENCES:\n"
+            prompt += "When you reference ANY document from the retrieved content above, you MUST format it exactly like this:\n"
+            prompt += "**Referenced Document:** [Document Name] (Project: [Project Name])\n"
+            prompt += "**SuiteFiles Link:** [The actual clickable link provided above]\n\n"
+            prompt += "FOR GENERAL KNOWLEDGE REFERENCES:\n"
+            prompt += "When you use general knowledge, include relevant online links like this:\n"
+            prompt += "**Additional Resources:**\n"
+            prompt += "- [Resource Name]: [URL or description]\n"
+            prompt += "- [Study/Paper Name]: [URL if available]\n\n"
+            prompt += "Example Combined Response (for Both/Neither/Unclear cases):\n"
+            prompt += "**Referenced Document:** Manual for Design and Detailing (Project: Project 220294)\n"
+            prompt += "**SuiteFiles Link:** https://dtce.suitefiles.com/suitefileswebdav/DTCE%20SuiteFiles/Projects/220/220294/...\n\n"
+            prompt += "**Additional Resources:**\n"
+            prompt += "- Standards New Zealand: https://www.standards.govt.nz/\n"
+            prompt += "- NZS 3101 Concrete Structures Standard: [Official publication]\n\n"
+            prompt += "IMPORTANT GUIDELINES:\n"
+            prompt += "- Use content from the retrieved documents only if applicable and relevant\n"
+            prompt += "- ALWAYS include appropriate links based on your intent determination\n"
+            prompt += "- For questions about standards/codes: Include BOTH SuiteFiles documents AND official online sources\n"
+            prompt += "- If intent is unclear or could be both: Default to providing BOTH types of resources\n"
+            prompt += "- Your goal is to be informative and context-aware, not robotic or overly reliant on past formats\n"
+            prompt += "- Focus on practical engineering guidance for New Zealand conditions when applicable\n\n"
+            prompt += "CRITICAL: DO NOT MENTION YOUR INTENT ANALYSIS TO THE USER\n"
+            prompt += "- Never say \"Based on the user's query...\" or \"The user's question appears to require...\"\n"
+            prompt += "- Never explain your reasoning about intent determination\n"
+            prompt += "- Never mention that you are analyzing what type of knowledge is needed\n"
+            prompt += "- Just answer the question naturally and directly\n"
+            prompt += "- Start with helpful information, not meta-commentary about the question type\n\n"
+            prompt += "RESPONSE GUIDELINES FOR COMPLEX QUERIES:\n"
+            prompt += "- For \"Show me examples...\" → Provide specific project examples with numbers and links\n"
+            prompt += "- For \"What have we used...\" → List specific materials/methods with project references\n"
+            prompt += "- For \"What issues have we run into...\" → Summarize problems and solutions from multiple projects\n"
+            prompt += "- For \"How long does it typically take...\" → Extract timeline data from project documents\n"
+            prompt += "- For \"Which engineers have experience...\" → Look for author/engineer names in documents\n"
+            prompt += "- For cross-project comparisons → Analyze multiple projects and highlight differences/similarities\n"
             
             answer = await self._generate_project_answer_with_links(prompt, retrieved_content)
             
@@ -417,7 +420,7 @@ IMPORTANT GUIDELINES:
                 'documents_searched': 0,
                 'rag_type': 'error'
             }
-    
+
     async def _search_documents(self, search_query: str, project_filter: Optional[str] = None, 
                               doc_types: Optional[List[str]] = None, use_semantic: bool = True) -> List[Dict]:
         """Search for relevant documents using both semantic and keyword search."""
@@ -607,42 +610,6 @@ IMPORTANT GUIDELINES:
                 
         except Exception as e:
             logger.error("Failed to convert blob URL to SuiteFiles SharePoint URL", error=str(e), blob_url=blob_url)
-            
-        return None
-        """Convert Azure blob URL to SuiteFiles URL."""
-        if not blob_url:
-            return None
-        
-        try:
-            logger.info("Converting blob URL to SuiteFiles SharePoint URL", blob_url=blob_url)
-            
-            # Extract path from blob URL - handle different patterns
-            path_part = None
-            
-            if "/dtce-documents/" in blob_url:
-                path_part = blob_url.split("/dtce-documents/")[1]
-                logger.info("Found dtce-documents in URL", path_part=path_part)
-            
-            if path_part:
-                # Remove any query parameters
-                if "?" in path_part:
-                    path_part = path_part.split("?")[0]
-                
-                # Remove URL encoding
-                from urllib.parse import unquote
-                path_part = unquote(path_part)
-                
-                # Build SharePoint URL - use the documents.aspx format
-                base_url = "https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#"
-                suitefiles_url = f"{base_url}/{path_part}"
-                
-                logger.info("Converted to SharePoint SuiteFiles URL", suitefiles_url=suitefiles_url)
-                return suitefiles_url
-            else:
-                logger.warning("Could not find dtce-documents in blob URL", blob_url=blob_url)
-                
-        except Exception as e:
-            logger.error("Failed to convert blob URL to SuiteFiles", error=str(e), blob_url=blob_url)
             
         return None
     
