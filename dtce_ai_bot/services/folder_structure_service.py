@@ -242,7 +242,13 @@ class FolderStructureService:
             'nz standard', 'nzs', 'building code', 'standard', 'specification'
         ]
         
-        # Project queries
+        # Project queries - prioritize past project requests
+        past_project_indicators = [
+            'past project', 'previous project', 'past job', 'previous job',
+            'all project', 'all past', 'past work', 'similar project',
+            'project example', 'project reference', 'project that', 'projects that'
+        ]
+        
         project_keywords = [
             'project', 'job', 'client', 'report', 'drawing', 'site', 'building',
             'assessment', 'analysis', 'construction', 'development'
@@ -260,7 +266,16 @@ class FolderStructureService:
             'example', 'sample', 'blank'
         ]
         
-        if any(keyword in question_lower for keyword in policy_keywords):
+        # Check for past project requests first (highest priority)
+        if any(indicator in question_lower for indicator in past_project_indicators):
+            return {
+                "type": "project",
+                "folders": ["225", "224", "223", "222", "221", "220", "219", "218", "217"],  # All project years
+                "search_terms": ["project", "job", "client", "scope", "precast", "panel"],
+                "context": "Searching specifically in past project documents and reports"
+            }
+        
+        elif any(keyword in question_lower for keyword in policy_keywords):
             return {
                 "type": "policy",
                 "folders": ["Health & Safety", "IT Policy", "Employment", "Quality", "Operations"],
@@ -344,20 +359,43 @@ class FolderStructureService:
         """Generate Azure Search filter query based on folder context."""
         suggested_folders = context.get("suggested_folders", [])
         excluded_folders = context.get("excluded_folders", [])
+        query_type = context.get("query_type", "general")
         
         filters = []
         
-        # Include specific folders if suggested
-        if suggested_folders:
-            folder_conditions = []
+        # For project-specific queries, be very strict about excluding non-project folders
+        if query_type == "project":
+            # Include project folders
+            project_conditions = []
             for folder in suggested_folders:
-                # Use search.ismatch for partial path matching
-                folder_conditions.append(f"search.ismatch('{folder}', 'blob_name')")
+                project_conditions.append(f"search.ismatch('Projects/{folder}', 'blob_name')")
             
-            if folder_conditions:
-                filters.append(f"({' or '.join(folder_conditions)})")
+            if project_conditions:
+                filters.append(f"({' or '.join(project_conditions)})")
+            
+            # Explicitly exclude Engineering, Standards, Policy folders for project queries
+            non_project_exclusions = [
+                "not search.ismatch('Engineering', 'blob_name')",
+                "not search.ismatch('Standards', 'blob_name')", 
+                "not search.ismatch('Policy', 'blob_name')",
+                "not search.ismatch('Procedures', 'blob_name')",
+                "not search.ismatch('Templates', 'blob_name')",
+                "not search.ismatch('H2H', 'blob_name')"
+            ]
+            filters.append(f"({' and '.join(non_project_exclusions)})")
+            
+        else:
+            # Include specific folders if suggested (non-project queries)
+            if suggested_folders:
+                folder_conditions = []
+                for folder in suggested_folders:
+                    # Use search.ismatch for partial path matching
+                    folder_conditions.append(f"search.ismatch('{folder}', 'blob_name')")
+                
+                if folder_conditions:
+                    filters.append(f"({' or '.join(folder_conditions)})")
         
-        # Exclude superseded/archive folders
+        # Exclude superseded/archive folders (applies to all query types)
         if excluded_folders:
             exclude_conditions = []
             for folder in excluded_folders:
