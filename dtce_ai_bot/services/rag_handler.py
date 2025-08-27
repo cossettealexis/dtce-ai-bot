@@ -34,8 +34,20 @@ class RAGHandler:
         try:
             logger.info("Processing question with folder structure awareness", question=question)
             
-            # STEP 1: Interpret user query for folder context
+                        # STEP 1: Understand folder structure context
             folder_context = self.folder_service.interpret_user_query(question)
+            
+            # STEP 1.5: Handle folder listing requests directly (no document search needed)
+            if folder_context["query_type"] == "folder_listing":
+                folder_listing = self.folder_service.get_folder_structure_listing()
+                return {
+                    'answer': folder_listing,
+                    'sources': [],
+                    'confidence': 'high',
+                    'documents_searched': 0,
+                    'rag_type': 'folder_structure_listing',
+                    'folder_context': folder_context
+                }
             
             # STEP 2: Enhanced search with folder awareness
             enhanced_query = self.folder_service.enhance_search_query(question, folder_context)

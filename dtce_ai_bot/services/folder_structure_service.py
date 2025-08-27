@@ -227,6 +227,15 @@ class FolderStructureService:
     def _analyze_query_type(self, question_lower: str, year_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Analyze the type of query and suggest relevant folders."""
         
+        # Folder listing queries - highest priority
+        folder_listing_indicators = [
+            'list of all project folders', 'list all project folders', 'list project folders',
+            'show all project folders', 'show project folders', 'all project folders',
+            'list of folders', 'list all folders', 'show all folders', 'folder structure',
+            'folder list', 'directory structure', 'directory list', 'what folders',
+            'what project folders', 'project folder structure'
+        ]
+        
         # Policy-related queries
         policy_keywords = [
             'policy', 'policies', 'h&s', 'health and safety', 'safety', 'it policy',
@@ -266,8 +275,17 @@ class FolderStructureService:
             'example', 'sample', 'blank'
         ]
         
-        # Check for past project requests first (highest priority)
-        if any(indicator in question_lower for indicator in past_project_indicators):
+        # Check for folder listing requests first (highest priority)
+        if any(indicator in question_lower for indicator in folder_listing_indicators):
+            return {
+                "type": "folder_listing",
+                "folders": [],  # No specific search needed
+                "search_terms": [],
+                "context": "Providing folder structure information"
+            }
+        
+        # Check for past project requests next (high priority)
+        elif any(indicator in question_lower for indicator in past_project_indicators):
             # If specific year is mentioned, use only that year's folder
             if year_info and year_info.get("folder_codes"):
                 project_folders = year_info["folder_codes"]
@@ -346,6 +364,42 @@ class FolderStructureService:
         folder_path_lower = folder_path.lower()
         
         return any(excluded.lower() in folder_path_lower for excluded in self.excluded_folders)
+    
+    def get_folder_structure_listing(self) -> str:
+        """Generate a comprehensive folder structure listing for display to users."""
+        
+        listing = "## DTCE SuiteFiles Folder Structure\n\n"
+        
+        # Project folders
+        listing += "### Project Folders (by Year)\n"
+        for folder_code, description in self.folder_mappings["projects"].items():
+            listing += f"- **Projects/{folder_code}/** - {description}\n"
+        
+        listing += "\n### Standard Project Subfolders\n"
+        listing += "Each project typically contains these subfolders:\n"
+        for subfolder, description in self.folder_mappings["project_subfolders"].items():
+            listing += f"- **{subfolder}/** - {description}\n"
+        
+        # Other folder types
+        listing += "\n### Policy & Procedure Folders\n"
+        for folder, description in self.folder_mappings["policies"].items():
+            listing += f"- **{folder}/** - {description}\n"
+        
+        listing += "\n### Technical Resources\n"
+        for folder, description in self.folder_mappings["technical"].items():
+            listing += f"- **{folder}/** - {description}\n"
+        
+        listing += "\n### Procedures & Handbooks\n"
+        for folder, description in self.folder_mappings["procedures"].items():
+            listing += f"- **{folder}/** - {description}\n"
+        
+        listing += "\n### Usage Examples\n"
+        listing += "- To find **past projects**: \"show me projects from 2024\" or \"projects about precast panels\"\n"
+        listing += "- To find **standards**: \"NZS 3404 steel design\" or \"building code requirements\"\n"
+        listing += "- To find **policies**: \"health and safety policy\" or \"IT policy\"\n"
+        listing += "- To find **procedures**: \"how to use wind load spreadsheet\" or \"H2H procedures\"\n"
+        
+        return listing
     
     def enhance_search_query(self, original_query: str, context: Dict[str, Any]) -> str:
         """Enhance the search query with folder structure context and synonyms."""
