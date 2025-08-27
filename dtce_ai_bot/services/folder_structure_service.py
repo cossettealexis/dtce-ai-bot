@@ -456,8 +456,62 @@ class FolderStructureService:
             ]
             filters.append(f"({' and '.join(non_project_exclusions)})")
             
+        elif query_type == "policy":
+            # For policy queries, ONLY search in policy folders and EXCLUDE all projects
+            policy_conditions = []
+            for folder in suggested_folders:
+                policy_conditions.append(f"search.ismatch('{folder}', 'blob_name')")
+            
+            if policy_conditions:
+                filters.append(f"({' or '.join(policy_conditions)})")
+            
+            # Explicitly exclude all Projects folders for policy queries
+            policy_exclusions = [
+                "not search.ismatch('Projects/', 'blob_name')",
+                "not search.ismatch('Engineering', 'blob_name')",
+                "not search.ismatch('Standards', 'blob_name')",
+                "not search.ismatch('Procedures', 'blob_name')",
+                "not search.ismatch('Templates', 'blob_name')"
+            ]
+            filters.append(f"({' and '.join(policy_exclusions)})")
+            
+        elif query_type == "technical":
+            # For technical queries, ONLY search in technical folders and EXCLUDE all projects
+            technical_conditions = []
+            for folder in suggested_folders:
+                technical_conditions.append(f"search.ismatch('{folder}', 'blob_name')")
+            
+            if technical_conditions:
+                filters.append(f"({' or '.join(technical_conditions)})")
+            
+            # Explicitly exclude all Projects folders for technical queries
+            technical_exclusions = [
+                "not search.ismatch('Projects/', 'blob_name')",
+                "not search.ismatch('Policy', 'blob_name')",
+                "not search.ismatch('Procedures', 'blob_name')"
+            ]
+            filters.append(f"({' and '.join(technical_exclusions)})")
+            
+        elif query_type == "procedure":
+            # For procedure queries, ONLY search in procedure folders and EXCLUDE all projects
+            procedure_conditions = []
+            for folder in suggested_folders:
+                procedure_conditions.append(f"search.ismatch('{folder}', 'blob_name')")
+            
+            if procedure_conditions:
+                filters.append(f"({' or '.join(procedure_conditions)})")
+            
+            # Explicitly exclude all Projects folders for procedure queries
+            procedure_exclusions = [
+                "not search.ismatch('Projects/', 'blob_name')",
+                "not search.ismatch('Policy', 'blob_name')",
+                "not search.ismatch('Engineering', 'blob_name')",
+                "not search.ismatch('Standards', 'blob_name')"
+            ]
+            filters.append(f"({' and '.join(procedure_exclusions)})")
+            
         else:
-            # Include specific folders if suggested (non-project queries)
+            # Include specific folders if suggested (general queries)
             if suggested_folders:
                 folder_conditions = []
                 for folder in suggested_folders:
