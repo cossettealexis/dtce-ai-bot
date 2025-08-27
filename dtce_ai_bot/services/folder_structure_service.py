@@ -159,7 +159,7 @@ class FolderStructureService:
         
         question_lower = question.lower()
         
-        # Detect year references
+        # Detect year references first
         year_info = self._detect_year_references(question)
         if year_info:
             context["year_context"] = year_info
@@ -167,7 +167,7 @@ class FolderStructureService:
             context["enhanced_search_terms"].extend(year_info["search_terms"])
         
         # Detect query type and suggest relevant folders
-        query_analysis = self._analyze_query_type(question_lower)
+        query_analysis = self._analyze_query_type(question_lower, year_info)
         context["query_type"] = query_analysis["type"]
         context["suggested_folders"].extend(query_analysis["folders"])
         context["enhanced_search_terms"].extend(query_analysis["search_terms"])
@@ -224,7 +224,7 @@ class FolderStructureService:
         
         return None
     
-    def _analyze_query_type(self, question_lower: str) -> Dict[str, Any]:
+    def _analyze_query_type(self, question_lower: str, year_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Analyze the type of query and suggest relevant folders."""
         
         # Policy-related queries
@@ -268,11 +268,20 @@ class FolderStructureService:
         
         # Check for past project requests first (highest priority)
         if any(indicator in question_lower for indicator in past_project_indicators):
+            # If specific year is mentioned, use only that year's folder
+            if year_info and year_info.get("folder_codes"):
+                project_folders = year_info["folder_codes"]
+                context_msg = f"Searching specifically in {', '.join(year_info.get('years', []))} project documents and reports"
+            else:
+                # No specific year mentioned, search all project years
+                project_folders = ["225", "224", "223", "222", "221", "220", "219", "218", "217"]
+                context_msg = "Searching specifically in past project documents and reports"
+                
             return {
                 "type": "project",
-                "folders": ["225", "224", "223", "222", "221", "220", "219", "218", "217"],  # All project years
-                "search_terms": ["project", "job", "client", "scope", "precast", "panel"],
-                "context": "Searching specifically in past project documents and reports"
+                "folders": project_folders,
+                "search_terms": ["project", "job", "client", "scope"],
+                "context": context_msg
             }
         
         elif any(keyword in question_lower for keyword in policy_keywords):
@@ -308,11 +317,20 @@ class FolderStructureService:
             }
         
         elif any(keyword in question_lower for keyword in project_keywords):
+            # If specific year is mentioned, use only that year's folder
+            if year_info and year_info.get("folder_codes"):
+                project_folders = year_info["folder_codes"]
+                context_msg = f"Searching in {', '.join(year_info.get('years', []))} project documents and reports"
+            else:
+                # No specific year mentioned, search recent project years
+                project_folders = ["225", "224", "223", "222", "221", "220", "219"]
+                context_msg = "Searching in project documents and reports"
+                
             return {
                 "type": "project",
-                "folders": ["225", "224", "223", "222", "221", "220", "219"],  # Recent project years
+                "folders": project_folders,
                 "search_terms": ["project", "job", "client"],
-                "context": "Searching in project documents and reports"
+                "context": context_msg
             }
         
         else:
