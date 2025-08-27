@@ -705,10 +705,11 @@ What would you like to know?""",
         question = intent.get('original_question', '')
         logger.info("Handling contact lookup", topic=topic)
         
-        # Enhanced search for builder/contractor performance queries
-        if any(term in question.lower() for term in ['builder', 'contractor', 'construction', 'built', 'constructed']):
-            # Search specifically for builder/contractor documents and project reports
+        # Enhanced search for builder/contractor performance queries and person/company queries
+        if any(term in question.lower() for term in ['builder', 'contractor', 'construction', 'built', 'constructed', 'working with', 'aaron', 'tgcs', 'george construction']):
+            # Smart search that extracts any names/companies mentioned in the question
             search_queries = [
+                question,  # Search with the original question - let AI find the context
                 f"builder contractor construction {topic}",
                 "PS3 construction main contractor",
                 "builders contact detail",
@@ -717,6 +718,14 @@ What would you like to know?""",
                 f"steel structure retrofit {topic}" if 'steel' in question.lower() else f"retrofit {topic}",
                 "project completion construction quality"
             ]
+            
+            # Add company-specific searches if mentioned
+            if 'tgcs' in question.lower() or 'george construction' in question.lower():
+                search_queries.extend([
+                    "TGCS George Construction",
+                    "email communication contact",
+                    "project correspondence"
+                ])
             
             all_documents = []
             for query in search_queries:
