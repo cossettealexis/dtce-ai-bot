@@ -428,112 +428,15 @@ class FolderStructureService:
         return original_query
     
     def get_folder_filter_query(self, context: Dict[str, Any]) -> Optional[str]:
-        """Generate Azure Search filter query based on folder context."""
-        suggested_folders = context.get("suggested_folders", [])
-        excluded_folders = context.get("excluded_folders", [])
-        query_type = context.get("query_type", "general")
+        """Generate a simplified Azure Search filter - GPT will do the intelligent filtering."""
+        # Only exclude the most critical folders to avoid filter complexity
+        # GPT will do the intelligent folder-based filtering in the response
+        basic_exclusions = [
+            "not search.ismatch('superseded', 'folder')",
+            "not search.ismatch('archive', 'folder')"
+        ]
         
-        filters = []
-        
-        # For project-specific queries, be very strict about excluding non-project folders
-        if query_type == "project":
-            # Include project folders
-            project_conditions = []
-            for folder in suggested_folders:
-                project_conditions.append(f"search.ismatch('Projects/{folder}', 'blob_name')")
-            
-            if project_conditions:
-                filters.append(f"({' or '.join(project_conditions)})")
-            
-            # Explicitly exclude Engineering, Standards, Policy folders for project queries
-            non_project_exclusions = [
-                "not search.ismatch('Engineering', 'blob_name')",
-                "not search.ismatch('Standards', 'blob_name')", 
-                "not search.ismatch('Policy', 'blob_name')",
-                "not search.ismatch('Procedures', 'blob_name')",
-                "not search.ismatch('Templates', 'blob_name')",
-                "not search.ismatch('H2H', 'blob_name')"
-            ]
-            filters.append(f"({' and '.join(non_project_exclusions)})")
-            
-        elif query_type == "policy":
-            # For policy queries, ONLY search in policy folders and EXCLUDE all projects
-            policy_conditions = []
-            for folder in suggested_folders:
-                policy_conditions.append(f"search.ismatch('{folder}', 'blob_name')")
-            
-            if policy_conditions:
-                filters.append(f"({' or '.join(policy_conditions)})")
-            
-            # Explicitly exclude all Projects folders for policy queries
-            policy_exclusions = [
-                "not search.ismatch('Projects/', 'blob_name')",
-                "not search.ismatch('Engineering', 'blob_name')",
-                "not search.ismatch('Standards', 'blob_name')",
-                "not search.ismatch('Procedures', 'blob_name')",
-                "not search.ismatch('Templates', 'blob_name')"
-            ]
-            filters.append(f"({' and '.join(policy_exclusions)})")
-            
-        elif query_type == "technical":
-            # For technical queries, ONLY search in technical folders and EXCLUDE all projects
-            technical_conditions = []
-            for folder in suggested_folders:
-                technical_conditions.append(f"search.ismatch('{folder}', 'blob_name')")
-            
-            if technical_conditions:
-                filters.append(f"({' or '.join(technical_conditions)})")
-            
-            # Explicitly exclude all Projects folders for technical queries
-            technical_exclusions = [
-                "not search.ismatch('Projects/', 'blob_name')",
-                "not search.ismatch('Policy', 'blob_name')",
-                "not search.ismatch('Procedures', 'blob_name')"
-            ]
-            filters.append(f"({' and '.join(technical_exclusions)})")
-            
-        elif query_type == "procedure":
-            # For procedure queries, ONLY search in procedure folders and EXCLUDE all projects
-            procedure_conditions = []
-            for folder in suggested_folders:
-                procedure_conditions.append(f"search.ismatch('{folder}', 'blob_name')")
-            
-            if procedure_conditions:
-                filters.append(f"({' or '.join(procedure_conditions)})")
-            
-            # Explicitly exclude all Projects folders for procedure queries
-            procedure_exclusions = [
-                "not search.ismatch('Projects/', 'blob_name')",
-                "not search.ismatch('Policy', 'blob_name')",
-                "not search.ismatch('Engineering', 'blob_name')",
-                "not search.ismatch('Standards', 'blob_name')"
-            ]
-            filters.append(f"({' and '.join(procedure_exclusions)})")
-            
-        else:
-            # Include specific folders if suggested (general queries)
-            if suggested_folders:
-                folder_conditions = []
-                for folder in suggested_folders:
-                    # Use search.ismatch for partial path matching
-                    folder_conditions.append(f"search.ismatch('{folder}', 'blob_name')")
-                
-                if folder_conditions:
-                    filters.append(f"({' or '.join(folder_conditions)})")
-        
-        # Exclude superseded/archive folders (applies to all query types)
-        if excluded_folders:
-            exclude_conditions = []
-            for folder in excluded_folders:
-                exclude_conditions.append(f"not search.ismatch('{folder}', 'blob_name')")
-            
-            if exclude_conditions:
-                filters.append(f"({' and '.join(exclude_conditions)})")
-        
-        if filters:
-            return " and ".join(filters)
-        
-        return None
+        return f"({' and '.join(basic_exclusions)})"
     
     def format_folder_context_for_ai(self, context: Dict[str, Any]) -> str:
         """Format folder context information for AI prompts."""
