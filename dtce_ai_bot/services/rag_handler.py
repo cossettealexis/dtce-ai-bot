@@ -542,11 +542,10 @@ Please try rephrasing your question or contact support if the issue persists."""
                 filters.append(f"({doc_filter})")
                 logger.info("Added document type filter", filter=doc_filter)
             
-            # Add folder filter if specified (simplified to avoid syntax errors)
+            # Add folder filter if specified
             if folder_filter:
-                # For now, skip complex folder filters to avoid Azure Search syntax errors
-                # TODO: Fix folder filter syntax in folder_structure_service.py
-                logger.info("Skipping complex folder filter to avoid syntax errors", folder_filter=folder_filter)
+                filters.append(folder_filter)
+                logger.info("Added folder filter", folder_filter=folder_filter)
             
             # Combine filters with AND logic
             if filters:
