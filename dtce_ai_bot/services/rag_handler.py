@@ -662,17 +662,18 @@ Please try rephrasing your question or contact support if the issue persists."""
                     content = doc.get('content', '')
                     filename = doc.get('filename', '')
                     
-                    # Filter out phantom/stub documents with minimal content
+                    # Filter out ONLY true phantom/stub documents (much more specific criteria)
                     is_phantom = False
-                    if content and len(content) < 100:  # Very short content
-                        # Check if content is just "Document: filename.pdf" (phantom document)
+                    if content and len(content) < 50:  # Only check very short content
+                        # Check if content is EXACTLY just "Document: filename.pdf" (true phantom document)
                         expected_stub = f"Document: {filename}"
-                        if content.strip() == expected_stub or content.startswith("Document: ") and len(content) < 50:
+                        if content.strip() == expected_stub:
                             is_phantom = True
-                            logger.info("EXCLUDED phantom/stub document", 
+                            logger.info("EXCLUDED true phantom/stub document", 
                                       filename=filename, 
                                       content_length=len(content),
                                       content_sample=content[:50])
+                    # NOTE: Real documents with short content (like policy docs) should NOT be filtered out
                     
                     # Check multiple fields and variations for superseded content
                     superseded_patterns = [
@@ -724,17 +725,18 @@ Please try rephrasing your question or contact support if the issue persists."""
                         content = doc.get('content', '')
                         filename = doc.get('filename', '')
                         
-                        # Filter out phantom/stub documents with minimal content
+                        # Filter out ONLY true phantom/stub documents (much more specific criteria)
                         is_phantom = False
-                        if content and len(content) < 100:  # Very short content
-                            # Check if content is just "Document: filename.pdf" (phantom document)
+                        if content and len(content) < 50:  # Only check very short content
+                            # Check if content is EXACTLY just "Document: filename.pdf" (true phantom document)
                             expected_stub = f"Document: {filename}"
-                            if content.strip() == expected_stub or content.startswith("Document: ") and len(content) < 50:
+                            if content.strip() == expected_stub:
                                 is_phantom = True
-                                logger.info("EXCLUDED phantom/stub document (fallback)", 
+                                logger.info("EXCLUDED true phantom/stub document (fallback)", 
                                           filename=filename, 
                                           content_length=len(content),
                                           content_sample=content[:50])
+                        # NOTE: Real documents with short content (like policy docs) should NOT be filtered out
                         
                         # Check multiple fields and variations for superseded content
                         superseded_patterns = [
