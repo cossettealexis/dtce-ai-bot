@@ -903,17 +903,16 @@ Please try rephrasing your question or contact support if the issue persists."""
                 'folder': doc.get('folder', '')
             }
             
-            # Only include project information if it's a real project document
-            project_name = doc.get('project_name', '')
-            if project_name and project_name != 'Unknown' and project_name.strip():
-                # Check if it's actually from a Projects folder
-                folder = doc.get('folder', '')
-                if 'Projects' in folder:
-                    source['project'] = project_name
-            
-            # Add SuiteFiles link if available
+            # EXTRACT project information from blob URL ONLY if it's from Projects folder
             blob_url = doc.get('blob_url', '')
             if blob_url:
+                # Extract project name from blob URL - only returns project if document is in /Projects/ folder
+                extracted_project = self._extract_project_name_from_blob_url(blob_url)
+                if extracted_project:  # If we successfully extracted a project (confirms it's from Projects folder)
+                    source['project'] = extracted_project
+                # Note: If not from Projects folder, no 'project' key is added to source
+                
+                # Add SuiteFiles link
                 suitefiles_url = self._get_safe_suitefiles_url(blob_url)
                 if suitefiles_url and suitefiles_url != "Document available in SuiteFiles":
                     source['suitefiles_url'] = suitefiles_url
