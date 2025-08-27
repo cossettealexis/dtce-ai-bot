@@ -411,7 +411,7 @@ Please try rephrasing your question or contact support if the issue persists."""
             prompt += "CRITICAL FORMATTING INSTRUCTIONS:\n\n"
             prompt += "FOR SUITEFILES REFERENCES:\n"
             prompt += "When you reference ANY document from the retrieved content above, you MUST format it exactly like this:\n"
-            prompt += "**Referenced Document:** [Document Name] (Project: [Project Name])\n"
+            prompt += "**Referenced Document:** [Document Name] (only include project info if it's a project document)\n"
             prompt += "**SuiteFiles Link:** [The actual clickable link provided above]\n\n"
             prompt += "FOR GENERAL KNOWLEDGE REFERENCES:\n"
             prompt += "When you use general knowledge, include relevant online links like this:\n"
@@ -421,6 +421,8 @@ Please try rephrasing your question or contact support if the issue persists."""
             prompt += "Example Combined Response (for Both/Neither/Unclear cases):\n"
             prompt += "**Referenced Document:** Manual for Design and Detailing (Project: Project 220294)\n"
             prompt += "**SuiteFiles Link:** https://dtce.suitefiles.com/suitefileswebdav/DTCE%20SuiteFiles/Projects/220/220294/...\n\n"
+            prompt += "**Referenced Document:** Engineering basis of NZS 3604_2013\n"
+            prompt += "**SuiteFiles Link:** https://dtce.suitefiles.com/suitefileswebdav/DTCE%20SuiteFiles/Standards/...\n\n"
             prompt += "**Additional Resources:**\n"
             prompt += "- Standards New Zealand: https://www.standards.govt.nz/\n"
             prompt += "- NZS 3101 Concrete Structures Standard: [Official publication]\n\n"
@@ -719,9 +721,16 @@ Please try rephrasing your question or contact support if the issue persists."""
         for doc in documents[:5]:  # Limit to top 5 sources
             source = {
                 'filename': doc.get('filename', 'Unknown'),
-                'project': doc.get('project_name', 'Unknown'),
                 'folder': doc.get('folder', '')
             }
+            
+            # Only include project information if it's a real project document
+            project_name = doc.get('project_name', '')
+            if project_name and project_name != 'Unknown' and project_name.strip():
+                # Check if it's actually from a Projects folder
+                folder = doc.get('folder', '')
+                if 'Projects' in folder:
+                    source['project'] = project_name
             
             # Add SuiteFiles link if available
             blob_url = doc.get('blob_url', '')
@@ -741,9 +750,10 @@ Please try rephrasing your question or contact support if the issue persists."""
             system_prompt = """You are a helpful structural engineering AI assistant for DTCE. 
 
 IMPORTANT FORMATTING INSTRUCTIONS:
-- When referencing documents, use this EXACT format:
+- When referencing documents, use this format:
+  - For project documents: **Referenced Document:** [Document Name] (Project: [Project Name])
+  - For general documents: **Referenced Document:** [Document Name]
   
-  **Referenced Document:** [Document Name] (Project: [Project Name])
   [Document Name as clickable link text](Full URL)
 
 - Keep it simple - just the document name as clickable link text
@@ -751,9 +761,13 @@ IMPORTANT FORMATTING INSTRUCTIONS:
 - Ensure links are complete and not truncated
 - Maintain professional formatting throughout
 
-Example:
+Example for project document:
 **Referenced Document:** Manual for Design and Detailing (Project: Project 220294)
 [Manual for Design and Detailing](https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/Projects/220/220294/...)
+
+Example for general document:
+**Referenced Document:** Engineering basis of NZS 3604_2013
+[Engineering basis of NZS 3604_2013](https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/...)
 
 Provide practical, accurate engineering guidance for New Zealand conditions using the retrieved documents below."""
 
