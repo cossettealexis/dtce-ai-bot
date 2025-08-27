@@ -159,15 +159,14 @@ class RAGHandler:
             blob_url = self._get_blob_url_from_doc(doc)
             suitefiles_link = self._get_safe_suitefiles_url(blob_url)
             
-            # Check if this is actually a real project document
-            project_name = doc.get('project_name', '')
-            is_real_project = self._is_real_project_document(blob_name, project_name)
+            # Extract project info using our consistent method
+            extracted_project = self._extract_project_name_from_blob_url(blob_url)
             
-            # Format document info - only show project info if it's a real project
-            if is_real_project and folder_info['project'] and folder_info['year']:
+            # Format document info - only show project info if it's from Projects folder
+            if extracted_project:
                 doc_info = f"""DOCUMENT: {filename}
                 Folder: {folder_info['folder_path']}
-                Year: {folder_info['year']} | Project: {folder_info['project']}
+                Project: {extracted_project}
                 Link: {suitefiles_link}
                 Content: {content[:600]}...
                 ---"""
@@ -331,19 +330,26 @@ Please try rephrasing your question or contact support if the issue persists."""
                     # Convert blob URL to SuiteFiles URL
                     suitefiles_link = self._convert_to_suitefiles_url(blob_url)
                     
-                    # Only show project name if it's actually from a Projects folder and has a proper project structure
-                    is_real_project = self._is_real_project_document(blob_name, project_name)
+                    # Extract project info using the same logic as _format_sources
+                    extracted_project = self._extract_project_name_from_blob_url(blob_url)
                     
-                    if is_real_project and project_name and project_name.strip():
-                        doc_result = "[DOCUMENT] **DOCUMENT FOUND:**\n- **File Name:** " + filename + "\n- **Project:** " + project_name + "\n- **SuiteFiles Link:** " + suitefiles_link + "\n- **Content Preview:** " + content[:800] + "...\n\n"
+                    if extracted_project:
+                        # This is a project document - show project info
+                        doc_result = f"""DOCUMENT FOUND:
+- **File Name:** {filename}
+- **Project:** {extracted_project}
+- **SuiteFiles Link:** {suitefiles_link}
+- **Content Preview:** {content[:800]}...
+
+"""
                     else:
                         # Don't show project info for non-project documents
                         doc_result = f"""DOCUMENT FOUND:
-                        - **File Name:** {filename}
-                        - **SuiteFiles Link:** {suitefiles_link}
-                        - **Content Preview:** {content[:800]}...
+- **File Name:** {filename}
+- **SuiteFiles Link:** {suitefiles_link}
+- **Content Preview:** {content[:800]}...
 
-                        """
+"""
                     index_results.append(doc_result)
                 
                 retrieved_content = "\n".join(index_results)
@@ -539,11 +545,13 @@ Please try rephrasing your question or contact support if the issue persists."""
             prompt += "1. Start with your answer (NO document references first)\n"
             prompt += "2. End with sources using EXACTLY this format:\n\n"
             prompt += "**Primary Sources:**\n"
-            prompt += "- **[Document Name]**: [QUOTE specific procedures, requirements, dates, numbers, or key content from this document. For example: 'Contains the lockout/tagout procedure requiring 3-step verification' or 'Specifies infection control measures implemented April 1, 2021 including mandatory temperature checks' or 'Lists the required PPE for electrical work: safety glasses, hard hat, and insulated gloves']\n"
-            prompt += "  SuiteFiles Link: [link]\n\n"
+            prompt += "- **[Document Name] (Project XXXXX)**: [QUOTE specific procedures, requirements, dates, numbers, or key content from this document. For example: 'Contains the lockout/tagout procedure requiring 3-step verification' or 'Specifies infection control measures implemented April 1, 2021 including mandatory temperature checks' or 'Lists the required PPE for electrical work: safety glasses, hard hat, and insulated gloves']\n"
+            prompt += "  SuiteFiles Link: [link]\n"
+            prompt += "  NOTE: If a document shows 'Project: Project XXXXX' in the retrieved content, include the project number in parentheses after the document name. If no project information is shown, just use **[Document Name]**:\n\n"
             prompt += "**Alternative that might be helpful:**\n"
-            prompt += "- **[Document Name]**: [QUOTE or describe specific sections/content that provide background or related information. For example: 'Section 3.2 covers site safety protocols for contaminated soil' or 'Contains the emergency contact procedures and evacuation routes for the Auckland office']\n"
-            prompt += "  SuiteFiles Link: [link]\n\n"
+            prompt += "- **[Document Name] (Project XXXXX)**: [QUOTE or describe specific sections/content that provide background or related information. For example: 'Section 3.2 covers site safety protocols for contaminated soil' or 'Contains the emergency contact procedures and evacuation routes for the Auckland office']\n"
+            prompt += "  SuiteFiles Link: [link]\n"
+            prompt += "  NOTE: Include project number if available in the retrieved content\n\n"
             prompt += "**General Engineering Guidance:**\n"
             prompt += "- [Resource]: [SPECIFIC standards, codes, or guidance that directly relate to the question]\n\n"
             prompt += "EXAMPLES OF GOOD vs BAD descriptions:\n"
@@ -553,8 +561,29 @@ Please try rephrasing your question or contact support if the issue persists."""
             prompt += "GOOD: 'Section 4.1 outlines the electrical safety lockout/tagout procedure requiring three-point verification and supervisor sign-off before re-energizing circuits'\n\n"
             prompt += "NEVER use generic phrases like 'commitment to', 'outlines', 'details', 'highlights' - instead describe the ACTUAL CONTENT!\n\n"
             prompt += "CRITICAL: ONLY use the EXACT SuiteFiles links provided in the retrieved content above. DO NOT construct your own links or modify the provided URLs. If a document is mentioned in the retrieved content, use its exact link. If no link is provided for a document in the retrieved content, do not include it in your sources.\n\n"
+            prompt += "ABSOLUTE RULE - NO DOCUMENT HALLUCINATION:\n"
+            prompt += "You MUST ONLY reference documents that appear in the 'Retrieved content from SuiteFiles' section above.\n"
+            prompt += "Each document in the retrieved content starts with 'DOCUMENT: [exact filename]'.\n"
+            prompt += "You are FORBIDDEN from inventing, creating, or mentioning any document names that do not appear in the retrieved content.\n"
+            prompt += "If you reference a document, it MUST be copied EXACTLY from a 'DOCUMENT: [filename]' line above.\n"
+            prompt += "DO NOT create or assume the existence of any documents that are not explicitly listed in the retrieved content.\n\n"
             
-            answer = await self._generate_project_answer_with_links(prompt, retrieved_content)
+            # Send the full prompt directly to GPT instead of using the secondary prompt system
+            try:
+                response = await self.openai_client.chat.completions.create(
+                    model=self.model_name,
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ],
+                    max_tokens=1500,
+                    temperature=0.3
+                )
+                
+                answer = response.choices[0].message.content.strip()
+                
+            except Exception as e:
+                logger.error("GPT response generation failed", error=str(e))
+                answer = f"I encountered an error generating the response: {str(e)}"
             
             return {
                 'answer': answer,
@@ -630,6 +659,20 @@ Please try rephrasing your question or contact support if the issue persists."""
                 for doc in documents:
                     blob_name = doc.get('blob_name', '') or doc.get('filename', '')
                     blob_url = doc.get('blob_url', '') or ''
+                    content = doc.get('content', '')
+                    filename = doc.get('filename', '')
+                    
+                    # Filter out phantom/stub documents with minimal content
+                    is_phantom = False
+                    if content and len(content) < 100:  # Very short content
+                        # Check if content is just "Document: filename.pdf" (phantom document)
+                        expected_stub = f"Document: {filename}"
+                        if content.strip() == expected_stub or content.startswith("Document: ") and len(content) < 50:
+                            is_phantom = True
+                            logger.info("EXCLUDED phantom/stub document", 
+                                      filename=filename, 
+                                      content_length=len(content),
+                                      content_sample=content[:50])
                     
                     # Check multiple fields and variations for superseded content
                     superseded_patterns = [
@@ -653,7 +696,7 @@ Please try rephrasing your question or contact support if the issue persists."""
                                       pattern_found=pattern)
                             break
                     
-                    if not is_superseded:
+                    if not is_superseded and not is_phantom:
                         filtered_documents.append(doc)
                 
                 documents = filtered_documents
@@ -678,6 +721,20 @@ Please try rephrasing your question or contact support if the issue persists."""
                     for doc in documents:
                         blob_name = doc.get('blob_name', '') or doc.get('filename', '')
                         blob_url = doc.get('blob_url', '') or ''
+                        content = doc.get('content', '')
+                        filename = doc.get('filename', '')
+                        
+                        # Filter out phantom/stub documents with minimal content
+                        is_phantom = False
+                        if content and len(content) < 100:  # Very short content
+                            # Check if content is just "Document: filename.pdf" (phantom document)
+                            expected_stub = f"Document: {filename}"
+                            if content.strip() == expected_stub or content.startswith("Document: ") and len(content) < 50:
+                                is_phantom = True
+                                logger.info("EXCLUDED phantom/stub document (fallback)", 
+                                          filename=filename, 
+                                          content_length=len(content),
+                                          content_sample=content[:50])
                         
                         # Check multiple fields and variations for superseded content
                         superseded_patterns = [
@@ -701,7 +758,7 @@ Please try rephrasing your question or contact support if the issue persists."""
                                           pattern_found=pattern)
                                 break
                         
-                        if not is_superseded:
+                        if not is_superseded and not is_phantom:
                             filtered_documents.append(doc)
                     
                     documents = filtered_documents
@@ -932,24 +989,18 @@ Please try rephrasing your question or contact support if the issue persists."""
             system_prompt = """You are a helpful structural engineering AI assistant for DTCE. 
 
 IMPORTANT FORMATTING INSTRUCTIONS:
-- When referencing documents, use this format:
-  - For project documents: **Referenced Document:** [Document Name] (Project: [Project Name])
-  - For general documents: **Referenced Document:** [Document Name]
-  
-  [Document Name as clickable link text](Full URL)
+- When referencing documents in your response, ALWAYS check if the document has "Project: Project XXXXX" information in the context
+- For documents WITH project information: **[Document Name] (Project: XXXXX)**: [Description]
+- For documents WITHOUT project information: **[Document Name]**: [Description]
 
-- Keep it simple - just the document name as clickable link text
-- Use proper line breaks between sections
-- Ensure links are complete and not truncated
-- Maintain professional formatting throughout
+EXAMPLES:
+If context shows "DOCUMENT: 217668-DR-123-C.pdf ... Project: Project 219260", write:
+**217668-DR-123-C.pdf (Project 219260)**: This document details the retrofitting...
 
-Example for project document:
-**Referenced Document:** Manual for Design and Detailing (Project: Project 220294)
-[Manual for Design and Detailing](https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/Projects/220/220294/...)
+If context shows "DOCUMENT: Engineering Guide.pdf" with NO project line, write:
+**Engineering Guide.pdf**: This document provides guidance...
 
-Example for general document:
-**Referenced Document:** Engineering basis of NZS 3604_2013
-[Engineering basis of NZS 3604_2013](https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/...)
+CRITICAL: Look for "Project: Project XXXXX" in each document's context and include it in your response.
 
 Provide practical, accurate engineering guidance for New Zealand conditions using the retrieved documents below."""
 
