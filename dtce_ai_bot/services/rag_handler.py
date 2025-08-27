@@ -51,21 +51,18 @@ class RAGHandler:
             
             # STEP 2: Enhanced search with folder awareness
             enhanced_query = self.folder_service.enhance_search_query(question, folder_context)
-            folder_filter = self.folder_service.get_folder_filter_query(folder_context)
             
             logger.info("Folder-aware search context",
                        original_query=question,
                        enhanced_query=enhanced_query,
                        query_type=folder_context["query_type"],
-                       suggested_folders=folder_context["suggested_folders"],
-                       folder_filter=folder_filter)
+                       suggested_folders=folder_context["suggested_folders"])
             
-            # STEP 3: Search with folder context
+            # STEP 3: Search with folder context (GPT handles folder prioritization)
             documents = await self._search_documents_with_folder_context(
                 enhanced_query, 
                 project_filter, 
-                folder_context,
-                folder_filter
+                folder_context
             )
             
             logger.info("Folder-aware search results", 
@@ -114,20 +111,19 @@ class RAGHandler:
         self, 
         query: str, 
         project_filter: Optional[str], 
-        folder_context: Dict[str, Any],
-        folder_filter: Optional[str]
+        folder_context: Dict[str, Any]
     ) -> List[Dict]:
-        """Search documents with folder structure awareness."""
+        """Search documents with folder structure awareness (GPT handles folder prioritization)."""
         
-        # Start with semantic search
-        documents = await self._search_documents(query, project_filter, use_semantic=True, folder_filter=folder_filter)
+        # Start with semantic search (no folder restrictions - GPT will handle prioritization)
+        documents = await self._search_documents(query, project_filter, use_semantic=True)
         
         # If semantic search doesn't find enough results, try keyword search
         if len(documents) < 5:
             logger.info("Enhancing folder-aware results with keyword search")
             search_words = [word.strip() for word in query.split() if len(word.strip()) > 2]
             keyword_query = ' OR '.join(search_words)
-            keyword_docs = await self._search_documents(keyword_query, project_filter, use_semantic=False, folder_filter=folder_filter)
+            keyword_docs = await self._search_documents(keyword_query, project_filter, use_semantic=False)
             
             # Combine and deduplicate results
             seen_ids = {doc.get('id') for doc in documents}
@@ -541,23 +537,40 @@ Please try rephrasing your question or contact support if the issue persists."""
             prompt += "Final Task:\n"
             prompt += "Based on your intent determination and the above content, provide a helpful, relevant, and human-like response.\n\n"
             prompt += "CRITICAL FORMATTING INSTRUCTIONS:\n\n"
-            prompt += "FOR SUITEFILES REFERENCES:\n"
-            prompt += "When you reference ANY document from the retrieved content above, you MUST format it exactly like this:\n"
-            prompt += "**Referenced Document:** [Document Name] (only include project info if it's a project document)\n"
-            prompt += "**SuiteFiles Link:** [The actual clickable link provided above]\n\n"
-            prompt += "FOR GENERAL KNOWLEDGE REFERENCES:\n"
-            prompt += "When you use general knowledge, include relevant online links like this:\n"
-            prompt += "**Additional Resources:**\n"
+            prompt += "CRITICAL FORMATTING INSTRUCTIONS:\n\n"
+            prompt += "STRUCTURE YOUR RESPONSE LIKE THIS:\n"
+            prompt += "1. Start with a clear, informative answer to the user's question\n"
+            prompt += "2. Then provide source documents at the end\n"
+            prompt += "3. Explain what each document contains and why it's relevant\n"
+            prompt += "4. Label alternatives clearly if used\n\n"
+            
+            prompt += "DOCUMENT REFERENCE FORMAT:\n"
+            prompt += "**Primary Sources:**\n"
+            prompt += "- **[Document Name]**: [Brief description of what this document contains that's relevant]\n"
+            prompt += "  SuiteFiles Link: [The actual clickable link]\n\n"
+            
+            prompt += "**Alternative that might be helpful:**\n"
+            prompt += "- **[Document Name]**: [Explain why this alternative might be helpful]\n"
+            prompt += "  SuiteFiles Link: [The actual clickable link]\n\n"
+            
+            prompt += "**General Engineering Guidance (when providing broader context):**\n"
             prompt += "- [Resource Name]: [URL or description]\n"
-            prompt += "- [Study/Paper Name]: [URL if available]\n\n"
-            prompt += "Example Combined Response (for Both/Neither/Unclear cases):\n"
-            prompt += "**Referenced Document:** Manual for Design and Detailing (Project: Project 220294)\n"
-            prompt += "**SuiteFiles Link:** https://dtce.suitefiles.com/suitefileswebdav/DTCE%20SuiteFiles/Projects/220/220294/...\n\n"
-            prompt += "**Referenced Document:** Engineering basis of NZS 3604_2013\n"
-            prompt += "**SuiteFiles Link:** https://dtce.suitefiles.com/suitefileswebdav/DTCE%20SuiteFiles/Standards/...\n\n"
-            prompt += "**Additional Resources:**\n"
-            prompt += "- Standards New Zealand: https://www.standards.govt.nz/\n"
-            prompt += "- NZS 3101 Concrete Structures Standard: [Official publication]\n\n"
+            prompt += "- [Standard/Code]: [Reference or link]\n\n"
+            
+            prompt += "EXAMPLE GOOD FORMAT:\n"
+            prompt += "DTCE's Health and Safety Policy is comprehensive and covers all workplace safety requirements. The policy emphasizes our commitment to eliminating, isolating, and minimizing risks in all engineering projects.\n\n"
+            prompt += "Our approach includes detailed site safety procedures, infection control measures, and safety-in-design principles that are integrated throughout the project lifecycle.\n\n"
+            prompt += "**Primary Sources:**\n"
+            prompt += "- **Health & Safety Policy.pdf**: DTCE's main H&S policy document with detailed safety procedures and requirements\n"
+            prompt += "  SuiteFiles Link: [link]\n\n"
+            prompt += "- **DTCE_H&S_Profile.pdf**: Overview of DTCE's safety approach and risk management strategies\n"
+            prompt += "  SuiteFiles Link: [link]\n\n"
+            
+            prompt += "WHAT NOT TO DO:\n"
+            prompt += "Don't start with 'Referenced Document:' - start with the actual answer\n"
+            prompt += "Don't list documents first - put the answer first\n"
+            prompt += "Don't just dump document links - explain what's in them\n"
+            prompt += "Don't mention your analysis process to the user\n\n"
             prompt += "IMPORTANT GUIDELINES:\n"
             prompt += "- Use content from the retrieved documents only if applicable and relevant\n"
             prompt += "- ALWAYS include appropriate links based on your intent determination\n"
@@ -600,8 +613,7 @@ Please try rephrasing your question or contact support if the issue persists."""
             }
 
     async def _search_documents(self, search_query: str, project_filter: Optional[str] = None, 
-                              doc_types: Optional[List[str]] = None, use_semantic: bool = True, 
-                              folder_filter: Optional[str] = None) -> List[Dict]:
+                              doc_types: Optional[List[str]] = None, use_semantic: bool = True) -> List[Dict]:
         """Search for relevant documents using both semantic and keyword search."""
         try:
             logger.info("Searching Azure index", search_query=search_query, doc_types=doc_types, use_semantic=use_semantic)
@@ -623,7 +635,7 @@ Please try rephrasing your question or contact support if the issue persists."""
                 })
                 logger.info("Using semantic search for better intent understanding")
             
-            # Build filters
+            # Build filters (only for document types - GPT handles folder prioritization)
             filters = []
             
             # Add document type filter if specified
@@ -631,11 +643,6 @@ Please try rephrasing your question or contact support if the issue persists."""
                 doc_filter = ' or '.join([f"search.ismatch('*.{ext}', 'filename')" for ext in doc_types])
                 filters.append(f"({doc_filter})")
                 logger.info("Added document type filter", filter=doc_filter)
-            
-            # Add folder filter if specified
-            if folder_filter:
-                filters.append(folder_filter)
-                logger.info("Added folder filter", folder_filter=folder_filter)
             
             # Combine filters with AND logic
             if filters:
