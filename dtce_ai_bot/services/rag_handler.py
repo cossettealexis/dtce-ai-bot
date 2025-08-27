@@ -552,6 +552,7 @@ Please try rephrasing your question or contact support if the issue persists."""
             prompt += "BAD: 'Contains safety information'\n"
             prompt += "GOOD: 'Section 4.1 outlines the electrical safety lockout/tagout procedure requiring three-point verification and supervisor sign-off before re-energizing circuits'\n\n"
             prompt += "NEVER use generic phrases like 'commitment to', 'outlines', 'details', 'highlights' - instead describe the ACTUAL CONTENT!\n\n"
+            prompt += "CRITICAL: ONLY use the EXACT SuiteFiles links provided in the retrieved content above. DO NOT construct your own links or modify the provided URLs. If a document is mentioned in the retrieved content, use its exact link. If no link is provided for a document in the retrieved content, do not include it in your sources.\n\n"
             
             answer = await self._generate_project_answer_with_links(prompt, retrieved_content)
             
@@ -596,8 +597,13 @@ Please try rephrasing your question or contact support if the issue persists."""
                 })
                 logger.info("Using semantic search for better intent understanding")
             
-            # Build filters (only for document types - GPT handles folder prioritization)
+            # Build filters
             filters = []
+            
+            # Add exclusion filter for superseded/archive/trash/photos folders
+            excluded_filter = "(not search.ismatch('*superseded*', 'filename')) and (not search.ismatch('*superceded*', 'filename')) and (not search.ismatch('*archive*', 'filename')) and (not search.ismatch('*trash*', 'filename')) and (not search.ismatch('*photos*', 'filename'))"
+            filters.append(excluded_filter)
+            logger.info("Added exclusion filter for superseded folders")
             
             # Add document type filter if specified
             if doc_types:
@@ -619,6 +625,40 @@ Please try rephrasing your question or contact support if the issue persists."""
                            documents_found=len(documents),
                            filenames=[doc.get('filename', 'Unknown') for doc in documents[:5]])
                 
+                # Apply AGGRESSIVE filtering for superseded/archive documents
+                filtered_documents = []
+                for doc in documents:
+                    blob_name = doc.get('blob_name', '') or doc.get('filename', '')
+                    blob_url = doc.get('blob_url', '') or ''
+                    
+                    # Check multiple fields and variations for superseded content
+                    superseded_patterns = [
+                        'superseded', 'superceded', 'archive', 'archived', 'obsolete', 
+                        'deprecated', 'old', 'backup', 'temp', 'temporary', 'draft', 
+                        'drafts', 'trash', 'deleted', 'recycle', 'legacy', 'photos'
+                    ]
+                    
+                    is_superseded = False
+                    for pattern in superseded_patterns:
+                        if (pattern.lower() in blob_name.lower() or 
+                            pattern.lower() in blob_url.lower() or
+                            pattern.capitalize() in blob_name or
+                            pattern.capitalize() in blob_url or
+                            pattern.upper() in blob_name or
+                            pattern.upper() in blob_url):
+                            is_superseded = True
+                            logger.info("EXCLUDED superseded document", 
+                                      filename=doc.get('filename'), 
+                                      blob_name=blob_name,
+                                      pattern_found=pattern)
+                            break
+                    
+                    if not is_superseded:
+                        filtered_documents.append(doc)
+                
+                documents = filtered_documents
+                logger.info("After aggressive superseded filtering", documents_remaining=len(documents))
+                
             except Exception as semantic_error:
                 if use_semantic:
                     logger.warning("Semantic search failed, falling back to keyword search", 
@@ -632,6 +672,39 @@ Please try rephrasing your question or contact support if the issue persists."""
                     
                     results = self.search_client.search(**search_params)
                     documents = [dict(result) for result in results]
+                    
+                    # Apply AGGRESSIVE filtering for superseded/archive documents (fallback)
+                    filtered_documents = []
+                    for doc in documents:
+                        blob_name = doc.get('blob_name', '') or doc.get('filename', '')
+                        blob_url = doc.get('blob_url', '') or ''
+                        
+                        # Check multiple fields and variations for superseded content
+                        superseded_patterns = [
+                            'superseded', 'superceded', 'archive', 'archived', 'obsolete', 
+                            'deprecated', 'old', 'backup', 'temp', 'temporary', 'draft', 
+                            'drafts', 'trash', 'deleted', 'recycle', 'legacy', 'photos'
+                        ]
+                        
+                        is_superseded = False
+                        for pattern in superseded_patterns:
+                            if (pattern.lower() in blob_name.lower() or 
+                                pattern.lower() in blob_url.lower() or
+                                pattern.capitalize() in blob_name or
+                                pattern.capitalize() in blob_url or
+                                pattern.upper() in blob_name or
+                                pattern.upper() in blob_url):
+                                is_superseded = True
+                                logger.info("EXCLUDED superseded document (fallback)", 
+                                          filename=doc.get('filename'), 
+                                          blob_name=blob_name,
+                                          pattern_found=pattern)
+                                break
+                        
+                        if not is_superseded:
+                            filtered_documents.append(doc)
+                    
+                    documents = filtered_documents
                     
                     logger.info("Keyword search fallback completed", 
                                documents_found=len(documents),
@@ -817,7 +890,14 @@ Please try rephrasing your question or contact support if the issue persists."""
     def _format_sources(self, documents: List[Dict]) -> List[Dict]:
         """Format document sources for response."""
         sources = []
-        for doc in documents[:5]:  # Limit to top 5 sources
+        for doc in documents[:10]:  # Check more documents but limit final sources
+            # Filter out superseded/archive documents at source formatting level too
+            blob_name = doc.get('blob_name', '') or doc.get('filename', '')
+            if self.folder_service.should_exclude_folder(blob_name):
+                logger.debug("Excluded superseded document during source formatting", 
+                           filename=doc.get('filename'), blob_name=blob_name)
+                continue
+                
             source = {
                 'filename': doc.get('filename', 'Unknown'),
                 'folder': doc.get('folder', '')
@@ -839,6 +919,10 @@ Please try rephrasing your question or contact support if the issue persists."""
                     source['suitefiles_url'] = suitefiles_url
             
             sources.append(source)
+            
+            # Limit to top 5 sources after filtering
+            if len(sources) >= 5:
+                break
         
         return sources
     
