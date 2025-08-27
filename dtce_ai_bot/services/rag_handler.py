@@ -151,8 +151,12 @@ class RAGHandler:
             blob_url = self._get_blob_url_from_doc(doc)
             suitefiles_link = self._get_safe_suitefiles_url(blob_url)
             
-            # Format document info - only show project info if it exists
-            if folder_info['project'] and folder_info['year']:
+            # Check if this is actually a real project document
+            project_name = doc.get('project_name', '')
+            is_real_project = self._is_real_project_document(blob_name, project_name)
+            
+            # Format document info - only show project info if it's a real project
+            if is_real_project and folder_info['project'] and folder_info['year']:
                 doc_info = f"""DOCUMENT: {filename}
                 Folder: {folder_info['folder_path']}
                 Year: {folder_info['year']} | Project: {folder_info['project']}
@@ -291,12 +295,15 @@ class RAGHandler:
                     content = doc.get('content', '')
                     project_name = doc.get('project_name', '')
                     blob_url = doc.get('blob_url', '')
+                    blob_name = doc.get('blob_name', '')
                     
                     # Convert blob URL to SuiteFiles URL
                     suitefiles_link = self._convert_to_suitefiles_url(blob_url)
                     
-                    # Only show project name if it's not empty/None and not from non-project folders
-                    if project_name and project_name.strip():
+                    # Only show project name if it's actually from a Projects folder and has a proper project structure
+                    is_real_project = self._is_real_project_document(blob_name, project_name)
+                    
+                    if is_real_project and project_name and project_name.strip():
                         doc_result = "[DOCUMENT] **DOCUMENT FOUND:**\n- **File Name:** " + filename + "\n- **Project:** " + project_name + "\n- **SuiteFiles Link:** " + suitefiles_link + "\n- **Content Preview:** " + content[:800] + "...\n\n"
                     else:
                         # Don't show project info for non-project documents
@@ -602,6 +609,44 @@ class RAGHandler:
             logger.warning("Failed to extract project from filename", filename=filename, error=str(e))
             
         return ""  # Return empty string instead of "Unknown Project"
+
+    def _is_real_project_document(self, blob_name: str, project_name: str) -> bool:
+        """Determine if a document is actually from a real project (not CPD, training, etc.)."""
+        if not blob_name or not project_name:
+            return False
+            
+        blob_name_lower = blob_name.lower()
+        project_name_lower = project_name.lower()
+        
+        # Must be in a Projects folder
+        if not ('projects/' in blob_name_lower or '/projects/' in blob_name_lower):
+            return False
+        
+        # Exclude common non-project folders that might be in Projects directory
+        non_project_indicators = [
+            'cpd', 'training', 'general practitioners', 'webinar', 'seminar',
+            'course', 'education', 'learning', 'development', 'template',
+            'standard', 'guideline', 'reference', 'library'
+        ]
+        
+        # Check if project name contains non-project indicators
+        for indicator in non_project_indicators:
+            if indicator in project_name_lower:
+                return False
+                
+        # Check if blob path contains non-project indicators
+        for indicator in non_project_indicators:
+            if indicator in blob_name_lower:
+                return False
+        
+        # Check for 6-digit project number pattern in blob path (most reliable indicator)
+        import re
+        project_number_pattern = r'/(\d{6})/'
+        if re.search(project_number_pattern, blob_name):
+            return True
+            
+        # If we can't find a clear project number pattern, be conservative
+        return False
     
     def _convert_to_suitefiles_url(self, blob_url: str, link_type: str = "file") -> Optional[str]:
         """Convert Azure blob URL to SuiteFiles SharePoint URL."""
@@ -622,14 +667,18 @@ class RAGHandler:
                 if "?" in path_part:
                     path_part = path_part.split("?")[0]
                 
-                # Remove URL encoding
-                from urllib.parse import unquote
+                # Remove URL encoding first
+                from urllib.parse import unquote, quote
                 path_part = unquote(path_part)
+                
+                # Now properly encode for SharePoint URL fragment
+                # SharePoint URL fragments need proper encoding
+                encoded_path = quote(path_part, safe='/')
                 
                 # Build SharePoint URL - use the documents.aspx format
                 # Base SharePoint URL for SuiteFiles
                 base_url = "https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#"
-                suitefiles_url = f"{base_url}/{path_part}"
+                suitefiles_url = f"{base_url}/{encoded_path}"
                 
                 logger.info("Converted to SharePoint SuiteFiles URL", suitefiles_url=suitefiles_url)
                 return suitefiles_url
