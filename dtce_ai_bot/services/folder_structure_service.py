@@ -133,6 +133,25 @@ class FolderStructureService:
             "215": "2015"
         }
     
+    def get_all_project_folders(self) -> List[str]:
+        """Get all project folder codes dynamically from year mappings."""
+        return list(self.year_mappings.keys())
+    
+    def get_recent_project_folders(self, years_back: int = 5) -> List[str]:
+        """Get recent project folder codes dynamically."""
+        from datetime import datetime
+        current_year = datetime.now().year
+        recent_folders = []
+        
+        for folder_code, year_str in self.year_mappings.items():
+            year = int(year_str)
+            if year >= (current_year - years_back):
+                recent_folders.append(folder_code)
+        
+        # Sort by year (descending)
+        recent_folders.sort(key=lambda x: int(self.year_mappings[x]), reverse=True)
+        return recent_folders
+    
     def interpret_user_query(self, question: str) -> Dict[str, Any]:
         """
         Interpret user query and provide folder context.
@@ -291,8 +310,8 @@ class FolderStructureService:
                 project_folders = year_info["folder_codes"]
                 context_msg = f"Searching specifically in {', '.join(year_info.get('years', []))} project documents and reports"
             else:
-                # No specific year mentioned, search all project years
-                project_folders = ["225", "224", "223", "222", "221", "220", "219", "218", "217"]
+                # No specific year mentioned, search all projects
+                project_folders = ["Projects"]
                 context_msg = "Searching specifically in past project documents and reports"
                 
             return {
@@ -329,9 +348,9 @@ class FolderStructureService:
         elif any(keyword in question_lower for keyword in template_keywords):
             return {
                 "type": "template",
-                "folders": ["Templates", "Forms"],
-                "search_terms": ["template", "form", "example"],
-                "context": "Searching in templates and forms"
+                "folders": ["Templates", "Forms", "H2H", "Engineering Standards", "Projects"],
+                "search_terms": ["template", "form", "example", "spreadsheet"],
+                "context": "Searching in templates, procedures, and project examples for tools and forms"
             }
         
         elif any(keyword in question_lower for keyword in project_keywords):
@@ -340,8 +359,8 @@ class FolderStructureService:
                 project_folders = year_info["folder_codes"]
                 context_msg = f"Searching in {', '.join(year_info.get('years', []))} project documents and reports"
             else:
-                # No specific year mentioned, search recent project years
-                project_folders = ["225", "224", "223", "222", "221", "220", "219"]
+                # No specific year mentioned, search projects folder
+                project_folders = ["Projects"]
                 context_msg = "Searching in project documents and reports"
                 
             return {
@@ -428,15 +447,10 @@ class FolderStructureService:
         return original_query
     
     def get_folder_filter_query(self, context: Dict[str, Any]) -> Optional[str]:
-        """Generate a simplified Azure Search filter - GPT will do the intelligent filtering."""
-        # Only exclude the most critical folders to avoid filter complexity
-        # GPT will do the intelligent folder-based filtering in the response
-        basic_exclusions = [
-            "not search.ismatch('superseded', 'folder')",
-            "not search.ismatch('archive', 'folder')"
-        ]
-        
-        return f"({' and '.join(basic_exclusions)})"
+        """Generate a minimal Azure Search filter - let GPT do the intelligent filtering."""
+        # Only exclude the most critical superseded/archive folders 
+        # Let GPT handle intelligent folder-based filtering based on context
+        return "not search.ismatch('superseded', 'folder')"
     
     def format_folder_context_for_ai(self, context: Dict[str, Any]) -> str:
         """Format folder context information for AI prompts."""
