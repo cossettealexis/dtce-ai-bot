@@ -705,8 +705,17 @@ What would you like to know?""",
         question = intent.get('original_question', '')
         logger.info("Handling contact lookup", topic=topic)
         
+        # Enhanced search for person/company name queries
+        person_company_terms = []
+        if 'aaron' in question.lower():
+            person_company_terms.extend(['aaron', 'TGCS', 'George Construction', 'George Construction Solutions'])
+        if 'tgcs' in question.lower():
+            person_company_terms.extend(['TGCS', 'George Construction', 'aaron'])
+        if 'george construction' in question.lower():
+            person_company_terms.extend(['George Construction', 'TGCS', 'aaron'])
+        
         # Enhanced search for builder/contractor performance queries
-        if any(term in question.lower() for term in ['builder', 'contractor', 'construction', 'built', 'constructed']):
+        if any(term in question.lower() for term in ['builder', 'contractor', 'construction', 'built', 'constructed']) or person_company_terms:
             # Search specifically for builder/contractor documents and project reports
             search_queries = [
                 f"builder contractor construction {topic}",
@@ -717,6 +726,16 @@ What would you like to know?""",
                 f"steel structure retrofit {topic}" if 'steel' in question.lower() else f"retrofit {topic}",
                 "project completion construction quality"
             ]
+            
+            # Add person/company specific searches
+            if person_company_terms:
+                for term in person_company_terms:
+                    search_queries.extend([
+                        f"{term} project contact",
+                        f"{term} email communication",
+                        f"working with {term}",
+                        f"{term} contractor builder"
+                    ])
             
             all_documents = []
             for query in search_queries:
@@ -3784,28 +3803,46 @@ Be specific and practical - provide resources that directly address their questi
         content = content.replace('\n', ' ').replace('\r', ' ')
         content = ' '.join(content.split())  # Normalize whitespace
         
-        # Very specific patterns - must end with company identifiers
+        # Enhanced company patterns including acronyms and variations
         company_patterns = [
-            r'\b([A-Z][a-zA-Z]{3,15}\s+Construction\s+(?:Ltd|Limited))\b',
+            r'\b([A-Z][a-zA-Z]{3,15}\s+Construction\s+(?:Solutions?\s+)?(?:Ltd|Limited))\b',
             r'\b([A-Z][a-zA-Z]{3,15}\s+Building\s+(?:Ltd|Limited))\b',
             r'\b([A-Z][a-zA-Z]{3,15}\s+Contractors\s+(?:Ltd|Limited))\b',
             r'\b([A-Z][a-zA-Z]{3,15}\s+Engineering\s+(?:Ltd|Limited))\b',
-            # Specific known good patterns
+            # Specific known patterns
+            r'\b(The\s+George\s+Construction\s+Solutions?)\b',
+            r'\b(George\s+Construction\s+Solutions?)\b',
             r'\b(Griffiths\s+Construction)\b',
             r'\b(Strongman\s+Building)\b',
+            # Acronym patterns (3-5 capital letters)
+            r'\b([A-Z]{3,5})\s+(?:Construction|Building|Contractors|Ltd|Limited)\b',
+            r'\b([A-Z]{3,5})\b(?=\s+(?:aaron|contact|email|phone|project))',  # TGCS followed by relevant terms
         ]
+        
+        # Company acronym mappings for better recognition
+        acronym_mappings = {
+            'TGCS': 'The George Construction Solutions',
+            'TGC': 'The George Construction',
+            # Add more as needed
+        }
         
         # DTCE emails to exclude (our own company)
         dtce_domains = ['dtce.co.nz', 'donthomson.co.nz']
         
-        # Look for well-formed company names
+        # Look for well-formed company names and acronyms
         for pattern in company_patterns:
             matches = re.findall(pattern, content, re.IGNORECASE)
             for company_name in matches:
                 company_name = company_name.strip()
                 
-                # Skip if too short, too long, or already found
-                if (len(company_name) < 8 or 
+                # Handle acronym expansion
+                if company_name.upper() in acronym_mappings:
+                    expanded_name = acronym_mappings[company_name.upper()]
+                    company_name = expanded_name
+                
+                # Skip if too short, already found, or for acronyms if too short
+                min_length = 3 if company_name.isupper() else 8  # Allow shorter acronyms
+                if (len(company_name) < min_length or 
                     len(company_name) > 35 or 
                     company_name in found_names):
                     continue
@@ -3829,9 +3866,12 @@ Be specific and practical - provide resources that directly address their questi
                 # Look for contact info near this company
                 company_pos = content.lower().find(company_name.lower())
                 if company_pos >= 0:
-                    context_start = max(0, company_pos - 100)
-                    context_end = min(len(content), company_pos + len(company_name) + 100)
+                    context_start = max(0, company_pos - 200)  # Expanded context for person names
+                    context_end = min(len(content), company_pos + len(company_name) + 200)
                     context = content[context_start:context_end]
+                    
+                    # Find person names near company (first names like Aaron)
+                    person_names = re.findall(r'\b(Aaron|Adam|Andrew|Anthony|Ben|Benjamin|Brad|Bradley|Brett|Brian|Cameron|Chris|Christopher|Craig|Dan|Daniel|Dave|David|Dean|Derek|Gary|Greg|Ian|James|Jason|Jeff|Jeremy|John|Jon|Jonathan|Justin|Keith|Kevin|Luke|Mark|Matt|Matthew|Michael|Mike|Nathan|Nick|Paul|Peter|Phil|Richard|Rob|Robert|Ryan|Sam|Scott|Simon|Steve|Tim|Tom|Tony)\b', context, re.IGNORECASE)
                     
                     # Find emails and phones in context
                     emails = re.findall(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,4}\b', context)
@@ -3844,12 +3884,13 @@ Be specific and practical - provide resources that directly address their questi
                         if not any(domain in email_lower for domain in dtce_domains):
                             clean_emails.append(email)
                     
-                    # Only add if we have external contact info
-                    if clean_emails or phones:
+                    # Only add if we have external contact info or person names
+                    if clean_emails or phones or person_names:
                         contractors.append({
                             'name': company_name,
                             'emails': clean_emails[:1],  # Max 1 email
-                            'phones': list(set(phones))[:1]   # Max 1 phone
+                            'phones': list(set(phones))[:1],   # Max 1 phone
+                            'people': list(set([name.title() for name in person_names]))[:2]  # Max 2 people
                         })
         
         return contractors[:2]  # Max 2 contractors to keep response very clean
@@ -3898,6 +3939,11 @@ Be specific and practical - provide resources that directly address their questi
                 contractor_name = contractor['name'].strip()
                     
                 answer += f"• **{contractor_name}**\n"
+                
+                # Add person names if available
+                if contractor.get('people'):
+                    people_list = ', '.join(contractor['people'])
+                    answer += f"  👤 Contact: {people_list}\n"
                 
                 # Add contact info if available
                 if contractor.get('emails'):
