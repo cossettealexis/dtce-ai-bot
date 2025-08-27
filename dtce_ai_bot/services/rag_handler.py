@@ -219,68 +219,91 @@ class RAGHandler:
                 doc.get('source') or '')
     
     async def _handle_no_documents_with_folder_guidance(self, question: str, folder_context: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle cases where no documents are found, with folder structure guidance."""
+        """Handle cases where no documents are found, using GPT's general knowledge as fallback."""
         
-        query_type = folder_context.get('query_type', 'general')
         suggested_folders = folder_context.get('suggested_folders', [])
         year_context = folder_context.get('year_context')
         
-        guidance_parts = []
-        
+        # Build simple context about what was searched
+        search_context = []
         if year_context:
             years = year_context.get('years', [])
-            guidance_parts.append(f"I looked for documents from {', '.join(years)} but didn't find specific matches.")
-        
-        if query_type != 'general':
-            guidance_parts.append(f"This appears to be a {query_type}-related question.")
-        
+            search_context.append(f"searched in {', '.join(years)} project folders")
         if suggested_folders:
-            guidance_parts.append(f"I searched in relevant folders: {', '.join(suggested_folders)}")
+            search_context.append(f"looked in {', '.join(suggested_folders)} folders")
         
-        guidance = " ".join(guidance_parts) if guidance_parts else "I couldn't find specific documents matching your question."
+        search_info = " and ".join(search_context) if search_context else "searched SuiteFiles"
         
-        # Generate a helpful response with folder guidance
+        # Simple, intelligent GPT fallback
         fallback_prompt = f"""The user asked: "{question}"
 
-                {guidance}
+I {search_info} but didn't find specific documents in DTCE's SuiteFiles system.
 
-                Based on DTCE's folder structure and general engineering knowledge, provide a helpful response that:
-                1. Acknowledges that specific documents weren't found
-                2. Provides general guidance based on the question type
-                3. Suggests where they might look in SuiteFiles (mention relevant folder types)
-                4. Offers to help with related questions
+Please provide a comprehensive, helpful answer using your general knowledge. Consider:
+- If this is about DTCE policies/procedures: acknowledge no specific documents found, provide general guidance
+- If this is technical/engineering: provide relevant NZ standards, best practices, and professional advice
+- If this is about projects/clients: provide general project management or industry insights
+- If this is about processes/templates: suggest typical approaches and what to include
 
-                Be helpful and specific about DTCE's document organization."""
+Be thorough, professional, and acknowledge when this is general vs. company-specific guidance.
+Focus on New Zealand conditions and structural engineering practices where relevant."""
         
         answer = await self._generate_fallback_response(fallback_prompt)
         
         return {
             'answer': answer,
             'sources': [],
-            'confidence': 'low',
+            'confidence': 'medium',
             'documents_searched': 0,
-            'rag_type': 'folder_aware_fallback',
-            'folder_guidance': guidance_parts
+            'rag_type': 'gpt_knowledge_fallback',
+            'search_attempted': search_info,
+            'fallback_reason': 'No documents found in SuiteFiles, using GPT general knowledge'
         }
 
     async def _generate_fallback_response(self, prompt: str) -> str:
-        """Generate fallback response when no documents are found."""
+        """Generate comprehensive fallback response using GPT's general knowledge."""
         try:
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {"role": "system", "content": "You are a helpful structural engineering AI assistant for DTCE. Provide practical guidance for New Zealand conditions."},
+                    {
+                        "role": "system", 
+                        "content": """You are an expert structural engineering AI assistant for DTCE (a New Zealand structural engineering consultancy). 
+
+When providing fallback responses:
+- Be comprehensive and professional
+- Focus on New Zealand building codes, standards, and practices
+- Provide practical, actionable guidance
+- Always acknowledge when information is general vs. DTCE-specific
+- Include relevant NZ Standards (NZS) when applicable
+- Consider local conditions and requirements
+- Be helpful while encouraging users to verify with DTCE's specific procedures
+
+Your responses should be thorough and educational, providing real value even when specific documents aren't available."""
+                    },
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=800,
+                max_tokens=1200,  # Increased for more comprehensive responses
                 temperature=0.3
             )
             
-            return response.choices[0].message.content.strip()
+            fallback_answer = response.choices[0].message.content.strip()
+            
+            # Add disclaimer to make it clear this is general knowledge
+            disclaimer = "\n\n---\n**Note:** This response is based on general engineering knowledge and industry best practices. For DTCE-specific procedures, policies, or project information, please check SuiteFiles or consult with your colleagues and supervisors."
+            
+            return fallback_answer + disclaimer
             
         except Exception as e:
-            logger.error("Fallback response generation failed", error=str(e))
-            return "I'm having trouble generating a response at the moment. Please try rephrasing your question or contact support if the issue persists."
+            logger.error("GPT fallback response generation failed", error=str(e))
+            return """I'm having trouble accessing my general knowledge at the moment. Here are some general suggestions:
+
+1. Check SuiteFiles for relevant documents in the appropriate folders
+2. Consult with colleagues or supervisors who might have experience with this topic
+3. Review relevant NZ Standards or building codes
+4. Contact the appropriate department for policy or procedure questions
+
+Please try rephrasing your question or contact support if the issue persists."""
 
     async def _search_index_with_context(self, search_query: str, project_filter: Optional[str] = None) -> str:
         """Enhanced search that includes project and document context."""
