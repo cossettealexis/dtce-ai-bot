@@ -85,7 +85,9 @@ class SemanticSearchService:
         # Build filters based on strategy
         filters = self._build_intent_filters(strategy, project_filter)
         if filters:
-            search_params['filter'] = ' and '.join(filters)
+            final_filter = ' and '.join(filters)
+            search_params['filter'] = final_filter
+            logger.info("Final semantic search filter", filter=final_filter[:300])
         
         # Execute search
         try:
@@ -126,12 +128,19 @@ class SemanticSearchService:
         
         # Add project filter if specified
         if project_filter:
+            logger.info("Processing project_filter", project_filter=project_filter[:200])
             # Check if project_filter is already a complete filter expression or just a project name
-            if 'search.ismatch' in project_filter or 'and' in project_filter or 'or' in project_filter:
+            if ('search.ismatch' in project_filter or 
+                'and' in project_filter or 
+                'or' in project_filter or 
+                'not ' in project_filter.lower() or
+                project_filter.startswith('(')):
                 # It's already a complete filter expression (from folder structure service)
-                filters.append(f"({project_filter})")
+                logger.info("Using complete filter expression")
+                filters.append(project_filter)
             else:
                 # It's a simple project name, wrap it in search.ismatch
+                logger.info("Wrapping simple project name")
                 filters.append(f"search.ismatch('{project_filter}*', 'project_name')")
         
         # Don't filter by document types - semantic search works across all formats
@@ -271,16 +280,25 @@ class SemanticSearchService:
         # Basic exclusion filter
         filters = ["(not search.ismatch('*superseded*', 'filename'))"]
         if project_filter:
+            logger.info("Processing fallback project_filter", project_filter=project_filter[:200])
             # Check if project_filter is already a complete filter expression or just a project name
-            if 'search.ismatch' in project_filter or 'and' in project_filter or 'or' in project_filter:
+            if ('search.ismatch' in project_filter or 
+                'and' in project_filter or 
+                'or' in project_filter or 
+                'not ' in project_filter.lower() or
+                project_filter.startswith('(')):
                 # It's already a complete filter expression (from folder structure service)
-                filters.append(f"({project_filter})")
+                logger.info("Using complete filter expression in fallback")
+                filters.append(project_filter)
             else:
                 # It's a simple project name, wrap it in search.ismatch
+                logger.info("Wrapping simple project name in fallback")
                 filters.append(f"search.ismatch('{project_filter}*', 'project_name')")
         
         if filters:
-            search_params['filter'] = ' and '.join(filters)
+            final_filter = ' and '.join(filters)
+            search_params['filter'] = final_filter
+            logger.info("Final fallback search filter", filter=final_filter[:300])
         
         try:
             results = self.search_client.search(**search_params)
