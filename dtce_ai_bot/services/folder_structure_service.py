@@ -278,14 +278,23 @@ class FolderStructureService:
         ]
         
         project_keywords = [
-            'project', 'job', 'client', 'report', 'drawing', 'site', 'building',
+            'project', 'job', 'report', 'drawing', 'site', 'building',
             'assessment', 'analysis', 'construction', 'development'
+        ]
+        
+        # Client reference queries
+        client_keywords = [
+            'client', 'client contact', 'client details', 'client information',
+            'client projects', 'who is', 'contact details', 'email address',
+            'phone number', 'client history', 'past client', 'contractor',
+            'worked on', 'who worked', 'which contractor', 'contractor details'
         ]
         
         # H2H (How-to) procedure queries
         procedure_keywords = [
-            'how to', 'procedure', 'process', 'workflow', 'method', 'approach',
-            'steps', 'guide', 'handbook', 'h2h', 'best practice'
+            'how to', 'how do i', 'how can i', 'procedure', 'process', 'workflow', 'method', 'approach',
+            'steps', 'guide', 'handbook', 'h2h', 'best practice', 'set up', 'setup', 'configure',
+            'install', 'create account', 'user account', 'account setup'
         ]
         
         # Template/Form queries
@@ -319,6 +328,14 @@ class FolderStructureService:
                 "folders": project_folders,
                 "search_terms": ["project", "job", "client", "scope"],
                 "context": context_msg
+            }
+        
+        elif any(keyword in question_lower for keyword in client_keywords):
+            return {
+                "type": "client", 
+                "folders": ["Projects"],  # Search all project folders for client info
+                "search_terms": ["client", "contact", "email", "phone"],
+                "context": "Searching in project folders for client contact details and information"
             }
         
         elif any(keyword in question_lower for keyword in policy_keywords):
@@ -427,10 +444,77 @@ class FolderStructureService:
         return original_query
     
     def get_folder_filter_query(self, context: Dict[str, Any]) -> Optional[str]:
-        """Generate a minimal Azure Search filter - let GPT do the intelligent filtering."""
-        # Only exclude the most critical superseded/archive folders 
-        # Let GPT handle intelligent folder-based filtering based on context
-        return "not search.ismatch('superseded', 'folder')"
+        """Generate STRICT Azure Search filters to limit search to specific folder types only."""
+        filters = []
+        
+        # Always exclude superseded/archive folders
+        base_exclusions = [
+            "not search.ismatch('*superseded*', 'folder')",
+            "not search.ismatch('*superceded*', 'folder')", 
+            "not search.ismatch('*archive*', 'folder')",
+            "not search.ismatch('*trash*', 'folder')"
+        ]
+        filters.extend(base_exclusions)
+        
+        query_type = context.get("query_type", "general")
+        
+        # STRICT folder filtering based on query type
+        if query_type == "policy":
+            # Policy Prompt: ONLY search policy folders
+            policy_filters = [
+                "search.ismatch('*Health*Safety*', 'folder')",
+                "search.ismatch('*IT*Policy*', 'folder')", 
+                "search.ismatch('*Employment*', 'folder')",
+                "search.ismatch('*Quality*', 'folder')",
+                "search.ismatch('*Operations*', 'folder')",
+                "search.ismatch('*Policy*', 'folder')"
+            ]
+            folder_filter = f"({' or '.join(policy_filters)})"
+            filters.append(folder_filter)
+            
+        elif query_type == "procedure":
+            # Technical & Admin Procedures: ONLY search H2H/procedure folders
+            procedure_filters = [
+                "search.ismatch('*H2H*', 'folder')",
+                "search.ismatch('*How*to*', 'folder')",
+                "search.ismatch('*Procedure*', 'folder')",
+                "search.ismatch('*Technical*Procedure*', 'folder')",
+                "search.ismatch('*Admin*Procedure*', 'folder')"
+            ]
+            folder_filter = f"({' or '.join(procedure_filters)})"
+            filters.append(folder_filter)
+            
+        elif query_type == "technical":
+            # NZ Engineering Standards: ONLY search standards/technical folders
+            technical_filters = [
+                "search.ismatch('*Engineering*Standard*', 'folder')",
+                "search.ismatch('*NZ*Standard*', 'folder')",
+                "search.ismatch('*Standard*', 'folder')",
+                "search.ismatch('*Code*', 'folder')",
+                "search.ismatch('*Design*Guideline*', 'folder')"
+            ]
+            folder_filter = f"({' or '.join(technical_filters)})"
+            filters.append(folder_filter)
+            
+        elif query_type == "project":
+            # Project Reference: ONLY search project folders (by year)
+            project_folders = self.get_all_project_folders()  # 225, 224, 223, etc.
+            project_filters = [f"search.ismatch('*{folder}*', 'folder')" for folder in project_folders]
+            project_filters.append("search.ismatch('*Project*', 'folder')")
+            folder_filter = f"({' or '.join(project_filters)})"
+            filters.append(folder_filter)
+            
+        elif query_type == "client":
+            # Client Reference: ONLY search project folders for client info
+            project_folders = self.get_all_project_folders()  # 225, 224, 223, etc.
+            client_filters = [f"search.ismatch('*{folder}*', 'folder')" for folder in project_folders]
+            client_filters.append("search.ismatch('*Project*', 'folder')")
+            folder_filter = f"({' or '.join(client_filters)})"
+            filters.append(folder_filter)
+            
+        # For general queries, don't add folder restrictions (search everywhere except excluded)
+        
+        return ' and '.join(filters) if filters else None
     
     def format_folder_context_for_ai(self, context: Dict[str, Any]) -> str:
         """Format folder context information for AI prompts."""
