@@ -824,10 +824,16 @@ Please try rephrasing your question or contact support if the issue persists."""
     def _get_safe_suitefiles_url(self, blob_url: str, link_type: str = "file") -> str:
         """Get SuiteFiles URL or fallback message if conversion fails."""
         if not blob_url:
-            return "Document available in SuiteFiles"
+            logger.warning("No blob URL provided for SuiteFiles conversion")
+            return "https://donthomson.sharepoint.com/sites/suitefiles"
         
         suitefiles_url = self._convert_to_suitefiles_url(blob_url, link_type)
-        return suitefiles_url or "Document available in SuiteFiles"
+        if suitefiles_url:
+            return suitefiles_url
+        else:
+            logger.warning("Failed to convert blob URL to SuiteFiles URL", blob_url=blob_url)
+            # Return a direct blob URL if SharePoint conversion fails
+            return blob_url
     
     def _extract_project_name_from_blob_url(self, blob_url: str) -> str:
         """Extract project name/number from blob URL path - only if actually in Projects folder."""
