@@ -152,17 +152,17 @@ class RAGHandler:
             if extracted_project:
                 doc_info = f"""DOCUMENT: {filename}
                 Folder: {folder_info['folder_path']}
-                Project: {extracted_project}
-                Link: {suitefiles_link}
-                Content: {content[:600]}...
-                ---"""
+                Project: {extracted_project}"""
+                if suitefiles_link:
+                    doc_info += f"\n                Link: {suitefiles_link}"
+                doc_info += f"\n                Content: {content[:600]}...\n                ---"
             else:
                 # Non-project document - don't show project info
                 doc_info = f"""DOCUMENT: {filename}
-                Folder: {folder_info['folder_path']}
-                Link: {suitefiles_link}
-                Content: {content[:600]}...
-                ---"""
+                Folder: {folder_info['folder_path']}"""
+                if suitefiles_link:
+                    doc_info += f"\n                Link: {suitefiles_link}"
+                doc_info += f"\n                Content: {content[:600]}...\n                ---"
             
             formatted_docs.append(doc_info)
         
@@ -207,14 +207,24 @@ class RAGHandler:
     
     def _get_blob_url_from_doc(self, doc: Dict) -> str:
         """Extract blob URL from document with multiple fallbacks."""
-        return (doc.get('blob_url') or 
-                doc.get('blobUrl') or 
-                doc.get('url') or 
-                doc.get('source_url') or 
-                doc.get('metadata_storage_path') or 
-                doc.get('metadata_storage_name') or
-                doc.get('sourcePage') or
-                doc.get('source') or '')
+        # Debug: Log available fields
+        logger.info("Document fields available", fields=list(doc.keys()))
+        
+        blob_url = (doc.get('blob_url') or 
+                   doc.get('blobUrl') or 
+                   doc.get('url') or 
+                   doc.get('source_url') or 
+                   doc.get('metadata_storage_path') or 
+                   doc.get('metadata_storage_name') or
+                   doc.get('sourcePage') or
+                   doc.get('source') or '')
+        
+        if not blob_url:
+            logger.warning("No blob URL found in document", document_fields=doc.keys())
+        else:
+            logger.info("Found blob URL", blob_url=blob_url)
+            
+        return blob_url
     
     async def _handle_no_documents_found(self, question: str) -> Dict[str, Any]:
         """Handle cases where no documents are found - provide intelligent fallback."""
@@ -821,18 +831,18 @@ Please try rephrasing your question or contact support if the issue persists."""
             logger.error("Document search failed", error=str(e), search_query=search_query)
             return []
     
-    def _get_safe_suitefiles_url(self, blob_url: str, link_type: str = "file") -> str:
-        """Get SuiteFiles URL or fallback message if conversion fails."""
+    def _get_safe_suitefiles_url(self, blob_url: str, link_type: str = "file") -> Optional[str]:
+        """Get SuiteFiles URL or None if conversion fails."""
         if not blob_url:
             logger.warning("No blob URL provided for SuiteFiles conversion")
-            return "https://donthomson.sharepoint.com/sites/suitefiles"
+            return None
         
         suitefiles_url = self._convert_to_suitefiles_url(blob_url, link_type)
         if suitefiles_url:
             return suitefiles_url
         else:
             logger.warning("Failed to convert blob URL to SuiteFiles URL", blob_url=blob_url)
-            # Return a direct blob URL if SharePoint conversion fails
+            # Return the direct blob URL if SharePoint conversion fails
             return blob_url
     
     def _extract_project_name_from_blob_url(self, blob_url: str) -> str:
