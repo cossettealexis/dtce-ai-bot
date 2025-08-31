@@ -126,7 +126,13 @@ class SemanticSearchService:
         
         # Add project filter if specified
         if project_filter:
-            filters.append(f"search.ismatch('{project_filter}*', 'project_name')")
+            # Check if project_filter is already a complete filter expression or just a project name
+            if 'search.ismatch' in project_filter or 'and' in project_filter or 'or' in project_filter:
+                # It's already a complete filter expression (from folder structure service)
+                filters.append(f"({project_filter})")
+            else:
+                # It's a simple project name, wrap it in search.ismatch
+                filters.append(f"search.ismatch('{project_filter}*', 'project_name')")
         
         # Don't filter by document types - semantic search works across all formats
         # Let the content and folder-based filtering do the work
@@ -265,7 +271,13 @@ class SemanticSearchService:
         # Basic exclusion filter
         filters = ["(not search.ismatch('*superseded*', 'filename'))"]
         if project_filter:
-            filters.append(f"search.ismatch('{project_filter}*', 'project_name')")
+            # Check if project_filter is already a complete filter expression or just a project name
+            if 'search.ismatch' in project_filter or 'and' in project_filter or 'or' in project_filter:
+                # It's already a complete filter expression (from folder structure service)
+                filters.append(f"({project_filter})")
+            else:
+                # It's a simple project name, wrap it in search.ismatch
+                filters.append(f"search.ismatch('{project_filter}*', 'project_name')")
         
         if filters:
             search_params['filter'] = ' and '.join(filters)
