@@ -43,8 +43,9 @@ class RAGHandler:
             
             # STEP 2: Generate response with retrieved documents
             if documents:
-                # Format documents into retrieved content (use existing method without folder context)
-                retrieved_content = self._format_documents_simple(documents)
+                # Format documents WITH folder context to include SuiteFiles links
+                folder_context = {"query_type": "enhanced_semantic"}
+                retrieved_content = self._format_documents_with_folder_context(documents, folder_context)
                 
                 # Use the complete intelligent prompt system
                 result = await self._process_rag_with_full_prompt(question, retrieved_content, documents)
@@ -210,17 +211,41 @@ class RAGHandler:
         # Debug: Log available fields
         logger.info("Document fields available", fields=list(doc.keys()))
         
+        # Check all possible field names for blob URL
         blob_url = (doc.get('blob_url') or 
                    doc.get('blobUrl') or 
                    doc.get('url') or 
                    doc.get('source_url') or 
+                   doc.get('sourceUrl') or
                    doc.get('metadata_storage_path') or 
                    doc.get('metadata_storage_name') or
                    doc.get('sourcePage') or
-                   doc.get('source') or '')
+                   doc.get('source') or
+                   doc.get('path') or
+                   doc.get('file_path') or
+                   doc.get('filepath') or
+                   doc.get('document_url') or
+                   doc.get('documentUrl') or
+                   doc.get('@search.score') and doc.get('id') or  # Sometimes ID contains the path
+                   '')
+        
+        # If still no URL found, try to construct from filename/folder info
+        if not blob_url:
+            # Try to get filename and folder to construct URL
+            filename = doc.get('filename', '') or doc.get('name', '') or doc.get('title', '')
+            folder = doc.get('folder', '') or doc.get('directory', '') or doc.get('path', '')
+            
+            if filename:
+                # Construct likely blob URL pattern
+                if folder:
+                    blob_url = f"https://dtcestorage.blob.core.windows.net/dtce-documents/{folder}/{filename}"
+                else:
+                    blob_url = f"https://dtcestorage.blob.core.windows.net/dtce-documents/{filename}"
+                logger.info("Constructed blob URL from filename/folder", constructed_url=blob_url)
         
         if not blob_url:
-            logger.warning("No blob URL found in document", document_fields=doc.keys())
+            logger.warning("No blob URL found in document", document_fields=list(doc.keys()), 
+                          sample_values={k: str(v)[:100] for k, v in list(doc.items())[:5]})
         else:
             logger.info("Found blob URL", blob_url=blob_url)
             
