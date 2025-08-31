@@ -1,6 +1,6 @@
 """
 RAG (Retrieval-Augmented Generation) Handler for DTCE AI Bot
-UNIFIED SEMANTIC SEARCH FLOW with Folder Structure Awareness
+ENHANCED SEMANTIC SEARCH with Intent Recognition
 """
 
 import re
@@ -8,94 +8,56 @@ from typing import List, Dict, Any, Optional
 import structlog
 from azure.search.documents import SearchClient
 from openai import AsyncAzureOpenAI
-from .folder_structure_service import FolderStructureService
+from .semantic_search import SemanticSearchService
 
 logger = structlog.get_logger(__name__)
 
 
 class RAGHandler:
-    """Handles RAG processing with unified semantic search flow and folder structure awareness."""
+    """Handles RAG processing with enhanced semantic search and intent recognition."""
     
     def __init__(self, search_client: SearchClient, openai_client: AsyncAzureOpenAI, model_name: str):
         self.search_client = search_client
         self.openai_client = openai_client
         self.model_name = model_name
-        self.folder_service = FolderStructureService()
+        self.semantic_search = SemanticSearchService(search_client)
     
     async def process_rag_query(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
         """
-        UNIFIED SEMANTIC SEARCH FLOW with Folder Structure Awareness:
+        ENHANCED SEMANTIC SEARCH with Intent Recognition:
         
-        1. Interpret user question to understand folder context
-        2. Search using folder-aware filtering
-        3. Retrieve relevant documents with proper context
-        4. Generate answer with folder structure understanding
+        1. Classify user intent for targeted search
+        2. Execute semantic search with intent-based optimization  
+        3. Retrieve and rank relevant documents intelligently
+        4. Generate answer with proper context understanding
         """
         try:
-            logger.info("Processing question with folder structure awareness", question=question)
+            logger.info("Processing question with intent recognition", question=question)
             
-                        # STEP 1: Understand folder structure context
-            folder_context = self.folder_service.interpret_user_query(question)
+            # STEP 1: Use enhanced semantic search with intent recognition
+            documents = await self.semantic_search.search_documents(question, project_filter)
             
-            # STEP 1.5: Handle folder listing requests directly (no document search needed)
-            if folder_context["query_type"] == "folder_listing":
-                folder_listing = self.folder_service.get_folder_structure_listing()
-                return {
-                    'answer': folder_listing,
-                    'sources': [],
-                    'confidence': 'high',
-                    'documents_searched': 0,
-                    'rag_type': 'folder_structure_listing',
-                    'folder_context': folder_context
-                }
-            
-            # STEP 2: Enhanced search with folder awareness
-            enhanced_query = self.folder_service.enhance_search_query(question, folder_context)
-            
-            logger.info("Folder-aware search context",
-                       original_query=question,
-                       enhanced_query=enhanced_query,
-                       query_type=folder_context["query_type"],
-                       suggested_folders=folder_context["suggested_folders"])
-            
-            # STEP 3: Search with folder context (GPT handles folder prioritization)
-            documents = await self._search_documents_with_folder_context(
-                enhanced_query, 
-                project_filter, 
-                folder_context
-            )
-            
-            logger.info("Folder-aware search results", 
+            logger.info("Enhanced semantic search results", 
                        total_documents=len(documents),
                        sample_filenames=[doc.get('filename', 'Unknown') for doc in documents[:3]])
             
-            # STEP 4: Generate response with folder context
+            # STEP 2: Generate response with retrieved documents
             if documents:
-                # Format context information for AI
-                ai_folder_context = self.folder_service.format_folder_context_for_ai(folder_context)
+                # Format documents into retrieved content (use existing method without folder context)
+                retrieved_content = self._format_documents_simple(documents)
                 
-                # Generate answer with folder understanding
-                retrieved_content = self._format_documents_with_folder_context(documents, folder_context)
-                
-                # Use the complete intelligent prompt system instead of simple prompt
+                # Use the complete intelligent prompt system
                 result = await self._process_rag_with_full_prompt(question, retrieved_content, documents)
                 
-                # Add folder context to the result
                 result.update({
-                    'rag_type': 'folder_aware_semantic_search',
-                    'folder_context': folder_context,
-                    'query_interpretation': {
-                        'type': folder_context['query_type'],
-                        'suggested_folders': folder_context['suggested_folders'],
-                        'year_context': folder_context.get('year_context'),
-                        'enhanced_query': enhanced_query
-                    }
+                    'rag_type': 'enhanced_semantic_search',
+                    'search_method': 'intent_based_semantic'
                 })
                 
                 return result
             else:
-                # No documents found - provide general response with folder guidance
-                return await self._handle_no_documents_with_folder_guidance(question, folder_context)
+                # No documents found - provide general response
+                return await self._handle_no_documents_found(question)
                 
         except Exception as e:
             logger.error("Folder-aware RAG processing failed", error=str(e), question=question)
@@ -142,6 +104,24 @@ class RAGHandler:
                 logger.debug("Excluded document from superseded/archive folder", blob_name=blob_name)
         
         return filtered_documents
+    
+    def _format_documents_simple(self, documents: List[Dict]) -> str:
+        """Format documents for AI prompt without folder context."""
+        if not documents:
+            return "No documents found."
+        
+        formatted_content = ""
+        for i, doc in enumerate(documents[:10], 1):  # Limit to top 10 documents
+            filename = doc.get('filename', 'Unknown file')
+            content = doc.get('content', 'No content available')
+            
+            # Truncate very long content
+            if len(content) > 2000:
+                content = content[:2000] + "..."
+            
+            formatted_content += f"\n--- Document {i}: {filename} ---\n{content}\n"
+        
+        return formatted_content
     
     def _format_documents_with_folder_context(self, documents: List[Dict], folder_context: Dict[str, Any]) -> str:
         """Format documents with folder structure context."""
@@ -225,7 +205,50 @@ class RAGHandler:
                 doc.get('sourcePage') or
                 doc.get('source') or '')
     
-    async def _handle_no_documents_with_folder_guidance(self, question: str, folder_context: Dict[str, Any]) -> Dict[str, Any]:
+    async def _handle_no_documents_found(self, question: str) -> Dict[str, Any]:
+        """Handle cases where no documents are found - provide intelligent fallback."""
+        logger.info("No documents found, providing general response", question=question)
+        
+        # Use GPT knowledge fallback
+        try:
+            fallback_prompt = f"""I searched our DTCE document database but couldn't find specific documents related to: "{question}"
+
+This could mean:
+1. The information might be in documents I don't have access to
+2. It might be stored under different terms or file names
+3. It might be general knowledge that doesn't require specific documents
+
+Please provide a helpful response acknowledging that I couldn't find specific documents, and if appropriate, provide general guidance or suggest alternative search terms the user could try.
+
+Question: {question}"""
+            
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": fallback_prompt}],
+                temperature=0.3,
+                max_tokens=500
+            )
+            
+            answer = response.choices[0].message.content
+            
+            return {
+                'answer': answer,
+                'sources': [],
+                'confidence': 'low',
+                'documents_searched': 0,
+                'rag_type': 'no_documents_fallback',
+                'search_method': 'enhanced_semantic_search'
+            }
+            
+        except Exception as e:
+            logger.error("Fallback response generation failed", error=str(e))
+            return {
+                'answer': f'I couldn\'t find specific documents related to "{question}" in our database. Please try rephrasing your question or using different keywords.',
+                'sources': [],
+                'confidence': 'low', 
+                'documents_searched': 0,
+                'rag_type': 'error_fallback'
+            }
         """Handle cases where no documents are found, using GPT's general knowledge as fallback."""
         
         suggested_folders = folder_context.get('suggested_folders', [])
