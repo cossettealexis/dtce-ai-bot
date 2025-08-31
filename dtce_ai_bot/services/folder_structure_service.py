@@ -325,7 +325,7 @@ class FolderStructureService:
             return {
                 "type": "policy",
                 "folders": ["Health & Safety", "IT Policy", "Employment", "Quality", "Operations"],
-                "search_terms": ["policy", "procedure", "guideline"],
+                "search_terms": [],  # Let semantic search handle finding policies without diluting query
                 "context": "Searching in company policy and procedure documents"
             }
         
@@ -427,23 +427,28 @@ class FolderStructureService:
         query_lower = original_query.lower()
         synonym_terms = []
         
+        # Only add core synonyms for wellness/wellbeing - avoid diluting the query
         if 'wellbeing' in query_lower or 'well-being' in query_lower:
-            synonym_terms.extend(['wellness', 'mental health', 'employee assistance'])
+            synonym_terms.extend(['wellness'])  # Just the core synonym
         elif 'wellness' in query_lower:
-            synonym_terms.extend(['wellbeing', 'well-being', 'mental health'])
+            synonym_terms.extend(['wellbeing', 'well-being'])  # Just the core synonyms
         
+        # Only add H&S synonyms if specifically about health and safety
         if 'health' in query_lower and 'safety' in query_lower:
-            synonym_terms.extend(['h&s', 'workplace safety', 'occupational health'])
+            synonym_terms.extend(['h&s'])  # Keep it focused
         
-        if 'policy' in query_lower:
-            synonym_terms.extend(['procedure', 'guideline', 'rules'])
+        # DO NOT add generic policy synonyms - they dilute the search
+        # The semantic search should handle finding policy documents
         
+        # Only use folder context terms, not generic synonyms
         all_enhanced_terms = enhanced_terms + synonym_terms
         
-        if all_enhanced_terms:
+        # Be more conservative - only enhance if we have specific folder context
+        if enhanced_terms:  # Only enhance if we have specific folder guidance
             enhanced_query = original_query + " " + " ".join(set(all_enhanced_terms))
             return enhanced_query
         
+        # For most queries, don't enhance - let semantic search do its job
         return original_query
     
     def get_folder_filter_query(self, context: Dict[str, Any]) -> Optional[str]:
