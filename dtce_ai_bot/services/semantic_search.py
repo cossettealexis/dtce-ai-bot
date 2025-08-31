@@ -82,22 +82,28 @@ class SemanticSearchService:
             'query_answer': 'extractive'
         }
         
-        # Build filters based on strategy
-        filters = self._build_intent_filters(strategy, project_filter)
+        # Simple, reliable filters - just exclude superseded files and apply project filter
+        filters = [
+            "not search.ismatch('*superseded*', 'filename')",
+            "not search.ismatch('*superceded*', 'filename')",
+            "not search.ismatch('*archive*', 'filename')",
+            "not search.ismatch('*trash*', 'filename')"
+        ]
+        
+        # Add project filter if specified (simple project name)
+        if project_filter and not ('search.ismatch' in project_filter or 'and' in project_filter):
+            filters.append(f"search.ismatch('{project_filter}*', 'project_name')")
+        
         if filters:
-            final_filter = ' and '.join(filters)
-            search_params['filter'] = final_filter
-            logger.info("Final semantic search filter", filter=final_filter[:300])
+            search_params['filter'] = ' and '.join(filters)
+            logger.info("Simple semantic search filter applied", filter_count=len(filters))
         
         # Execute search
         try:
             results = self.search_client.search(**search_params)
             documents = [dict(result) for result in results]
             
-            logger.info("Semantic search executed",
-                       search_type=strategy["search_type"],
-                       documents_found=len(documents),
-                       filters_applied=len(filters))
+            logger.info("Semantic search executed", documents_found=len(documents))
             
             return documents
             
@@ -269,41 +275,33 @@ class SemanticSearchService:
     
     async def _fallback_search(self, query: str, project_filter: Optional[str] = None) -> List[Dict[str, any]]:
         """Fallback to basic keyword search if semantic search fails."""
-        logger.info("Using fallback keyword search", query=query)
+        logger.info("Using simple fallback keyword search", query=query)
+        
+        # Simple exclusion filters
+        filters = [
+            "not search.ismatch('*superseded*', 'filename')",
+            "not search.ismatch('*superceded*', 'filename')", 
+            "not search.ismatch('*archive*', 'filename')"
+        ]
+        
+        # Add simple project filter if provided
+        if project_filter and not ('search.ismatch' in project_filter or 'and' in project_filter):
+            filters.append(f"search.ismatch('{project_filter}*', 'project_name')")
         
         search_params = {
             'search_text': query,
-            'top': 15,
-            'select': ["id", "filename", "content", "blob_url", "project_name", "folder"]
+            'top': 10,
+            'search_mode': 'any'
         }
         
-        # Basic exclusion filter
-        filters = ["(not search.ismatch('*superseded*', 'filename'))"]
-        if project_filter:
-            logger.info("Processing fallback project_filter", project_filter=project_filter[:200])
-            # Check if project_filter is already a complete filter expression or just a project name
-            if ('search.ismatch' in project_filter or 
-                'and' in project_filter or 
-                'or' in project_filter or 
-                'not ' in project_filter.lower() or
-                project_filter.startswith('(')):
-                # It's already a complete filter expression (from folder structure service)
-                logger.info("Using complete filter expression in fallback")
-                filters.append(project_filter)
-            else:
-                # It's a simple project name, wrap it in search.ismatch
-                logger.info("Wrapping simple project name in fallback")
-                filters.append(f"search.ismatch('{project_filter}*', 'project_name')")
-        
         if filters:
-            final_filter = ' and '.join(filters)
-            search_params['filter'] = final_filter
-            logger.info("Final fallback search filter", filter=final_filter[:300])
+            search_params['filter'] = ' and '.join(filters)
         
         try:
             results = self.search_client.search(**search_params)
             documents = [dict(result) for result in results]
+            logger.info("Fallback search completed", documents_found=len(documents))
             return self._filter_quality_documents(documents)
         except Exception as e:
-            logger.error("Fallback search also failed", error=str(e))
+            logger.error("Fallback search failed", error=str(e))
             return []

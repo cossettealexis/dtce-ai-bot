@@ -34,38 +34,20 @@ class RAGHandler:
         4. Generate answer with proper context understanding
         """
         try:
-            logger.info("Processing question with intent recognition", question=question)
+            logger.info("Processing question with simple semantic search", question=question)
             
-            # STEP 1: Analyze query for folder context and strict filtering
-            folder_context = self.folder_structure.interpret_user_query(question)
-            folder_filter = self.folder_structure.get_folder_filter_query(folder_context)
+            # Use simple semantic search without complex folder filtering
+            documents = await self.semantic_search.search_documents(question, project_filter)
             
-            # Combine project filter and folder filter
-            combined_filter = None
-            if project_filter and folder_filter:
-                combined_filter = f"({project_filter}) and ({folder_filter})"
-            elif project_filter:
-                combined_filter = project_filter
-            elif folder_filter:
-                combined_filter = folder_filter
-            
-            logger.info("Applying strict folder filtering", 
-                       query_type=folder_context.get("query_type", "general"),
-                       has_folder_filter=bool(folder_filter),
-                       has_project_filter=bool(project_filter))
-            
-            # STEP 2: Use enhanced semantic search with strict folder filtering
-            documents = await self.semantic_search.search_documents(question, combined_filter)
-            
-            logger.info("Enhanced semantic search results", 
+            logger.info("Simple semantic search results", 
                        total_documents=len(documents),
-                       query_type=folder_context.get("query_type", "general"),
                        sample_filenames=[doc.get('filename', 'Unknown') for doc in documents[:3]])
             
             # STEP 3: Generate response with retrieved documents
             if documents:
                 # Format documents WITH folder context to include SuiteFiles links
-                retrieved_content = self._format_documents_with_folder_context(documents, folder_context)
+                simple_context = {"query_type": "general"}
+                retrieved_content = self._format_documents_with_folder_context(documents, simple_context)
                 
                 # Use the complete intelligent prompt system
                 result = await self._process_rag_with_full_prompt(question, retrieved_content, documents)
