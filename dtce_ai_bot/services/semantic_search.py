@@ -50,7 +50,7 @@ class SemanticSearchService:
             documents = await self._execute_semantic_search(query, search_strategy, project_filter)
             
             # Step 3: Apply intent-based reranking if needed
-            if search_strategy["use_reranking"] and documents:
+            if search_strategy.get("use_strict_filtering") and documents:
                 documents = self._rerank_by_intent(documents, query, intent_result)
             
             # Step 4: Filter out phantom/superseded documents
@@ -131,10 +131,8 @@ class SemanticSearchService:
         # Don't filter by document types - semantic search works across all formats
         # Let the content and folder-based filtering do the work
         
-        # Add folder filters based on intent (only for high-confidence targeted searches)
-        if (strategy.get("folder_filters") and 
-            strategy["search_type"] == "targeted_semantic" and 
-            strategy.get("use_strict_filtering")):
+        # Add folder filters based on intent (light filtering only)
+        if strategy.get("folder_filters") and strategy.get("use_strict_filtering"):
             folder_names = strategy["folder_filters"]
             folder_filter = ' or '.join([f"search.ismatch('*{folder}*', 'folder')" for folder in folder_names])
             filters.append(f"({folder_filter})")

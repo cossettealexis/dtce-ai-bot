@@ -94,11 +94,17 @@ class RAGHandler:
                     documents.append(doc)
                     seen_ids.add(doc.get('id'))
         
-        # Filter out documents from excluded folders
+        # Filter out documents from excluded folders (simple direct filtering)
         filtered_documents = []
+        excluded_terms = ['superseded', 'superceded', 'archive', 'obsolete', 'old', 'backup', 'temp', 'draft', 'trash']
+        
         for doc in documents:
             blob_name = doc.get('blob_name', '') or doc.get('filename', '')
-            if not self.folder_service.should_exclude_folder(blob_name):
+            
+            # Check if document should be excluded
+            should_exclude = any(term in blob_name.lower() for term in excluded_terms)
+            
+            if not should_exclude:
                 filtered_documents.append(doc)
             else:
                 logger.debug("Excluded document from superseded/archive folder", blob_name=blob_name)
@@ -176,10 +182,15 @@ class RAGHandler:
         
         # Only extract project info if this is actually in a Projects folder
         if 'Projects' in parts or 'projects' in parts:
-            # Try to extract year from folder code
+            # Try to extract year from folder code (simple mapping)
+            year_mappings = {
+                "225": "2025", "224": "2024", "223": "2023", "222": "2022", 
+                "221": "2021", "220": "2020", "219": "2019"
+            }
+            
             for part in parts:
-                if hasattr(self.folder_service, 'year_mappings') and part in self.folder_service.year_mappings:
-                    year = self.folder_service.year_mappings[part]
+                if part in year_mappings:
+                    year = year_mappings[part]
                     break
             
             # Try to extract project number
@@ -975,7 +986,10 @@ Please try rephrasing your question or contact support if the issue persists."""
         for doc in documents[:10]:  # Check more documents but limit final sources
             # Filter out superseded/archive documents at source formatting level too
             blob_name = doc.get('blob_name', '') or doc.get('filename', '')
-            if self.folder_service.should_exclude_folder(blob_name):
+            excluded_terms = ['superseded', 'superceded', 'archive', 'obsolete', 'old', 'backup', 'temp', 'draft', 'trash']
+            should_exclude = any(term in blob_name.lower() for term in excluded_terms)
+            
+            if should_exclude:
                 logger.debug("Excluded superseded document during source formatting", 
                            filename=doc.get('filename'), blob_name=blob_name)
                 continue
