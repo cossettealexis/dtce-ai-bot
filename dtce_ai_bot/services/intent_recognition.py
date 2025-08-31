@@ -30,9 +30,9 @@ class IntentRecognitionService:
     """
     
     def __init__(self):
-        """Initialize intent patterns and classifications."""
+        """Initialize the intent recognition service with DTCE-specific patterns."""
+        self.confidence_threshold = 0.1  # Minimum confidence for classification
         self.intent_patterns = self._initialize_intent_patterns()
-        self.confidence_threshold = 0.7
         
     def _initialize_intent_patterns(self) -> Dict[QueryIntent, Dict[str, any]]:
         """Define patterns and keywords for each DTCE-specific intent type."""
