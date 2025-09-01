@@ -78,7 +78,7 @@ class DTCETeamsBot(ActivityHandler):
         
         for line in lines:
             # Check if this line starts a new major section
-            if line.strip().startswith(('🔗', '📝', '⚠️', '📋')) and current_chunk and current_length > 500:
+            if line.strip().startswith(('Link:', 'Source:', 'Warning:', 'Summary:')) and current_chunk and current_length > 500:
                 # Start new chunk for this section
                 chunks.append('\n'.join(current_chunk))
                 current_chunk = [line]
@@ -151,8 +151,19 @@ class DTCETeamsBot(ActivityHandler):
         message_lower = user_message.lower().strip()
         
         # Handle basic greetings and help commands (required for validation)
-        if message_lower in ['hi', 'hello', 'hey', 'hi there', 'hello there']:
+        if message_lower in ['hi', 'hello', 'hey', 'hi there', 'hello there', 'good morning', 'good afternoon']:
             await self._send_welcome_message(turn_context)
+            return
+        
+        # Handle casual conversation words that aren't real questions
+        casual_words = [
+            'really', 'ok', 'okay', 'cool', 'nice', 'thanks', 'thank you', 'bye', 'goodbye',
+            'yes', 'no', 'yeah', 'yep', 'nope', 'sure', 'alright', 'right', 'indeed',
+            'wow', 'oh', 'hmm', 'hm', 'uh', 'um', 'well', 'so', 'lol', 'haha'
+        ]
+        
+        if message_lower in casual_words:
+            await self._send_casual_response(turn_context, message_lower)
             return
         
         if message_lower in ['help', '/help', 'start', '/start']:
@@ -205,11 +216,91 @@ class DTCETeamsBot(ActivityHandler):
                 await turn_context.send_activity("Please provide a question. Example: `/ask What are the seismic requirements?`")
             return
         
-        # Default: treat as a question
-        if len(user_message) > 5:  # Minimum question length
+        # Default: treat as a question, but with better filtering
+        if self._is_likely_question(user_message):
             await self._handle_question(turn_context, user_message)
         else:
-            await self._send_welcome_message(turn_context)
+            await self._send_conversational_response(turn_context, user_message)
+    
+    def _is_likely_question(self, message: str) -> bool:
+        """Determine if a message is likely a real question/search query."""
+        message_lower = message.lower().strip()
+        
+        # Too short to be a meaningful question
+        if len(message) < 8:
+            return False
+        
+        # Contains question words
+        question_indicators = [
+            'what', 'how', 'where', 'when', 'why', 'who', 'which', 'can', 'could', 
+            'would', 'should', 'do', 'does', 'did', 'is', 'are', 'was', 'were',
+            'find', 'show', 'search', 'look', 'tell', 'explain', 'help me',
+            'need', 'want', 'looking for', 'project', 'report', 'document',
+            'drawing', 'calculation', 'standard', 'policy', 'procedure'
+        ]
+        
+        # Check if message contains question indicators
+        for indicator in question_indicators:
+            if indicator in message_lower:
+                return True
+        
+        # Contains question mark
+        if '?' in message:
+            return True
+        
+        # Contains engineering/technical terms
+        technical_terms = [
+            'structural', 'design', 'building', 'construction', 'engineering',
+            'concrete', 'steel', 'timber', 'foundation', 'seismic', 'load',
+            'beam', 'column', 'slab', 'wall', 'bridge', 'nzs', 'code',
+            'compliance', 'certification', 'ps1', 'ps2', 'ps3', 'ps4'
+        ]
+        
+        for term in technical_terms:
+            if term in message_lower:
+                return True
+        
+        # Multiple words (likely a sentence)
+        if len(message.split()) >= 3:
+            return True
+        
+        return False
+    
+    async def _send_casual_response(self, turn_context: TurnContext, message: str):
+        """Send appropriate response to casual conversation."""
+        
+        casual_responses = {
+            'really': "That's interesting! Is there something specific you'd like to know about our engineering documents or projects?",
+            'ok': "Anything else I can help you find?",
+            'okay': "Anything else I can help you find?",
+            'cool': "Great! What would you like to search for?",
+            'nice': "Thanks! How can I assist you today?",
+            'thanks': "You're welcome! Let me know if you need anything else.",
+            'thank you': "You're welcome! Let me know if you need anything else.",
+            'yes': "Perfect! What can I help you find?",
+            'no': "No problem! I'm here if you need anything.",
+            'yeah': "Great! What are you looking for?",
+            'wow': "Impressive! Need help finding something specific?",
+            'oh': "Is there something you'd like to search for?",
+            'hmm': "Let me know what you're thinking about - I might be able to help!",
+            'right': "Exactly! What can I help you with?",
+            'indeed': "Absolutely! How can I assist you?"
+        }
+        
+        response = casual_responses.get(message, "I'm here to help! What would you like to find?")
+        await turn_context.send_activity(MessageFactory.text(response))
+    
+    async def _send_conversational_response(self, turn_context: TurnContext, message: str):
+        """Handle unclear messages that don't seem like real questions."""
+        
+        response = f"I'm not sure how to help with '{message}'. I'm designed to help you find engineering documents and project information.\n\n"
+        response += "Try asking me something like:\n"
+        response += "• 'Find structural calculations for the bridge project'\n"
+        response += "• 'Show me NZS standards for concrete design'\n"
+        response += "• 'What reports do we have for Auckland projects?'\n\n"
+        response += "What can I help you find today?"
+        
+        await turn_context.send_activity(MessageFactory.text(response))
 
     async def _handle_attachments_only(self, turn_context: TurnContext):
         """Handle when user sends only attachments without text."""
@@ -220,20 +311,20 @@ class DTCETeamsBot(ActivityHandler):
         attachment_info = await self._process_attachment_info(turn_context.activity.attachments)
         
         if attachment_info['supported_files']:
-            response = "📁 **Files received:**\n\n" + "\n".join(attachment_info['supported_files'])
-            response += "\n\n🤖 **What would you like me to do with these files?**"
+            response = "**Files received:**\n\n" + "\n".join(attachment_info['supported_files'])
+            response += "\n\n**What would you like me to do with these files?**"
             response += "\n\n**Examples:**"
             response += "\n• *'Analyze this RFP and find similar past projects'*"
             response += "\n• *'Review these drawings for structural issues'*"
             response += "\n• *'Extract key requirements from these documents'*"
             response += "\n• *'Compare this proposal with our past work'*"
-            response += "\n\nJust tell me what you need! 💬"
+            response += "\n\nJust tell me what you need!"
             
             message = MessageFactory.text(response)
             message.text_format = "markdown"
             await turn_context.send_activity(message)
         else:
-            error_message = MessageFactory.text("❌ No supported file types found. Please upload PDF, Word, Excel, PowerPoint, CAD, or image files.")
+            error_message = MessageFactory.text("No supported file types found. Please upload PDF, Word, Excel, PowerPoint, CAD, or image files.")
             error_message.text_format = "markdown"
             await turn_context.send_activity(error_message)
 
@@ -246,7 +337,7 @@ class DTCETeamsBot(ActivityHandler):
         attachment_info = await self._process_attachment_info(turn_context.activity.attachments)
         
         if not attachment_info['supported_files']:
-            await turn_context.send_activity("❌ No supported file types found. Please upload PDF, Word, Excel, PowerPoint, CAD, or image files.")
+            await turn_context.send_activity("No supported file types found. Please upload PDF, Word, Excel, PowerPoint, CAD, or image files.")
             return
         
         # Intelligent analysis: Combine user question with file context
@@ -259,7 +350,7 @@ Please analyze the uploaded documents in context of the user's question. If the 
         
         # Send acknowledgment
         file_list = "\n".join(attachment_info['supported_files'])
-        ack_response = f"📁 **Analyzing files:**\n{file_list}\n\n💭 **Your question:** {user_message}\n\n🔍 Processing..."
+        ack_response = f"**Analyzing files:**\n{file_list}\n\n**Your question:** {user_message}\n\nProcessing..."
         ack_message = MessageFactory.text(ack_response)
         ack_message.text_format = "markdown"
         await turn_context.send_activity(ack_message)
@@ -311,7 +402,7 @@ Please analyze the uploaded documents in context of the user's question. If the 
                 file_type = ext_mapping.get(ext, 'Unknown')
             
             if file_type != 'Unknown':
-                supported_files.append(f"📄 **{file_name}** ({file_type})")
+                supported_files.append(f"**{file_name}** ({file_type})")
         
         return {
             'supported_files': supported_files,
@@ -321,7 +412,7 @@ Please analyze the uploaded documents in context of the user's question. If the 
     async def _send_welcome_message(self, turn_context: TurnContext):
         """Send welcome message with available commands."""
         
-        welcome_text = "🤖 **Welcome to DTCE AI Assistant!**\n\nI can help you find information from engineering documents, analyze project requests, and provide design guidance based on our past experience.\n\n**Available Commands:**\n• `help` or `Hello` - Show this help message\n• `search [query]` - Search documents (e.g., `search bridge calculations`)\n• `ask [question]` - Ask questions about documents (e.g., `ask What are the seismic requirements?`)\n• `analyze [project request]` - Analyze project scoping requests\n• `projects` - List available projects\n• `health` - Check system status\n\n**📎 File Upload Support:**\n• **PDF** - Reports, RFPs, specifications, scoping documents\n• **Word/Excel/PowerPoint** - Documents, spreadsheets, presentations\n• **CAD Files** - .dwg, .dxf drawings\n• **Images** - .png, .jpg engineering drawings\n• **Text/Email** - .txt, .md, .msg files\n\n**🎯 Project Scoping & Analysis:**\nI can analyze client requests and RFPs to:\n• Find similar past projects for reference\n• Identify potential issues and solutions\n• Generate design philosophy recommendations\n• Provide compliance guidance (PS1, building consent)\n• Warn about risks based on past experience\n\n**Quick Examples:**\n• \"What projects do we have?\"\n• \"Show me structural calculations for project 222\"\n• \"What were the conclusions in the final report?\"\n• \"Please review this request for our services from our client...\"\n• Upload an RFP → \"Please analyze this RFP and find similar past projects\"\n• Upload drawings → \"Review these structural drawings\"\n• \"Hi\" - Get this welcome message\n\nJust type your question, paste a client request, or upload documents and I'll search through your engineering files to help! 🔍"
+        welcome_text = "**Welcome to DTCE AI Assistant!**\n\nI can help you find information from engineering documents, analyze project requests, and provide design guidance based on our past experience.\n\n**Available Commands:**\n• `help` or `Hello` - Show this help message\n• `search [query]` - Search documents (e.g., `search bridge calculations`)\n• `ask [question]` - Ask questions about documents (e.g., `ask What are the seismic requirements?`)\n• `analyze [project request]` - Analyze project scoping requests\n• `projects` - List available projects\n• `health` - Check system status\n\n**File Upload Support:**\n• **PDF** - Reports, RFPs, specifications, scoping documents\n• **Word/Excel/PowerPoint** - Documents, spreadsheets, presentations\n• **CAD Files** - .dwg, .dxf drawings\n• **Images** - .png, .jpg engineering drawings\n• **Text/Email** - .txt, .md, .msg files\n\n**Project Scoping & Analysis:**\nI can analyze client requests and RFPs to:\n• Find similar past projects for reference\n• Identify potential issues and solutions\n• Generate design philosophy recommendations\n• Provide compliance guidance (PS1, building consent)\n• Warn about risks based on past experience\n\n**Quick Examples:**\n• \"What projects do we have?\"\n• \"Show me structural calculations for project 222\"\n• \"What were the conclusions in the final report?\"\n• \"Please review this request for our services from our client...\"\n• Upload an RFP → \"Please analyze this RFP and find similar past projects\"\n• Upload drawings → \"Review these structural drawings\"\n• \"Hi\" - Get this welcome message\n\nJust type your question, paste a client request, or upload documents and I'll search through your engineering files to help!"
         
         await self._send_teams_message(turn_context, welcome_text)
 
@@ -331,12 +422,12 @@ Please analyze the uploaded documents in context of the user's question. If the 
         try:
             # Check if QA service is available
             if self.qa_service:
-                status_text = "✅ **System Status: HEALTHY**\n\n"
+                status_text = "**System Status: HEALTHY**\n\n"
                 status_text += "• Document search: Available\n"
                 status_text += "• AI Q&A service: Available\n"
                 status_text += "• Teams integration: Active\n"
             else:
-                status_text = "⚠️ **System Status: DEGRADED**\n\n"
+                status_text = "**System Status: DEGRADED**\n\n"
                 status_text += "• Document search: Unavailable\n"
                 status_text += "• AI Q&A service: Unavailable\n"
                 status_text += "• Teams integration: Active\n"
@@ -346,14 +437,14 @@ Please analyze the uploaded documents in context of the user's question. If the 
             
         except Exception as e:
             logger.error("Health check failed", error=str(e))
-            await turn_context.send_activity("❌ **System Status: ERROR** - Unable to check system health")
+            await turn_context.send_activity("**System Status: ERROR** - Unable to check system health")
 
     async def _send_projects_list(self, turn_context: TurnContext):
         """Send list of available projects."""
         
         try:
             if not self.qa_service:
-                await turn_context.send_activity("❌ Document service unavailable")
+                await turn_context.send_activity("Document service unavailable")
                 return
                 
             # Get document summary to show available projects

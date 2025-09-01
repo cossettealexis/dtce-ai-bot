@@ -331,46 +331,6 @@ Question: {question}"""
                 'documents_searched': 0,
                 'rag_type': 'error_fallback'
             }
-        """Handle cases where no documents are found, using GPT's general knowledge as fallback."""
-        
-        suggested_folders = folder_context.get('suggested_folders', [])
-        year_context = folder_context.get('year_context')
-        
-        # Build simple context about what was searched
-        search_context = []
-        if year_context:
-            years = year_context.get('years', [])
-            search_context.append(f"searched in {', '.join(years)} project folders")
-        if suggested_folders:
-            search_context.append(f"looked in {', '.join(suggested_folders)} folders")
-        
-        search_info = " and ".join(search_context) if search_context else "searched SuiteFiles"
-        
-        # Simple, intelligent GPT fallback
-        fallback_prompt = f"""The user asked: "{question}"
-
-I {search_info} but didn't find specific documents in DTCE's SuiteFiles system.
-
-Please provide a comprehensive, helpful answer using your general knowledge. Consider:
-- If this is about DTCE policies/procedures: acknowledge no specific documents found, provide general guidance
-- If this is technical/engineering: provide relevant NZ standards, best practices, and professional advice
-- If this is about projects/clients: provide general project management or industry insights
-- If this is about processes/templates: suggest typical approaches and what to include
-
-Be thorough, professional, and acknowledge when this is general vs. company-specific guidance.
-Focus on New Zealand conditions and structural engineering practices where relevant."""
-        
-        answer = await self._generate_fallback_response(fallback_prompt)
-        
-        return {
-            'answer': answer,
-            'sources': [],
-            'confidence': 'medium',
-            'documents_searched': 0,
-            'rag_type': 'gpt_knowledge_fallback',
-            'search_attempted': search_info,
-            'fallback_reason': 'No documents found in SuiteFiles, using GPT general knowledge'
-        }
 
     async def _generate_fallback_response(self, prompt: str) -> str:
         """Generate comprehensive fallback response using GPT's general knowledge."""
@@ -525,21 +485,16 @@ Answer the user's question now using the actual document content above:"""
                     
                 sources.append(source_entry)
             
-            return {
-                'answer': answer,
-                'sources': sources,
-                'confidence': 'high' if len(documents) > 0 else 'low',
-                'documents_searched': len(documents)
-            }
+            # This was the simple prompt system - but we want to use the advanced one below
+            # return {
+            #     'answer': answer,
+            #     'sources': sources,
+            #     'confidence': 'high' if len(documents) > 0 else 'low',
+            #     'documents_searched': len(documents)
+            # }
             
-        except Exception as e:
-            logger.error("RAG processing failed", error=str(e))
-            return {
-                'answer': f'I encountered an error while processing your question: {str(e)}',
-                'sources': [],
-                'confidence': 'error',
-                'documents_searched': 0
-            }
+            # Build the advanced prompt with formatting instructions
+            prompt = "You are an expert assistant helping with DTCE engineering document queries.\n\n"
             prompt += "- Example: 'DTCE has worked with [Client] on the following projects: [list with details]'\n\n"
             
             prompt += "SMART FOLDER UNDERSTANDING - Let the semantic search find everything, then be intelligent:\n\n"
@@ -566,13 +521,14 @@ Answer the user's question now using the actual document content above:"""
             prompt += "2. Analyze the retrieved content I'm providing below from SuiteFiles\n"
             prompt += "3. **EVALUATE RELEVANCE**: Determine if the primary search results actually help answer the user's question\n"
             prompt += "4. **IF PRIMARY RESULTS ARE GOOD**: Use them to provide a comprehensive answer\n"
-            prompt += "5. **Use intelligent judgment**: Include 'Alternative that might be helpful' and 'General Engineering Guidance' sections only when they add genuine value to the user's question\n"
-            prompt += "6. **IF PRIMARY RESULTS DON'T MAKE SENSE**: Provide intelligent alternatives:\n"
+            prompt += "5. **CRITICAL FORMATTING RULE**: Format your response with proper paragraph breaks and readable structure. DO NOT dump everything in one long run-on sentence or paragraph!\n"
+            prompt += "6. **Use intelligent judgment**: Include 'Alternative that might be helpful' and 'General Engineering Guidance' sections only when they add genuine value to the user's question\n"
+            prompt += "7. **IF PRIMARY RESULTS DON'T MAKE SENSE**: Provide intelligent alternatives:\n"
             prompt += "   - Look through ALL the retrieved content for any documents that might be relevant (even from 'ignored' folders)\n"
             prompt += "   - Label these clearly as 'Alternative from SuiteFiles:'\n"
             prompt += "   - Also provide 'General Engineering Guidance:' using your knowledge\n"
             prompt += "   - Explain why the primary search wasn't perfect\n"
-            prompt += "6. For COMPLEX ANALYSIS QUESTIONS (scenarios, lessons learned, cost insights, comparisons):\n"
+            prompt += "8. For COMPLEX ANALYSIS QUESTIONS (scenarios, lessons learned, cost insights, comparisons):\n"
             prompt += "   - Search across multiple projects to find patterns and examples\n"
             prompt += "   - Aggregate information from similar projects or situations\n"
             prompt += "   - Summarize trends, common issues, and solutions\n"
@@ -605,12 +561,20 @@ Answer the user's question now using the actual document content above:"""
             prompt += "Retrieved content from SuiteFiles:\n" + retrieved_content + "\n\n"
             
             prompt += "==== MANDATORY RESPONSE FORMAT ====\n"
+            prompt += "CRITICAL: Format your response with proper paragraph breaks and readable structure. DO NOT dump everything in one long paragraph!\n\n"
+            prompt += "Use this format:\n"
+            prompt += "1. Start with a clear introductory sentence\n"
+            prompt += "2. Break information into separate paragraphs for readability\n"
+            prompt += "3. Use bullet points or numbered lists when listing multiple items\n"
+            prompt += "4. Add line breaks between different concepts or sections\n\n"
             prompt += "SPECIAL RULE FOR PROJECT QUERIES: When users ask for 'past projects', 'project examples', or 'projects about X':\n"
             prompt += "- ALWAYS extract and mention the PROJECT NUMBER/JOB NUMBER from document names or content\n"
             prompt += "- Format as: 'Project 224001', 'Job 22345', 'Project Number 23042', etc.\n"
             prompt += "- Users need specific project references they can look up, not generic technical documents\n\n"
+            prompt += "RESPONSE STRUCTURE:\n"
             prompt += "1. Start with your answer (NO document references first)\n"
-            prompt += "2. ALWAYS provide comprehensive sources section with this EXACT format:\n\n"
+            prompt += "2. Break content into readable paragraphs with proper spacing\n"
+            prompt += "3. ALWAYS provide comprehensive sources section with this EXACT format:\n\n"
             prompt += "**Primary Sources:** (If documents contain relevant information)\n"
             prompt += "- **[Document Name] (Project XXXXX)**: [QUOTE specific procedures, requirements, dates, numbers, or key content from this document. For example: 'Contains the lockout/tagout procedure requiring 3-step verification' or 'Specifies infection control measures implemented April 1, 2021 including mandatory temperature checks' or 'Lists the required PPE for electrical work: safety glasses, hard hat, and insulated gloves']\n"
             prompt += "  SuiteFiles Link: [[Document Filename]](EXACT_URL_FROM_LINK_FIELD)\n"
@@ -627,6 +591,15 @@ Answer the user's question now using the actual document content above:"""
             prompt += "BAD: 'Contains safety information'\n"
             prompt += "GOOD: 'Section 4.1 outlines the electrical safety lockout/tagout procedure requiring three-point verification and supervisor sign-off before re-energizing circuits'\n\n"
             prompt += "NEVER use generic phrases like 'commitment to', 'outlines', 'details', 'highlights' - instead describe the ACTUAL CONTENT!\n\n"
+            prompt += "FORMATTING EXAMPLES - GOOD vs BAD:\n"
+            prompt += "BAD FORMATTING (one long paragraph):\n"
+            prompt += "The wellness policy at Don Thomson Consulting Engineers (DTCE) is detailed in the \"Health and Safety Policy\" document. Here is the specific content related to the wellness policy: \"DTCE Ltd. takes its Health and Safety responsibilities very seriously and is continuing its efforts to eliminate, isolate, and minimise risk. Safety in Design has become a priority for DTCE, and we continue to liaise with clients and designers throughout the entire design process to consider all relevant risk associated with projects we undertake.\" Additionally, the document states: \"DTCE is committed to the protection of its employees, its property and other people from accidental injury or damage from work conditions.\"\n\n"
+            prompt += "GOOD FORMATTING (proper paragraph breaks):\n"
+            prompt += "The wellness policy at Don Thomson Consulting Engineers (DTCE) is detailed in the \"Health and Safety Policy\" document.\n\n"
+            prompt += "Key aspects of DTCE's wellness policy include:\n\n"
+            prompt += "- **Risk Management**: DTCE takes its Health and Safety responsibilities very seriously and is continuing its efforts to eliminate, isolate, and minimise risk.\n\n"
+            prompt += "- **Safety in Design**: This has become a priority for DTCE, with ongoing liaison with clients and designers throughout the entire design process to consider all relevant risk associated with projects.\n\n"
+            prompt += "- **Employee Protection**: DTCE is committed to the protection of its employees, its property and other people from accidental injury or damage from work conditions.\n\n"
             prompt += "CRITICAL: ONLY use the EXACT SuiteFiles links provided in the retrieved content above. DO NOT construct your own links or modify the provided URLs. If a document is mentioned in the retrieved content, use its exact link. If no link is provided for a document in the retrieved content, do not include it in your sources.\n\n"
             prompt += "CRITICAL RULES FOR COMPREHENSIVE RESPONSES:\n"
             prompt += "1. NEVER write '[Link not provided in the retrieved content]' - this is FORBIDDEN\n"
