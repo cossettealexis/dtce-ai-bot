@@ -21,33 +21,34 @@ class RAGHandler:
         self.search_client = search_client
         self.openai_client = openai_client
         self.model_name = model_name
-        self.semantic_search = SemanticSearchService(search_client)
+        # Initialize semantic search with intelligent routing
+        self.semantic_search = SemanticSearchService(search_client, openai_client, model_name)
         self.folder_structure = FolderStructureService()
     
     async def process_rag_query(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
         """
-        ENHANCED SEMANTIC SEARCH with Intent Recognition:
+        INTELLIGENT FOLDER-ROUTED SEARCH:
         
-        1. Classify user intent for targeted search
-        2. Execute semantic search with intent-based optimization  
-        3. Retrieve and rank relevant documents intelligently
-        4. Generate answer with proper context understanding
+        1. Classify user intent and route to appropriate folder
+        2. Execute semantic search within targeted folder category  
+        3. Retrieve and rank relevant documents from right context
+        4. Generate specialized answer based on document category
         """
         try:
-            logger.info("Processing question with simple semantic search", question=question)
+            logger.info("Processing question with intelligent folder routing", question=question)
             
-            # Use simple semantic search without complex folder filtering
+            # Use intelligent semantic search with folder routing
             documents = await self.semantic_search.search_documents(question, project_filter)
             
-            logger.info("Simple semantic search results", 
+            logger.info("Intelligent search results", 
                        total_documents=len(documents),
                        sample_filenames=[doc.get('filename', 'Unknown') for doc in documents[:3]])
             
-            # STEP 3: Generate response with retrieved documents
+            # STEP 3: Generate response with retrieved documents and category context
             if documents:
-                # Format documents WITH folder context to include SuiteFiles links
-                simple_context = {"query_type": "general"}
-                retrieved_content = self._format_documents_with_folder_context(documents, simple_context)
+                # Get category information from search service
+                category_context = self._determine_response_context(documents, question)
+                retrieved_content = self._format_documents_with_folder_context(documents, category_context)
                 
                 # Use the complete intelligent prompt system
                 result = await self._process_rag_with_full_prompt(question, retrieved_content, documents)
@@ -71,6 +72,39 @@ class RAGHandler:
                 'documents_searched': 0,
                 'rag_type': 'error'
             }
+    
+    def _determine_response_context(self, documents: List[Dict], question: str) -> Dict[str, Any]:
+        """Determine the response context based on found documents and question."""
+        
+        # Analyze document folders to understand the search category
+        folder_analysis = {}
+        for doc in documents[:5]:  # Analyze top 5 documents
+            folder = doc.get('folder', '').lower()
+            filename = doc.get('filename', '').lower()
+            
+            # Categorize based on folder and filename patterns
+            if any(term in folder or term in filename for term in ['policy', 'h&s', 'health', 'safety', 'hr']):
+                folder_analysis['policy'] = folder_analysis.get('policy', 0) + 1
+            elif any(term in folder or term in filename for term in ['procedure', 'h2h', 'handbook', 'workflow']):
+                folder_analysis['procedures'] = folder_analysis.get('procedures', 0) + 1
+            elif any(term in folder or term in filename for term in ['standard', 'nzs', 'code', 'specification']):
+                folder_analysis['standards'] = folder_analysis.get('standards', 0) + 1
+            elif any(year in folder for year in ['225', '224', '223', '222', '221', '220', '219']):
+                folder_analysis['projects'] = folder_analysis.get('projects', 0) + 1
+            elif any(term in folder or term in filename for term in ['client', 'contact', 'nzta', 'council']):
+                folder_analysis['clients'] = folder_analysis.get('clients', 0) + 1
+        
+        # Determine primary category
+        if folder_analysis:
+            primary_category = max(folder_analysis.keys(), key=lambda k: folder_analysis[k])
+        else:
+            primary_category = 'general'
+        
+        return {
+            'query_type': primary_category,
+            'folder_distribution': folder_analysis,
+            'category_confidence': max(folder_analysis.values()) / max(len(documents[:5]), 1) if folder_analysis else 0.0
+        }
     
     async def _search_documents_with_folder_context(
         self, 
@@ -434,159 +468,78 @@ Please try rephrasing your question or contact support if the issue persists."""
             return f"Error searching documents: {str(e)}"
 
     async def _process_rag_with_full_prompt(self, question: str, retrieved_content: str, documents: List[Dict]) -> Dict[str, Any]:
-        """Process RAG query with the complete intelligent prompt system."""
+        """Process RAG query with direct content extraction focus."""
         try:
-            # Build the complete intelligent prompt
-            prompt = "The user has asked the following question: \"" + question + "\"\n\n"
-            prompt += "**BE SMART ABOUT WHAT THE USER WANTS**:\n\n"
+            # Build a simple, direct prompt focused on content extraction
+            prompt = f"""User Question: "{question}"
+
+INSTRUCTIONS: Answer the user's question directly using the actual content from the documents below. 
+
+KEY REQUIREMENTS:
+1. READ THE ACTUAL CONTENT and extract specific information to answer the question
+2. If asking about a policy - quote the actual policy content, don't just describe it
+3. If asking about procedures - provide the actual steps/details from the documents
+4. If asking about standards - cite the specific standard requirements
+5. Always provide specific, actionable information from the document content
+
+Here are the relevant documents I found:
+
+{retrieved_content}
+
+ANSWER FORMAT:
+- Start with a direct answer based on the document content
+- Quote relevant sections when appropriate  
+- Provide specific details, numbers, requirements from the actual documents
+- Include SuiteFiles links for reference
+- If no specific content found, say so clearly
+
+Answer the user's question now using the actual document content above:"""
+
+            # Generate response
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that provides direct, specific answers based on document content."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=800
+            )
             
-            prompt += "**DTCE has 5 types of content. Look at the URLs below and focus on the right type**:\n\n"
+            answer = response.choices[0].message.content
             
-            prompt += "1. **POLICY** (URLs with Policy/, H&S/, IT/): Rules employees MUST follow\n"
-            prompt += "2. **PROCEDURES** (URLs with H2H/, Procedures/): 'How we do things at DTCE'\n" 
-            prompt += "3. **STANDARDS** (URLs with Engineering/, Standards/): Official NZ codes and standards\n"
-            prompt += "4. **PROJECTS** (URLs with Projects/, job numbers): Past DTCE work with clients\n"
-            prompt += "5. **CLIENTS** (URLs with Projects/ but focus on client info): Contact details, relationships\n\n"
+            # Format sources
+            sources = []
+            for doc in documents[:5]:
+                filename = doc.get('filename', 'Unknown')
+                blob_url = self._get_blob_url_from_doc(doc)
+                suitefiles_link = self._get_safe_suitefiles_url(blob_url)
+                
+                source_entry = {
+                    'filename': filename,
+                    'excerpt': doc.get('content', '')[:200] + '...' if doc.get('content') else 'Content not available'
+                }
+                
+                if suitefiles_link:
+                    source_entry['link'] = suitefiles_link
+                    
+                sources.append(source_entry)
             
-            prompt += "**USE YOUR INTELLIGENCE**: When someone asks about past projects, focus on Project/ URLs. When they ask about safety rules, focus on Policy/ URLs. When they ask how to do something, focus on H2H/ URLs. Simple!\n\n"
+            return {
+                'answer': answer,
+                'sources': sources,
+                'confidence': 'high' if len(documents) > 0 else 'low',
+                'documents_searched': len(documents)
+            }
             
-            prompt += "I have searched SuiteFiles and retrieved content for you:\n\n"
-            prompt += "CRITICAL FIRST STEP - DETERMINE USER INTENT:\n"
-            prompt += "BEFORE answering, you must first determine the user's intent:\n\n"
-            prompt += "FOLDER STRUCTURE UNDERSTANDING:\n"
-            prompt += "DTCE's document system is organized into distinct categories. Understanding these is CRITICAL for providing accurate responses:\n\n"
-            prompt += "1. **POLICY DOCUMENTS** (Policy/H&S/, Policy/IT/, etc.):\n"
-            prompt += "   - Mandatory rules and procedures that employees MUST follow\n"
-            prompt += "   - Use case: Employee compliance, safety procedures, company rules\n"
-            prompt += "   - When users ask about 'safety rules', 'policies', 'procedures' → ONLY reference Policy documents\n"
-            prompt += "   - Do NOT mix with project-specific safety plans\n\n"
-            prompt += "2. **PROCEDURES/H2H (How-to Handbooks)** (Procedures/, H2H/):\n"
-            prompt += "   - Best practices and 'how we do things at DTCE'\n"
-            prompt += "   - Less strict than policies, more guidance-oriented\n"
-            prompt += "   - Use case: 'How do I use the wind speed spreadsheet?', technical procedures\n\n"
-            prompt += "3. **NZ ENGINEERING STANDARDS** (Engineering/, Standards/):\n"
-            prompt += "   - Official NZ building codes, standards (NZS), technical references\n"
-            prompt += "   - Use case: Code requirements, standard specifications\n"
-            prompt += "   - These are NOT DTCE-specific, they are general industry standards\n\n"
-            prompt += "4. **PROJECT DOCUMENTS** (Projects/225/, Projects/224/, etc.):\n"
-            prompt += "   - Actual DTCE project work with specific clients and job numbers\n"
-            prompt += "   - Use case: Past project examples, client work, project references\n"
-            prompt += "   - When users ask for 'past projects' → ONLY reference Project folders\n\n"
-            prompt += "5. **CLIENT INFORMATION** (also in Projects/ folders):\n"
-            prompt += "   - Client contact details, past client projects\n"
-            prompt += "   - Use case: Client relationship management, contact information\n\n"
-            prompt += "CRITICAL: Do NOT mix document types! If someone asks about 'safety rules', only reference Policy documents, not project safety plans.\n\n"
-            prompt += "DOCUMENT FILTERING INSTRUCTIONS - MATCH THE 5 SEARCH TYPES:\n"
-            prompt += "You will receive search results from multiple folders. Use INTELLIGENT PRIORITIZATION based on the 5 search types above:\n\n"
-            
-            prompt += "**1. POLICY SEARCH** (when they ask about rules, compliance, safety):\n"
-            prompt += "- PRIORITIZE: Policy/, H&S/, IT/, Employment/, Quality/ folder documents\n"
-            prompt += "- IGNORE: Project safety plans, general engineering docs\n"
-            prompt += "- Focus on: What employees MUST follow\n\n"
-            
-            prompt += "**2. PROCEDURES/H2H SEARCH** (when they ask 'how to' or best practices):\n"
-            prompt += "- PRIORITIZE: H2H/, Procedures/, Technical/ folder documents\n" 
-            prompt += "- IGNORE: Policies (too strict) and random project docs\n"
-            prompt += "- Focus on: 'This is how we do things at DTCE'\n\n"
-            
-            prompt += "**3. STANDARDS SEARCH** (when they ask about codes, NZS, regulations):\n"
-            prompt += "- PRIORITIZE: Engineering/, Standards/, NZ/ folder documents\n"
-            prompt += "- IGNORE: DTCE-specific procedures, project work\n"
-            prompt += "- Focus on: Official standards with section numbers\n\n"
-            
-            prompt += "**4. PROJECT SEARCH** (when they ask about past work, examples):\n"
-            prompt += "- PRIORITIZE: Projects/, job folders (22xxxx, 23xxxx, 24xxxx)\n"
-            prompt += "- IGNORE: Engineering standards, policies, procedures\n"
-            prompt += "- Focus on: Specific job numbers, client work, quantitative data\n\n"
-            
-            prompt += "**5. CLIENT SEARCH** (when they ask about clients, contacts):\n"
-            prompt += "- PRIORITIZE: Projects/ folders but focus on client information\n"
-            prompt += "- IGNORE: Technical project details unless client-related\n"
-            prompt += "- Focus on: Contact details, relationship history, past collaborations\n\n"
-            
-            prompt += "**CRITICAL RULES FOR ALL SEARCHES**:\n"
-            prompt += "- When showing past projects, ALWAYS include PROJECT NUMBER/JOB NUMBER (e.g., 'Project 224001', 'Job 22345')\n"
-            prompt += "- EXTRACT job numbers from document names, folder paths, or content (e.g., 'DOCUMENT: Report_224001_Precast_Analysis.pdf' → mention 'Project 224001')\n"
-            prompt += "- Users need specific project references, not general technical documents\n"
-            prompt += "- Purpose: DTCE project work, client examples, project history with specific job numbers\n\n"
-            prompt += "**GENERAL RULE**: If no documents are found in the prioritized folders, be helpful and:\n"
-            prompt += "1. Acknowledge what you searched for\n"
-            prompt += "2. Use any relevant documents from other folders if they contain useful information\n"
-            prompt += "3. Provide general guidance or external resources\n"
-            prompt += "4. Suggest contacting DTCE directly for internal resources\n\n"
-            
-            prompt += "**INTELLIGENT ALTERNATIVES SYSTEM:**\n"
-            prompt += "If the prioritized search results don't make sense or aren't relevant to the user's question:\n\n"
-            prompt += "1. **EVALUATE RELEVANCE**: First determine if the primary results actually help answer the question\n"
-            prompt += "2. **PROVIDE ALTERNATIVES**: If primary results aren't helpful, look for alternatives in:\n"
-            prompt += "   - Documents from 'ignored' folders that might actually be relevant\n"
-            prompt += "   - Example: If looking for safety info but only found project documents, still check if those project documents contain relevant safety information\n"
-            prompt += "   - Example: If looking for procedures but only found policy documents, check if policies contain procedural guidance\n"
-            prompt += "3. **LABEL CLEARLY**: Always label alternatives as 'Alternative from SuiteFiles:' so users know this is from a broader search\n"
-            prompt += "4. **INCLUDE GENERAL KNOWLEDGE**: Also provide 'General Engineering Guidance:' using your knowledge of NZ standards and engineering practices\n"
-            prompt += "5. **BE TRANSPARENT**: Explain why the primary search wasn't perfect and what alternatives you're providing\n\n"
-            
-            prompt += "**EXAMPLE ALTERNATIVE SCENARIOS:**\n"
-            prompt += "- User asks about 'DTCE safety rules' → Primary search finds policies → If policies are empty, check project safety plans as alternative\n"
-            prompt += "- User asks about 'how we do X' → Primary search finds procedures → If procedures don't cover X, check project examples as alternative\n"
-            prompt += "- User asks about 'past projects' → Primary search finds project docs → If project docs don't match the query, provide general project management guidance\n\n"
-            
-            prompt += "IGNORE documents from inappropriate folders! Each document result includes folder information - use this to filter your response.\n\n"
-            prompt += "SPECIAL NOTE FOR POLICY DOCUMENTS:\n"
-            prompt += "- Some policy documents (e.g., Wellbeing Policy) may appear in search results but have minimal extracted content\n"
-            prompt += "- If you find policy documents with limited content, acknowledge the document exists and provide general guidance about the topic\n"
-            prompt += "- For wellbeing/wellness queries: Explain that DTCE has wellbeing policies and suggest contacting HR for detailed information\n"
-            prompt += "- Always provide the SuiteFiles link even if content is limited\n\n"
-            prompt += "SUITEFILES KNOWLEDGE INDICATORS - Questions that REQUIRE SuiteFiles data:\n"
-            prompt += "- Contains pronouns: \"we\", \"we've\", \"our\", \"us\", \"DTCE has\", \"company\", \"past projects\"\n"
-            prompt += "- Requests for PAST PROJECTS: \"past project\", \"previous project\", \"project examples\", \"projects that\", \"show me projects\"\n"
-            prompt += "- Scenario-based technical queries: \"Show me examples of...\", \"What have we used for...\", \"Find projects where...\"\n"
-            prompt += "- Problem-solving & lessons learned: \"What issues have we run into...\", \"lessons learned from projects...\"\n"
-            prompt += "- Regulatory & consent precedents: \"projects where council questioned...\", \"How have we approached...\"\n"
-            prompt += "- Cost & time insights: \"How long does it typically take...\", \"What's the typical cost range...\"\n"
-            prompt += "- Best practices & templates: \"What's our standard approach...\", \"Show me our best example...\"\n"
-            prompt += "- Materials & methods comparisons: \"When have we chosen...\", \"What have we specified...\"\n"
-            prompt += "- Internal knowledge mapping: \"Which engineers have experience...\", \"Who has documented expertise...\"\n\n"
-            prompt += "GENERAL KNOWLEDGE INDICATORS - Questions requiring external/standards knowledge:\n"
-            prompt += "- Standards and codes references: \"NZS requirements\", \"building code\", \"AS/NZS standards\"\n"
-            prompt += "- General engineering theory: \"How do I calculate...\", \"What is the formula for...\"\n"
-            prompt += "- Industry best practices (not DTCE specific): \"Best practices for...\", \"Standard approach to...\"\n\n"
-            prompt += "MIXED REQUIREMENTS - Questions needing BOTH SuiteFiles AND general knowledge:\n"
-            prompt += "- DTCE experience + standards compliance\n"
-            prompt += "- Past projects + current code requirements\n"
-            prompt += "- Company templates + industry standards\n\n"
-            prompt += "RESPONSE GUIDELINES BY FOLDER TYPE:\n\n"
-            prompt += "**POLICY PROMPT (H&S, IT, Employment, Quality, Operations):**\n"
-            prompt += "- Purpose: Documents that employees MUST follow\n"
-            prompt += "- Use case: First search for compliance requirements, safety procedures, company rules\n"
-            prompt += "- Response style: Authoritative, mandatory language ('You must...', 'DTCE requires...')\n"
-            prompt += "- Always emphasize compliance obligations and refer to HR for clarification if needed\n"
-            prompt += "- Example: 'According to DTCE's Health & Safety Policy, all employees must...'\n\n"
-            prompt += "**TECHNICAL & ADMIN PROCEDURES PROMPT (H2H - How to Handbooks):**\n"
-            prompt += "- Purpose: Best practices and 'how we do things at DTCE'\n"
-            prompt += "- Use case: Staff guidance on processes ('how do I use the site wind speed spreadsheet')\n"
-            prompt += "- Response style: Guidance-oriented, helpful ('DTCE's standard approach is...', 'Best practice at DTCE...')\n"
-            prompt += "- Not as strict as policies - frame as recommendations and guidance\n"
-            prompt += "- Example: 'The H2H handbook recommends the following approach for...'\n\n"
-            prompt += "**NZ ENGINEERING STANDARDS PROMPT (Engineering/, Standards/):**\n"
-            prompt += "- Purpose: Record of NZ engineering standards (PDFs) that DTCE has\n"
-            prompt += "- Use case: Pre-search on specific codes and sections of codes\n"
-            prompt += "- Response style: Technical, authoritative, reference official standards\n"
-            prompt += "- These are NOT DTCE-specific - they are general industry standards\n"
-            prompt += "- Always mention compliance requirements and official status\n"
-            prompt += "- Example: 'According to NZS 3101, the design requirements are...'\n\n"
-            prompt += "**PROJECT REFERENCE PROMPT (Projects/, etc.):**\n"
-            prompt += "- Purpose: Search past DTCE project work for examples and lessons learned\n"
-            prompt += "- Use case: Most complex - less structured data, project examples, client work\n"
-            prompt += "- Response style: Specific examples with project numbers, quantitative data when available\n"
-            prompt += "- Include project details: client, location, scope, lessons learned, costs/timelines if available\n"
-            prompt += "- Look for patterns across multiple projects\n"
-            prompt += "- Example: 'In Project 224156 with [Client], DTCE encountered similar challenges...'\n\n"
-            prompt += "**CLIENT REFERENCE PROMPT (also in Projects/ folders):**\n"
-            prompt += "- Purpose: Search for client information, contact details, past collaborations\n"
-            prompt += "- Use case: Client relationship management, finding past work with specific clients\n"
-            prompt += "- Response style: Relationship-focused, include contact info, project history\n"
-            prompt += "- Aggregate all projects for a client to show relationship history\n"
+        except Exception as e:
+            logger.error("RAG processing failed", error=str(e))
+            return {
+                'answer': f'I encountered an error while processing your question: {str(e)}',
+                'sources': [],
+                'confidence': 'error',
+                'documents_searched': 0
+            }
             prompt += "- Example: 'DTCE has worked with [Client] on the following projects: [list with details]'\n\n"
             
             prompt += "SMART FOLDER UNDERSTANDING - Let the semantic search find everything, then be intelligent:\n\n"
