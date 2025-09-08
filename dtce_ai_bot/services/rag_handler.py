@@ -1681,15 +1681,15 @@ Be conversational, helpful, and professional. Use your general knowledge to prov
             folder_filter = folder_mapping.get(folder_type, '')
             
             # Perform Azure search with folder filtering
-            # This is a simplified version - you'd implement actual Azure search filtering here
-            search_results = await self.search_client.search(
+            search_results = self.search_client.search(
                 search_text=question,
                 top=10,
                 search_fields=['content', 'title', 'metadata']
             )
             
             documents = []
-            async for result in search_results:
+            # Convert SearchItemPaged to list first, then process
+            for result in search_results:
                 documents.append({
                     'content': result.get('content', ''),
                     'title': result.get('title', ''),
