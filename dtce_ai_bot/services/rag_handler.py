@@ -68,8 +68,9 @@ class RAGHandler:
                 result = await self._process_rag_with_full_prompt(question, retrieved_content, documents)
                 
                 result.update({
-                    'rag_type': 'enhanced_semantic_search',
-                    'search_method': 'intent_based_semantic',
+                    'rag_type': 'comprehensive_conversational_rag',
+                    'search_method': 'ai_semantic_with_full_content',
+                    'response_style': 'chatgpt_like_conversation',
                     'query_normalization': {
                         'original_query': question,
                         'normalized_query': search_query,
@@ -182,28 +183,49 @@ class RAGHandler:
         return filtered_documents
     
     def _format_documents_simple(self, documents: List[Dict]) -> str:
-        """Format documents for AI prompt without folder context."""
+        """Format documents with full content for comprehensive RAG processing."""
         if not documents:
             return "No documents found."
-        
-        formatted_content = ""
-        for i, doc in enumerate(documents[:10], 1):  # Limit to top 10 documents
-            filename = doc.get('filename', 'Unknown file')
-            content = doc.get('content', 'No content available')
-            
-            # Truncate very long content
-            if len(content) > 2000:
-                content = content[:2000] + "..."
-            
-            formatted_content += f"\n--- Document {i}: {filename} ---\n{content}\n"
-        
-        return formatted_content
-    
-    def _format_documents_with_folder_context(self, documents: List[Dict], folder_context: Dict[str, Any]) -> str:
-        """Format documents with folder structure context."""
+
         formatted_docs = []
         
-        for doc in documents[:10]:  # Top 10 most relevant
+        for i, doc in enumerate(documents[:8], 1):  # Top 8 most relevant
+            filename = doc.get('filename', 'Unknown')
+            content = doc.get('content', '')
+            
+            # Get SuiteFiles link
+            blob_url = self._get_blob_url_from_doc(doc)
+            suitefiles_link = self._get_safe_suitefiles_url(blob_url)
+            
+            # Use FULL content for better RAG processing
+            max_content_length = 3000  # Much longer content for comprehensive answers
+            formatted_content = content[:max_content_length]
+            if len(content) > max_content_length:
+                formatted_content += "... [Content continues]"
+            
+            # Format with clear structure
+            doc_info = f"""=== DOCUMENT {i}: {filename} ==="""
+            
+            if suitefiles_link:
+                doc_info += f"""
+SuiteFiles Link: {suitefiles_link}"""
+            
+            doc_info += f"""
+
+FULL CONTENT:
+{formatted_content}
+
+=== END DOCUMENT {i} ==="""
+            
+            formatted_docs.append(doc_info)
+        
+        return "\n\n".join(formatted_docs)
+    
+    def _format_documents_with_folder_context(self, documents: List[Dict], folder_context: Dict[str, Any]) -> str:
+        """Format documents with full content for comprehensive RAG processing."""
+        formatted_docs = []
+        
+        for i, doc in enumerate(documents[:8], 1):  # Top 8 most relevant documents
             filename = doc.get('filename', 'Unknown')
             content = doc.get('content', '')
             blob_name = doc.get('blob_name', '')
@@ -218,21 +240,30 @@ class RAGHandler:
             # Extract project info using our consistent method
             extracted_project = self._extract_project_name_from_blob_url(blob_url)
             
-            # Format document info - only show project info if it's from Projects folder
+            # Use FULL content for better RAG - don't truncate unless absolutely necessary
+            max_content_length = 3000  # Increased from 600 to 3000 characters
+            formatted_content = content[:max_content_length]
+            if len(content) > max_content_length:
+                formatted_content += "... [Content continues]"
+            
+            # Format document with comprehensive information
+            doc_info = f"""=== DOCUMENT {i}: {filename} ===
+Location: {folder_info['folder_path']}"""
+            
             if extracted_project:
-                doc_info = f"""DOCUMENT: {filename}
-                Folder: {folder_info['folder_path']}
-                Project: {extracted_project}"""
-                if suitefiles_link:
-                    doc_info += f"\n                Link: {suitefiles_link}"
-                doc_info += f"\n                Content: {content[:600]}...\n                ---"
-            else:
-                # Non-project document - don't show project info
-                doc_info = f"""DOCUMENT: {filename}
-                Folder: {folder_info['folder_path']}"""
-                if suitefiles_link:
-                    doc_info += f"\n                Link: {suitefiles_link}"
-                doc_info += f"\n                Content: {content[:600]}...\n                ---"
+                doc_info += f"""
+Project: {extracted_project}"""
+            
+            if suitefiles_link:
+                doc_info += f"""
+SuiteFiles Link: {suitefiles_link}"""
+            
+            doc_info += f"""
+
+FULL CONTENT:
+{formatted_content}
+
+=== END DOCUMENT {i} ==="""
             
             formatted_docs.append(doc_info)
         
@@ -324,24 +355,31 @@ class RAGHandler:
         """Handle cases where no documents are found - provide intelligent fallback."""
         logger.info("No documents found, providing general response", question=question)
         
-        # Use GPT knowledge fallback
+        # Use GPT knowledge fallback with conversational tone
         try:
-            fallback_prompt = f"""I searched our DTCE document database but couldn't find specific documents related to: "{question}"
+            fallback_prompt = f"""You are DTCE AI Assistant. A user asked: "{question}"
 
-This could mean:
-1. The information might be in documents I don't have access to
-2. It might be stored under different terms or file names
-3. It might be general knowledge that doesn't require specific documents
+I searched our DTCE document database but couldn't find specific documents that directly answer this question.
 
-Please provide a helpful response acknowledging that I couldn't find specific documents, and if appropriate, provide general guidance or suggest alternative search terms the user could try.
+Please provide a helpful, conversational response that:
+1. Acknowledges I couldn't find specific DTCE documents on this topic
+2. If it's a general business/engineering question, provide helpful general guidance
+3. Suggest alternative ways the user could find this information at DTCE
+4. Be friendly and professional, like a helpful colleague
 
-Question: {question}"""
+Keep the response conversational and practical. Don't just say "I don't know" - try to be genuinely helpful."""
             
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
-                messages=[{"role": "user", "content": fallback_prompt}],
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are DTCE AI Assistant, a helpful and friendly AI that assists DTCE employees. When you can't find specific documents, you provide helpful guidance and suggestions in a conversational manner."
+                    },
+                    {"role": "user", "content": fallback_prompt}
+                ],
                 temperature=0.3,
-                max_tokens=500
+                max_tokens=600
             )
             
             answer = response.choices[0].message.content
@@ -461,42 +499,48 @@ Please try rephrasing your question or contact support if the issue persists."""
             return f"Error searching documents: {str(e)}"
 
     async def _process_rag_with_full_prompt(self, question: str, retrieved_content: str, documents: List[Dict]) -> Dict[str, Any]:
-        """Process RAG query with direct content extraction focus."""
+        """Process RAG query with comprehensive conversational AI like ChatGPT."""
         try:
-            # Build a simple, direct prompt focused on content extraction
-            prompt = f"""User Question: "{question}"
+            # Build a comprehensive ChatGPT-style prompt for true RAG
+            prompt = f"""You are DTCE AI Assistant, a knowledgeable and helpful AI that helps DTCE employees with company information. You have access to DTCE's internal documents and can provide detailed, conversational answers based on the actual content.
 
-INSTRUCTIONS: Answer the user's question directly using the actual content from the documents below. 
+USER QUESTION: "{question}"
 
-KEY REQUIREMENTS:
-1. READ THE ACTUAL CONTENT and extract specific information to answer the question
-2. If asking about a policy - quote the actual policy content, don't just describe it
-3. If asking about procedures - provide the actual steps/details from the documents
-4. If asking about standards - cite the specific standard requirements
-5. Always provide specific, actionable information from the document content
+INSTRUCTIONS FOR RESPONSE:
+1. Act like ChatGPT - be conversational, helpful, and comprehensive
+2. Read through ALL the document content below and synthesize a complete answer
+3. Provide specific details, quotes, procedures, requirements, and numbers from the documents
+4. If the user asks about a policy, explain what it says in detail, not just that it exists
+5. If they ask about procedures, walk them through the actual steps
+6. Give actionable advice and practical information
+7. Be thorough but well-organized with clear sections
+8. Include SuiteFiles links for reference at the end
+9. If information spans multiple documents, synthesize it all together
 
-Here are the relevant documents I found:
+CONVERSATION TONE:
+- Friendly and professional
+- Direct and informative
+- Like talking to a knowledgeable colleague
+- Provide context and background when helpful
+
+Here are the relevant DTCE documents I found:
 
 {retrieved_content}
 
-ANSWER FORMAT:
-- Start with a direct answer based on the document content
-- Quote relevant sections when appropriate  
-- Provide specific details, numbers, requirements from the actual documents
-- Include SuiteFiles links for reference
-- If no specific content found, say so clearly
+Now, based on the document content above, provide a comprehensive, conversational answer to the user's question. Structure your response clearly and include all relevant details from the documents:"""
 
-Answer the user's question now using the actual document content above:"""
-
-            # Generate response
+            # Generate comprehensive response with higher token limit
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {"role": "system", "content": "You are a helpful assistant that provides direct, specific answers based on document content."},
+                    {
+                        "role": "system", 
+                        "content": "You are DTCE AI Assistant, a helpful and knowledgeable AI that provides comprehensive, conversational answers based on company documents. Always give thorough, well-structured responses with specific details from the document content."
+                    },
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1,
-                max_tokens=800
+                temperature=0.2,  # Slightly higher for more natural conversation
+                max_tokens=1500   # Increased from 800 to allow comprehensive responses
             )
             
             answer = response.choices[0].message.content
@@ -677,9 +721,10 @@ Answer the user's question now using the actual document content above:"""
             return {
                 'answer': answer,
                 'sources': self._format_sources(documents) if documents else [],
-                'confidence': 'high' if documents else 'medium',
+                'confidence': 'high',  # High confidence for comprehensive RAG responses
                 'documents_searched': len(documents),
-                'rag_type': 'unified_semantic_search'
+                'rag_type': 'comprehensive_conversational_rag',
+                'response_type': 'detailed_synthesis'
             }
                 
         except Exception as e:
