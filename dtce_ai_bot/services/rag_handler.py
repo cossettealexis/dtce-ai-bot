@@ -1102,6 +1102,7 @@ Now, based on the document content above, provide a comprehensive, conversationa
                 
             source = {
                 'filename': doc.get('filename', 'Unknown'),
+                'title': doc.get('filename', 'Unknown'),  # Add title field for consistency
                 'folder': doc.get('folder', '')
             }
             
@@ -1118,6 +1119,11 @@ Now, based on the document content above, provide a comprehensive, conversationa
                 suitefiles_url = self._get_safe_suitefiles_url(blob_url)
                 if suitefiles_url and suitefiles_url != "Document available in SuiteFiles":
                     source['suitefiles_url'] = suitefiles_url
+                    source['url'] = suitefiles_url  # Add url field for consistency
+                else:
+                    source['url'] = blob_url  # Fallback to blob_url if no SuiteFiles URL
+            else:
+                source['url'] = 'No URL'  # Ensure url field always exists
             
             sources.append(source)
             

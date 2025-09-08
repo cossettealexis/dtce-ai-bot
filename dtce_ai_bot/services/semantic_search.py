@@ -72,7 +72,7 @@ class SemanticSearchService:
         # Build base search parameters for semantic search
         search_params = {
             'search_text': query,
-            'top': 20,
+            'top': 50,  # Get more results to filter later
             'select': ["id", "filename", "content", "blob_url", "project_name", "folder"],
             'query_type': 'semantic',
             'semantic_configuration_name': 'default',
@@ -80,25 +80,30 @@ class SemanticSearchService:
             'query_answer': 'extractive'
         }
         
-        # Build smart filters combining exclusions with folder routing
-        filters = self._build_routed_filters(category, project_filter)
+        # Build smart filters - only basic exclusions since blob fields aren't searchable
+        filters = self._build_basic_filters(project_filter)
         
         if filters:
             search_params['filter'] = ' and '.join(filters)
-            logger.info("Routed semantic search", 
-                       category=category.value, 
-                       filter_count=len(filters))
+        
+        logger.info("Executing routed semantic search", 
+                   category=category.value, 
+                   filter_count=len(filters) if filters else 0)
         
         # Execute search
         try:
             results = self.search_client.search(**search_params)
             documents = [dict(result) for result in results]
             
-            logger.info("Routed semantic search executed", 
-                       category=category.value,
-                       documents_found=len(documents))
+            # POST-PROCESS: Apply folder routing after getting results
+            filtered_documents = self._apply_folder_routing_post_search(documents, category)
             
-            return documents
+            logger.info("Routed semantic search completed", 
+                       category=category.value,
+                       total_found=len(documents),
+                       after_folder_filtering=len(filtered_documents))
+            
+            return filtered_documents
             
         except Exception as e:
             logger.warning("Routed semantic search failed, trying fallback", 
@@ -111,33 +116,66 @@ class SemanticSearchService:
             search_params.pop('query_answer', None)
             
             results = self.search_client.search(**search_params)
-            return [dict(result) for result in results]
+            documents = [dict(result) for result in results]
+            
+            # Still apply post-search filtering
+            return self._apply_folder_routing_post_search(documents, category)
     
-    def _build_routed_filters(self, category: SearchCategory, project_filter: Optional[str] = None) -> List[str]:
-        """Build search filters for routed queries."""
+    def _build_basic_filters(self, project_filter: Optional[str] = None) -> List[str]:
+        """Build basic filters that work with Azure Search limitations."""
         filters = []
         
-        # Always exclude superseded/archive folders
-        base_exclusions = [
+        # Basic exclusions using filename (which is searchable)
+        filters.extend([
             "not search.ismatch('*superseded*', 'filename')",
             "not search.ismatch('*superceded*', 'filename')", 
             "not search.ismatch('*archive*', 'filename')",
             "not search.ismatch('*trash*', 'filename')"
-        ]
-        filters.extend(base_exclusions)
-        
-        # NOTE: Folder field is empty in current index, so skip folder filtering for now
-        # The AI classification will handle intelligent search through better query understanding
-        # and specialized prompts rather than folder restrictions
-        logger.info("Using AI-based routing without folder filters", 
-                   category=category.value,
-                   reason="folder_field_empty_in_index")
+        ])
         
         # Add project filter if specified
         if project_filter and not ('search.ismatch' in project_filter or 'and' in project_filter):
             filters.append(f"search.ismatch('{project_filter}*', 'project_name')")
         
         return filters
+    
+    def _apply_folder_routing_post_search(self, documents: List[Dict], category: SearchCategory) -> List[Dict]:
+        """Apply intelligent folder routing after search using blob_url analysis."""
+        
+        if category == SearchCategory.STANDARDS:
+            # For standards: prioritize Engineering, exclude Projects
+            engineering_docs = []
+            other_docs = []
+            
+            for doc in documents:
+                blob_url = doc.get('blob_url', '')
+                if 'Engineering' in blob_url and 'Projects' not in blob_url:
+                    engineering_docs.append(doc)
+                elif 'Projects' not in blob_url:  # Other non-project docs
+                    other_docs.append(doc)
+            
+            # Return Engineering docs first, then other non-project docs
+            result = engineering_docs + other_docs[:max(0, 20 - len(engineering_docs))]
+            
+            logger.info("Standards query folder routing applied",
+                       engineering_docs=len(engineering_docs),
+                       other_docs=len(other_docs),
+                       returned=len(result))
+            
+            return result
+            
+        elif category == SearchCategory.PROJECTS:
+            # For projects: only return project documents
+            project_docs = [doc for doc in documents if 'Projects' in doc.get('blob_url', '')]
+            return project_docs[:20]
+            
+        elif category == SearchCategory.PROCEDURES:
+            # For procedures: prioritize Engineering and general docs, exclude Projects
+            return [doc for doc in documents if 'Projects' not in doc.get('blob_url', '')][:20]
+            
+        else:
+            # For other categories, return all documents
+            return documents[:20]
     
     async def _execute_pure_semantic_search(self, query: str, project_filter: Optional[str] = None) -> List[Dict[str, any]]:
         """Execute pure semantic search without intent classification bullshit."""
