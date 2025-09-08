@@ -563,7 +563,9 @@ Please try rephrasing your question or contact support if the issue persists."""
             # If we need to search specific folders, do that
             if search_strategy.get('needs_folder_search', False):
                 logger.info(f"AI routing to folder: {search_strategy.get('target_folder')} for {search_strategy.get('topic_area')}")
-                retrieved_content, documents = await self._search_specific_folder(question, search_strategy)
+                folder_type = search_strategy.get('target_folder', 'general')
+                documents = await self._search_specific_folder(question, folder_type)
+                retrieved_content = self._format_documents_content(documents) if documents else ""
             
             # Build a universal ChatGPT-style prompt that can handle anything
             prompt = f"""You are DTCE AI Assistant - a comprehensive AI assistant like ChatGPT, but with access to DTCE's internal documents and expertise.
@@ -1698,7 +1700,9 @@ Be conversational, helpful, and professional. Use your general knowledge to prov
             return documents
             
         except Exception as e:
-            logger.error(f"Folder search failed for {folder_type}", error=str(e))
+            # Ensure folder_type is a string for logging
+            folder_name = str(folder_type) if not isinstance(folder_type, str) else folder_type
+            logger.error(f"Folder search failed for {folder_name}", error=str(e))
             return []
 
     async def _generate_contextual_response(self, question: str, content: str, documents: List[Dict], analysis: Dict) -> Dict[str, Any]:
