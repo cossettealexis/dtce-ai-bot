@@ -10,6 +10,7 @@ from azure.search.documents import SearchClient
 from openai import AsyncAzureOpenAI
 from .semantic_search import SemanticSearchService
 from .folder_structure_service import FolderStructureService
+from .query_normalizer import QueryNormalizer
 
 logger = structlog.get_logger(__name__)
 
@@ -24,6 +25,8 @@ class RAGHandler:
         # Initialize semantic search with intelligent routing
         self.semantic_search = SemanticSearchService(search_client, openai_client, model_name)
         self.folder_structure = FolderStructureService()
+        # Initialize query normalizer for better semantic search consistency
+        self.query_normalizer = QueryNormalizer(openai_client, model_name)
     
     async def process_rag_query(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
         """
@@ -37,8 +40,19 @@ class RAGHandler:
         try:
             logger.info("Processing question with intelligent folder routing", question=question)
             
-            # Use intelligent semantic search with folder routing
-            documents = await self.semantic_search.search_documents(question, project_filter)
+            # STEP 1: Normalize query for consistent semantic search results
+            logger.info("Normalizing query for better semantic search")
+            normalized_result = await self.query_normalizer.normalize_query(question)
+            
+            # Use normalized query for semantic search
+            search_query = normalized_result['primary_search_query']
+            logger.info("Query normalized", 
+                       original=question,
+                       normalized=search_query,
+                       confidence=normalized_result['confidence'])
+            
+            # STEP 2: Use intelligent semantic search with folder routing
+            documents = await self.semantic_search.search_documents(search_query, project_filter)
             
             logger.info("Intelligent search results", 
                        total_documents=len(documents),
@@ -55,13 +69,32 @@ class RAGHandler:
                 
                 result.update({
                     'rag_type': 'enhanced_semantic_search',
-                    'search_method': 'intent_based_semantic'
+                    'search_method': 'intent_based_semantic',
+                    'query_normalization': {
+                        'original_query': question,
+                        'normalized_query': search_query,
+                        'confidence': normalized_result['confidence'],
+                        'semantic_concepts': normalized_result.get('semantic_concepts', []),
+                        'document_terms': normalized_result.get('document_terms', []),
+                        'method': normalized_result.get('method', 'unknown'),
+                        'reasoning': normalized_result.get('reasoning', '')
+                    }
                 })
                 
                 return result
             else:
-                # No documents found - provide general response
-                return await self._handle_no_documents_found(question)
+                # No documents found - provide general response with normalization info
+                result = await self._handle_no_documents_found(question)
+                result['query_normalization'] = {
+                    'original_query': question,
+                    'normalized_query': search_query,
+                    'confidence': normalized_result['confidence'],
+                    'semantic_concepts': normalized_result.get('semantic_concepts', []),
+                    'document_terms': normalized_result.get('document_terms', []),
+                    'method': normalized_result.get('method', 'unknown'),
+                    'reasoning': normalized_result.get('reasoning', '')
+                }
+                return result
                 
         except Exception as e:
             logger.error("Folder-aware RAG processing failed", error=str(e), question=question)
