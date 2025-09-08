@@ -1530,7 +1530,7 @@ Respond naturally as DTCE AI Assistant would in conversation."""
         formatted_content = []
         for i, doc in enumerate(documents[:5], 1):  # Limit to top 5 documents
             content = doc.get('content', '')
-            title = doc.get('title', f'Document {i}')
+            title = doc.get('filename', f'Document {i}')
             score = doc.get('@search.score', doc.get('score', 0))
             
             formatted_content.append(f"Document {i}: {title} (relevance: {score:.2f})\n{content[:500]}...")
@@ -1684,7 +1684,7 @@ Be conversational, helpful, and professional. Use your general knowledge to prov
             search_results = self.search_client.search(
                 search_text=question,
                 top=10,
-                search_fields=['content', 'title', 'metadata']
+                select=["id", "filename", "content", "blob_url", "project_name", "folder"]
             )
             
             documents = []
@@ -1692,9 +1692,11 @@ Be conversational, helpful, and professional. Use your general knowledge to prov
             for result in search_results:
                 documents.append({
                     'content': result.get('content', ''),
-                    'title': result.get('title', ''),
+                    'filename': result.get('filename', ''),
+                    'blob_url': result.get('blob_url', ''),
                     'score': result.get('@search.score', 0),
-                    'metadata': result.get('metadata', {})
+                    'project_name': result.get('project_name', ''),
+                    'folder': result.get('folder', '')
                 })
             
             return documents
