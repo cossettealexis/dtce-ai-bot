@@ -28,20 +28,27 @@ class RAGHandler:
         # Initialize query normalizer for better semantic search consistency
         self.query_normalizer = QueryNormalizer(openai_client, model_name)
     
-    async def process_rag_query(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
+    async def process_rag_query(self, question: str, project_filter: Optional[str] = None, conversation_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
         """
-        INTELLIGENT FOLDER-ROUTED SEARCH:
+        INTELLIGENT FOLDER-ROUTED SEARCH WITH CONVERSATIONAL CONTEXT:
         
-        1. Classify user intent and route to appropriate folder
-        2. Execute semantic search within targeted folder category  
-        3. Retrieve and rank relevant documents from right context
-        4. Generate specialized answer based on document category
+        1. Check if query is conversational (requires context) vs informational (requires search)
+        2. For conversational queries: Use conversation history to generate contextual response
+        3. For informational queries: Classify intent, route to appropriate folder, and search
+        4. Generate appropriate response based on query type
         """
         try:
-            logger.info("Processing question with intelligent folder routing", question=question)
+            logger.info("Processing question with conversational context analysis", question=question)
+            
+            # STEP 0: Check if this is a conversational query that doesn't need document search
+            is_conversational = await self._is_conversational_query(question, conversation_history)
+            
+            if is_conversational:
+                logger.info("Detected conversational query - using context instead of search")
+                return await self._handle_conversational_query(question, conversation_history)
             
             # STEP 1: Normalize query for consistent semantic search results
-            logger.info("Normalizing query for better semantic search")
+            logger.info("Detected informational query - proceeding with document search")
             normalized_result = await self.query_normalizer.normalize_query(question)
             
             # Use normalized query for semantic search
@@ -1179,3 +1186,154 @@ Please provide a comprehensive answer using the documents above, and include pro
         except Exception as e:
             logger.error("GPT response generation failed", error=str(e))
             return f"I encountered an error generating the response: {str(e)}"
+
+    async def _is_conversational_query(self, question: str, conversation_history: Optional[List[Dict]] = None) -> bool:
+        """
+        Determine if a query is conversational (needs context) vs informational (needs search).
+        
+        Conversational queries include:
+        - Short responses like "really", "ok", "thanks", "yes", "no"
+        - Follow-up questions that reference previous context
+        - Clarification requests
+        
+        Informational queries include:
+        - Technical questions
+        - Document requests
+        - Specific information needs
+        """
+        
+        # Quick pattern matching for obvious conversational queries
+        question_lower = question.lower().strip()
+        
+        # Very short conversational responses
+        short_conversational = [
+            'really', 'ok', 'okay', 'thanks', 'thank you', 'yes', 'no', 'yeah', 'sure',
+            'got it', 'i see', 'right', 'correct', 'true', 'false', 'good', 'great',
+            'nice', 'cool', 'wow', 'hmm', 'ah', 'oh', 'what', 'why', 'how come'
+        ]
+        
+        if question_lower in short_conversational:
+            return True
+        
+        # If no conversation history, everything else is informational
+        if not conversation_history:
+            return False
+        
+        # Use AI to analyze conversational context for more complex cases
+        try:
+            context_prompt = f"""Analyze if this user query requires searching documents or is a conversational response to previous context.
+
+Recent conversation history:
+{self._format_conversation_context(conversation_history)}
+
+Current user query: "{question}"
+
+Is this query:
+A) CONVERSATIONAL - A response/reaction to previous messages that should be handled conversationally
+B) INFORMATIONAL - A new question that requires searching DTCE documents
+
+Critical guidelines:
+- Simple reactions like "really", "ok", "thanks", "wow", "I see" = CONVERSATIONAL
+- ANY request for NEW information (even follow-ups) = INFORMATIONAL
+- Questions with "what", "how", "tell me", "about", "more" = INFORMATIONAL
+- Phrases like "what about wind loads", "tell me more about concrete" = INFORMATIONAL
+- Calculation requests like "how do I calculate" = INFORMATIONAL
+
+Key rule: If the user is asking for ANY additional information or explanation, it's INFORMATIONAL.
+
+Answer with just: CONVERSATIONAL or INFORMATIONAL"""
+
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[{"role": "user", "content": context_prompt}],
+                max_tokens=20,
+                temperature=0.1
+            )
+            
+            result = response.choices[0].message.content.strip().upper()
+            is_conversational = 'CONVERSATIONAL' in result
+            
+            logger.info("Conversational analysis completed",
+                       query=question,
+                       classification=result,
+                       is_conversational=is_conversational)
+            
+            return is_conversational
+            
+        except Exception as e:
+            logger.warning("Conversational analysis failed, defaulting to informational", error=str(e))
+            return False
+    
+    def _format_conversation_context(self, conversation_history: List[Dict]) -> str:
+        """Format conversation history for context analysis."""
+        if not conversation_history:
+            return "No previous conversation"
+        
+        formatted = []
+        for turn in conversation_history[-3:]:  # Last 3 turns for context
+            role = turn.get('role', 'unknown')
+            content = turn.get('content', '')
+            formatted.append(f"{role.upper()}: {content[:200]}...")  # Truncate long messages
+        
+        return "\n".join(formatted)
+    
+    async def _handle_conversational_query(self, question: str, conversation_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
+        """Handle conversational queries using context instead of document search."""
+        
+        try:
+            # Build conversational prompt with history
+            conversation_context = self._format_conversation_context(conversation_history) if conversation_history else "No previous conversation"
+            
+            conversational_prompt = f"""You are DTCE AI Assistant, having a natural conversation with a DTCE employee.
+
+Recent conversation context:
+{conversation_context}
+
+The user just said: "{question}"
+
+This appears to be a conversational response rather than a request for specific information. Please respond naturally and conversationally, as a helpful colleague would. 
+
+Guidelines:
+- Keep it brief and natural
+- Acknowledge their response appropriately
+- If they seem to want more information about the previous topic, offer to help
+- If they're expressing understanding/agreement, acknowledge that
+- Be friendly and professional
+- Don't search for documents unless they specifically ask for more information
+
+Respond naturally as DTCE AI Assistant would in conversation."""
+
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "You are DTCE AI Assistant, a helpful and conversational AI that assists DTCE employees. You have natural conversations and don't always need to search documents."
+                    },
+                    {"role": "user", "content": conversational_prompt}
+                ],
+                max_tokens=300,
+                temperature=0.4  # Slightly higher temperature for more natural conversation
+            )
+            
+            answer = response.choices[0].message.content.strip()
+            
+            return {
+                'answer': answer,
+                'sources': [],
+                'confidence': 'conversational',
+                'documents_searched': 0,
+                'rag_type': 'conversational_response',
+                'search_method': 'conversation_context',
+                'response_style': 'natural_conversation'
+            }
+            
+        except Exception as e:
+            logger.error("Conversational response generation failed", error=str(e))
+            return {
+                'answer': "I understand. Is there anything else I can help you with?",
+                'sources': [],
+                'confidence': 'fallback',
+                'documents_searched': 0,
+                'rag_type': 'conversational_fallback'
+            }

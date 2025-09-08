@@ -11,7 +11,7 @@ import asyncio
 import aiohttp
 import re
 import structlog
-from typing import List, Optional
+from typing import List, Optional, Dict
 
 from ..services.document_qa import DocumentQAService
 from ..services.project_scoping import get_project_scoping_service
@@ -155,7 +155,7 @@ class DTCETeamsBot(ActivityHandler):
             await self._send_welcome_message(turn_context)
             return
         
-        # Handle casual conversation words that aren't real questions
+        # Handle casual conversation words that aren't real questions - USE NEW CONVERSATIONAL SYSTEM
         casual_words = [
             'really', 'ok', 'okay', 'cool', 'nice', 'thanks', 'thank you', 'bye', 'goodbye',
             'yes', 'no', 'yeah', 'yep', 'nope', 'sure', 'alright', 'right', 'indeed',
@@ -163,7 +163,8 @@ class DTCETeamsBot(ActivityHandler):
         ]
         
         if message_lower in casual_words:
-            await self._send_casual_response(turn_context, message_lower)
+            # Use new conversational context system instead of static responses
+            await self._handle_conversational_query(turn_context, user_message)
             return
         
         if message_lower in ['help', '/help', 'start', '/start']:
@@ -265,6 +266,78 @@ class DTCETeamsBot(ActivityHandler):
             return True
         
         return False
+    
+    async def _handle_conversational_query(self, turn_context: TurnContext, user_message: str):
+        """Handle conversational queries using the new context-aware system."""
+        
+        try:
+            if not self.qa_service:
+                await turn_context.send_activity("I understand. Is there anything else I can help you with?")
+                return
+            
+            # Send typing indicator
+            await turn_context.send_activity(Activity(type=ActivityTypes.typing))
+            
+            # Get conversation history from turn context
+            conversation_history = await self._get_conversation_history(turn_context)
+            
+            # Use RAG handler's new conversational context system
+            result = await self.qa_service.rag_handler.process_rag_query(
+                user_message, 
+                conversation_history=conversation_history
+            )
+            
+            # Send the conversational response
+            answer = result.get('answer', "I understand. Is there anything else I can help you with?")
+            await self._send_teams_message(turn_context, answer)
+            
+            # Store this interaction in conversation history
+            await self._store_conversation_turn(turn_context, user_message, answer)
+            
+        except Exception as e:
+            logger.error("Conversational query handling failed", error=str(e), query=user_message)
+            await turn_context.send_activity("I understand. Is there anything else I can help you with?")
+    
+    async def _get_conversation_history(self, turn_context: TurnContext) -> List[Dict]:
+        """Get recent conversation history for context."""
+        
+        try:
+            # Get conversation data from state
+            conversation_data = await self.conversation_state.create_property("conversation_history").get(
+                turn_context, lambda: {"history": []}
+            )
+            
+            # Return last few turns for context (limit to avoid token overflow)
+            return conversation_data.get("history", [])[-6:]  # Last 6 turns (3 exchanges)
+            
+        except Exception as e:
+            logger.warning("Failed to get conversation history", error=str(e))
+            return []
+    
+    async def _store_conversation_turn(self, turn_context: TurnContext, user_message: str, bot_response: str):
+        """Store conversation turn for future context."""
+        
+        try:
+            # Get conversation data
+            conversation_accessor = self.conversation_state.create_property("conversation_history")
+            conversation_data = await conversation_accessor.get(turn_context, lambda: {"history": []})
+            
+            # Add new turns
+            conversation_data["history"].extend([
+                {"role": "user", "content": user_message},
+                {"role": "assistant", "content": bot_response}
+            ])
+            
+            # Keep only recent history (limit storage)
+            if len(conversation_data["history"]) > 20:  # Keep last 20 turns
+                conversation_data["history"] = conversation_data["history"][-20:]
+            
+            # Save state
+            await conversation_accessor.set(turn_context, conversation_data)
+            await self.conversation_state.save_changes(turn_context)
+            
+        except Exception as e:
+            logger.warning("Failed to store conversation turn", error=str(e))
     
     async def _send_casual_response(self, turn_context: TurnContext, message: str):
         """Send appropriate response to casual conversation."""
@@ -513,7 +586,7 @@ Please analyze the uploaded documents in context of the user's question. If the 
             await turn_context.send_activity(f"❌ Search failed: {str(e)}")
 
     async def _handle_question(self, turn_context: TurnContext, question: str):
-        """Handle Q&A requests."""
+        """Handle Q&A requests with conversational context."""
         
         try:
             if not self.qa_service:
@@ -523,11 +596,17 @@ Please analyze the uploaded documents in context of the user's question. If the 
             # Send typing indicator
             await turn_context.send_activity(Activity(type=ActivityTypes.typing))
             
-            # Get answer from QA service
-            result = await self.qa_service.answer_question(question)
+            # Get conversation history for context
+            conversation_history = await self._get_conversation_history(turn_context)
+            
+            # Use RAG handler's new conversational context system
+            result = await self.qa_service.rag_handler.process_rag_query(
+                question, 
+                conversation_history=conversation_history
+            )
             
             # Format response - natural and conversational
-            if result['confidence'] == 'error':
+            if result.get('confidence') == 'error':
                 await turn_context.send_activity(f"Sorry, I encountered an error: {result['answer']}")
                 return
             
@@ -540,6 +619,9 @@ Please analyze the uploaded documents in context of the user's question. If the 
             
             # Use the new Teams message sending method
             await self._send_teams_message(turn_context, answer)
+            
+            # Store this interaction in conversation history
+            await self._store_conversation_turn(turn_context, question, answer)
             
         except Exception as e:
             logger.error("Q&A failed", error=str(e), question=question)
