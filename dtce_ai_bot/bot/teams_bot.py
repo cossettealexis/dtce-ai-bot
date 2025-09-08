@@ -524,14 +524,14 @@ Please analyze the uploaded documents in context of the user's question. If the 
             summary = await self.qa_service.get_document_summary()
             
             if "error" in summary:
-                await turn_context.send_activity(f"❌ Error getting projects: {summary['error']}")
+                await turn_context.send_activity(f"Error getting projects: {summary['error']}")
                 return
             
             projects = summary.get('projects', [])
             total_docs = summary.get('total_documents', 0)
             
             if projects:
-                projects_text = f"📋 **Available Projects** ({total_docs} total documents):\n\n"
+                projects_text = f"**Available Projects** ({total_docs} total documents):\n\n"
                 for project in projects[:10]:  # Show first 10 projects
                     projects_text += f"• {project}\n"
                     
@@ -540,21 +540,21 @@ Please analyze the uploaded documents in context of the user's question. If the 
                     
                 projects_text += f"\nUse `/search project [number]` to find specific project documents."
             else:
-                projects_text = "📋 No projects found in the document index."
+                projects_text = "No projects found in the document index."
                 
             # Use Teams formatting for proper line breaks
             await self._send_teams_message(turn_context, projects_text)
             
         except Exception as e:
             logger.error("Projects list failed", error=str(e))
-            await turn_context.send_activity("❌ Error retrieving projects list")
+            await turn_context.send_activity("Error retrieving projects list")
 
     async def _handle_search(self, turn_context: TurnContext, query: str):
         """Handle search requests."""
         
         try:
             if not self.qa_service:
-                await turn_context.send_activity("❌ Search service unavailable")
+                await turn_context.send_activity("Search service unavailable")
                 return
             
             # Send typing indicator
@@ -564,11 +564,11 @@ Please analyze the uploaded documents in context of the user's question. If the 
             result = await self.qa_service.answer_question(f"Find documents about: {query}")
             
             if result['documents_searched'] == 0:
-                await turn_context.send_activity(f"🔍 No documents found for: **{query}**")
+                await turn_context.send_activity(f"No documents found for: **{query}**")
                 return
             
             # Format search results
-            response_text = f"🔍 **Search Results for:** {query}\n\n"
+            response_text = f"**Search Results for:** {query}\n\n"
             response_text += f"Found {result['documents_searched']} relevant documents:\n\n"
             
             for i, source in enumerate(result['sources'][:5], 1):
@@ -583,14 +583,14 @@ Please analyze the uploaded documents in context of the user's question. If the 
             
         except Exception as e:
             logger.error("Search failed", error=str(e), query=query)
-            await turn_context.send_activity(f"❌ Search failed: {str(e)}")
+            await turn_context.send_activity(f"Search failed: {str(e)}")
 
     async def _handle_question(self, turn_context: TurnContext, question: str):
         """Handle Q&A requests with conversational context."""
         
         try:
             if not self.qa_service:
-                await turn_context.send_activity("❌ Q&A service unavailable")
+                await turn_context.send_activity("Q&A service unavailable")
                 return
             
             # Send typing indicator
@@ -625,7 +625,7 @@ Please analyze the uploaded documents in context of the user's question. If the 
             
         except Exception as e:
             logger.error("Q&A failed", error=str(e), question=question)
-            await turn_context.send_activity(f"❌ Failed to answer question: {str(e)}")
+            await turn_context.send_activity(f"Failed to answer question: {str(e)}")
 
     async def _handle_project_scoping_analysis(self, turn_context: TurnContext, scoping_text: str):
         """Handle project scoping analysis requests."""
@@ -633,7 +633,7 @@ Please analyze the uploaded documents in context of the user's question. If the 
             logger.info("Processing project scoping analysis", text_length=len(scoping_text))
             
             # Send acknowledgment
-            status_message = MessageFactory.text("🔍 **Analyzing your project request...**\n\n" +
+            status_message = MessageFactory.text("**Analyzing your project request...**\n\n" +
                                                "• Extracting project characteristics\n" +
                                                "• Finding similar past projects\n" +
                                                "• Analyzing potential issues\n" +
@@ -646,7 +646,7 @@ Please analyze the uploaded documents in context of the user's question. If the 
             analysis_result = await self.project_scoping_service.analyze_project_request(scoping_text)
             
             if 'error' in analysis_result:
-                await turn_context.send_activity(f"❌ Analysis failed: {analysis_result.get('error', 'Unknown error')}")
+                await turn_context.send_activity(f"Analysis failed: {analysis_result.get('error', 'Unknown error')}")
                 return
             
             # Format and send the comprehensive analysis
@@ -657,12 +657,12 @@ Please analyze the uploaded documents in context of the user's question. If the 
             
         except Exception as e:
             logger.error("Project scoping analysis failed", error=str(e))
-            await turn_context.send_activity(f"❌ Failed to analyze project request: {str(e)}")
+            await turn_context.send_activity(f"Failed to analyze project request: {str(e)}")
 
     def _format_project_scoping_response(self, analysis_result: dict) -> str:
         """Format the project scoping analysis result for Teams display."""
         try:
-            response = "# 📋 Project Analysis Report\n\n"
+            response = "# Project Analysis Report\n\n"
             
             # Add the main analysis (from the project scoping service)
             if analysis_result.get('analysis'):
@@ -672,7 +672,7 @@ Please analyze the uploaded documents in context of the user's question. If the 
             # Add characteristics summary if available
             characteristics = analysis_result.get('characteristics', {})
             if characteristics and not characteristics.get('error'):
-                response += "## 📊 Project Characteristics\n\n"
+                response += "## Project Characteristics\n\n"
                 
                 if characteristics.get('project_type'):
                     response += f"**Type:** {characteristics['project_type']}\n"
@@ -692,7 +692,7 @@ Please analyze the uploaded documents in context of the user's question. If the 
             # Add similar projects summary
             similar_projects = analysis_result.get('similar_projects', [])
             if similar_projects:
-                response += f"## 🔍 Found {len(similar_projects)} Similar Projects\n\n"
+                response += f"## Found {len(similar_projects)} Similar Projects\n\n"
                 for i, project in enumerate(similar_projects[:3], 1):  # Top 3
                     title = project.get('title', 'Unknown Project')
                     project_id = project.get('project', 'N/A')
