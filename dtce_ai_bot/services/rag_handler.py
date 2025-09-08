@@ -567,138 +567,52 @@ Please try rephrasing your question or contact support if the issue persists."""
                 documents = await self._search_specific_folder(question, folder_type)
                 retrieved_content = self._format_documents_content(documents) if documents else ""
             
-            # Build a universal ChatGPT-style prompt that can handle anything
-            prompt = f"""You are DTCE AI Assistant - a comprehensive AI assistant like ChatGPT, but with access to DTCE's internal documents and expertise.
+            # Create prompt for smart DTCE colleague who knows everything
+            prompt = f"""You are a senior engineer at DTCE who has perfect knowledge of everything in SuiteFiles and can also provide general engineering advice.
 
-USER QUESTION: "{question}"
+ENGINEER'S QUESTION: "{question}"
 
-TOPIC AREA: {search_strategy.get('topic_area', 'General inquiry')}
-SEARCH CONTEXT: {search_strategy.get('search_context', 'General knowledge')}
+RELEVANT SUITEFILES INFORMATION:
+{retrieved_content[:3000] if retrieved_content else "No specific documents found in SuiteFiles for this query."}
 
-{f"RELEVANT DTCE DOCUMENTS FOUND:" if retrieved_content else ""}
-{retrieved_content[:2000] if retrieved_content else ""}
+YOUR ROLE:
+- You are an experienced DTCE engineer who knows all our documents, procedures, past projects, and standards
+- Answer questions like a knowledgeable colleague would - naturally and helpfully
+- Use information from SuiteFiles when it's relevant
+- Provide general engineering advice when the question is about general topics
+- Combine both DTCE knowledge and general expertise when appropriate
 
-Instructions:
-- Answer the question naturally and comprehensively like ChatGPT would
-- If you found relevant DTCE documents, incorporate that information
-- If it's about DTCE policies, procedures, projects, or standards - use the documents
-- If it's general knowledge - answer from your training
-- Be helpful, accurate, and conversational
-- Provide practical guidance when appropriate
+SMART QUESTION ANALYSIS:
+1. **DTCE-specific questions** (policies, procedures, past projects, DTCE standards): Use SuiteFiles information primarily
+2. **General engineering questions** (design principles, NZ Standards, general advice): Use your engineering knowledge primarily  
+3. **Mixed questions** (how DTCE does something + general best practices): Combine both sources
 
-Answer the user's question directly and helpfully:
+RESPONSE STYLE:
+- Talk like a helpful, knowledgeable colleague
+- Be practical and give actionable advice
+- If SuiteFiles has relevant info, mention it naturally in your response
+- If it's a general question, just answer from your engineering knowledge
+- Don't overthink it - just be helpful and smart
 
-USER QUESTION: "{question}"
+Answer the engineer's question:"""
 
-ENHANCED ADVISORY INSTRUCTIONS:
-1. **Comprehensive Engineering Advice**: Beyond just document content, provide engineering analysis and professional recommendations
-2. **Project Lessons Integration**: Analyze past project findings and extract practical lessons learned for current application
-3. **Risk Awareness**: Identify potential issues, warnings, and cautionary advice based on past project experiences
-4. **Standards Integration**: Combine SuiteFiles documents, general engineering knowledge, and NZ Standards (NZS) requirements
-5. **Advisory Tone**: Act as a senior consulting engineer providing guidance, not just information retrieval
-6. **General Guidelines**: Always include applicable general engineering principles and best practices
-7. **Past Project Analysis**: When referencing past projects, provide engineering insights and recommendations
-8. **Superseded Content Handling**: If superseded documents are included, clearly flag them as outdated and explain current best practice
-9. **Client Issue Detection**: Extract and prominently highlight any client complaints, issues, or satisfaction problems
-10. **Engineering Failure Analysis**: Identify what went wrong in past projects and how to prevent similar issues
-
-RESPONSE STRUCTURE:
-**Direct Answer**: Address the specific question with document-based information
-
-**DTCE Project Experience & Findings**: 
-- Summarize key findings from past DTCE projects rather than just listing links
-- Extract practical insights and outcomes from project documents
-- Highlight successful approaches and methodologies that worked well
-- Include specific project examples with engineering insights (not just job numbers)
-
-**Critical Warnings & Issues**: 
-- ALWAYS look for and highlight any problems, failures, client complaints, issues, or challenges mentioned in the documents
-- Extract specific problems encountered in past projects and explain the technical causes
-- Identify design approaches that caused issues or were superseded for safety/performance reasons
-- Flag any regulatory compliance issues or standard violations
-- Warn about approaches that led to client dissatisfaction or project problems
-
-**Lessons Learned Analysis**:
-- Extract key takeaways from project outcomes (both successful and problematic)
-- Analyze what worked well vs what caused problems with technical explanations
-- Identify patterns in successful vs unsuccessful approaches
-- Document client feedback and satisfaction issues with recommended improvements
-- Provide "what to do" and "what NOT to do" guidance based on past experience
-
-**Engineering Best Practices & General Guidelines**: 
-- Provide general engineering guidelines and standards (including NZ Standards where relevant)
-- Reference current industry best practices and compliance requirements
-- Include regulatory requirements and code compliance guidance
-- Offer general design principles that apply beyond the specific query
-- Connect general engineering knowledge with document-specific findings
-
-**Combined Knowledge Response**: 
-- Integrate SuiteFiles project data with general engineering knowledge
-- Reference relevant NZ Standards (NZS 3101, 3404, 1170, etc.) where applicable
-- Combine DTCE's practical experience with theoretical engineering principles
-- Provide comprehensive guidance that draws from both sources
-
-**Professional Recommendations**: 
-- Give specific advisory guidance based on DTCE's experience and general engineering practice
-- Suggest preventive measures to avoid past problems and common pitfalls
-- Recommend verification approaches, quality assurance measures, and risk mitigation
-- Provide actionable next steps and decision-making guidance
-- Include risk assessment and recommendation priorities
-
-**Supporting Documentation**: Include relevant SuiteFiles links and references
-
-TONE AND APPROACH:
-- Professional consulting engineer providing expert advice
-- Proactive identification of potential issues and solutions
-- Integration of theoretical knowledge with practical project experience
-- Warning about common pitfalls and client satisfaction issues when relevant
-- Actionable recommendations that prevent problems
-
-CRITICAL ADVISORY ANALYSIS REQUIREMENTS:
-- **Issue Detection**: Scan documents for keywords like "problem", "issue", "failure", "complaint", "redesign", "rework", "delay", "cost overrun", "client unhappy", "dispute", "non-compliance", "rejected"
-- **Warning Extraction**: Look for phrases like "avoid", "do not", "caution", "warning", "superseded", "outdated", "dangerous", "non-compliant", "not recommended", "problematic"
-- **Lessons Analysis**: Extract statements about "learned", "experience shows", "found that", "discovered", "realized", "should have", "mistake", "error", "would recommend", "next time"
-- **Client Feedback**: Identify any mentions of client satisfaction, complaints, change requests, project relationship issues, communication problems, or satisfaction surveys
-- **Technical Problems**: Highlight design errors, calculation mistakes, material failures, construction issues, performance problems, or regulatory non-compliance
-- **Standards Evolution**: Note where old approaches have been superseded by new standards, better practices, or updated regulations
-- **Success Factor Analysis**: Extract what made projects successful and why certain approaches worked well
-- **Cost and Time Issues**: Identify budget overruns, schedule delays, and efficiency problems with their causes
-
-MANDATORY ADVISORY BEHAVIORS:
-- If documents mention ANY problems or issues, these MUST be highlighted prominently and analyzed for root causes
-- If documents show superseded or outdated approaches, these MUST be flagged with clear warnings and current alternatives provided
-- Any client complaints or satisfaction issues MUST be extracted, analyzed, and used to provide preventive guidance
-- Failed approaches or problematic designs MUST be explained as lessons learned with specific technical recommendations
-- Current best practices MUST be contrasted with past problematic approaches, explaining why changes were made
-- When referencing past projects, provide engineering insights and analysis, not just project lists or links
-- Combine document findings with general engineering knowledge and NZ Standards where relevant
-- Always include general guidelines that apply beyond the specific question asked
-- Provide actionable recommendations that prevent repetition of past problems
-- Extract and summarize key project findings rather than directing users to read documents themselves
-
-Here are the relevant DTCE documents and project records:
-
-{retrieved_content}
-
-Based on the above documents and DTCE's engineering expertise, provide a comprehensive advisory response that combines document information with professional engineering guidance, lessons learned, and practical recommendations:"""
-
-            # Generate comprehensive response with higher token limit
+            # Generate response as smart DTCE colleague
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=[
                     {
                         "role": "system", 
-                        "content": "You are DTCE AI Assistant, a senior engineering advisor that provides comprehensive engineering guidance. You combine document knowledge with professional engineering analysis, lessons learned from past projects, risk assessment, and practical recommendations. You reference NZ Standards, identify potential issues, and provide advisory guidance to prevent problems and ensure successful project outcomes."
+                        "content": "You are a senior engineer at DTCE with comprehensive knowledge of all company documents, procedures, and past projects in SuiteFiles. You also have expert general engineering knowledge. Answer questions naturally like a helpful, experienced colleague would. Be practical, knowledgeable, and provide actionable advice."
                     },
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3,  # Balanced for advisory recommendations
-                max_tokens=3000   # Increased for comprehensive advisory responses with lessons learned
+                temperature=0.3,  # Balanced for natural but consistent advice
+                max_tokens=2500   # Adequate for comprehensive engineering advice
             )
             
             answer = response.choices[0].message.content
             
-            # Format sources
+            # Format sources for display
             sources = []
             for doc in documents[:5]:
                 filename = doc.get('filename', 'Unknown')
@@ -714,170 +628,14 @@ Based on the above documents and DTCE's engineering expertise, provide a compreh
                     source_entry['link'] = suitefiles_link
                     
                 sources.append(source_entry)
-            
-            # This was the simple prompt system - but we want to use the advanced one below
-            # return {
-            #     'answer': answer,
-            #     'sources': sources,
-            #     'confidence': 'high' if len(documents) > 0 else 'low',
-            #     'documents_searched': len(documents)
-            # }
-            
-            # Build the advanced prompt with formatting instructions
-            prompt = "You are an expert assistant helping with DTCE engineering document queries.\n\n"
-            prompt += "- Example: 'DTCE has worked with [Client] on the following projects: [list with details]'\n\n"
-            
-            prompt += "SMART FOLDER UNDERSTANDING - Let the semantic search find everything, then be intelligent:\n\n"
-            prompt += "**ANALYZE THE QUESTION TYPE**:\n"
-            prompt += "- **Policy questions** (safety, compliance, must follow): Prioritize H&S/, IT/, Employment/, Quality/ folder documents\n"
-            prompt += "- **Procedure questions** (how to, best practice): Prioritize H2H/, How-to/, Procedure/ folder documents\n"
-            prompt += "- **Standards questions** (codes, NZS, regulations): Prioritize Engineering/, Standards/, NZ*/ folder documents\n"
-            prompt += "- **Project questions** (past work, examples): Prioritize Project/, 22*/, client/ folder documents\n"
-            prompt += "- **Client questions** (contacts, history): Look in Project/ folders for client information\n\n"
-            
-            prompt += "**BE SMART ABOUT RELEVANCE**:\n"
-            prompt += "- If user asks about H&S policy, focus on documents from H&S folders even if other documents mention safety\n"
-            prompt += "- If user asks about past precast projects, focus on Project/ folder documents about precast work\n"
-            prompt += "- If user asks about wind load calculations, prioritize Standards/ and H2H/ documents over random project mentions\n"
-            prompt += "- Use your intelligence to determine what's actually answering their question vs just keyword matches\n\n"
-            
-            prompt += "Based on your determination, follow these linking guidelines:\n\n"
-            prompt += "IF SUITEFILES KNOWLEDGE (especially if contains \"we\"/\"our\"/\"DTCE\"): Use the retrieved SuiteFiles content and ALWAYS include SuiteFiles links\n"
-            prompt += "IF GENERAL KNOWLEDGE ONLY: Provide general engineering knowledge and include relevant online links\n"
-            prompt += "IF BOTH: Include both SuiteFiles links for relevant documents AND online links for general knowledge aspects\n"
-            prompt += "IF NEITHER/UNCLEAR: Default to providing BOTH SuiteFiles links AND online resources\n\n"
-            prompt += "Your task is to:\n"
-            prompt += "1. FIRST determine the user's intent based on language indicators above\n"
-            prompt += "2. Analyze the retrieved content I'm providing below from SuiteFiles\n"
-            prompt += "3. **EVALUATE RELEVANCE**: Determine if the primary search results actually help answer the user's question\n"
-            prompt += "4. **IF PRIMARY RESULTS ARE GOOD**: Use them to provide a comprehensive answer\n"
-            prompt += "5. **CRITICAL FORMATTING RULE**: Format your response with proper paragraph breaks and readable structure. DO NOT dump everything in one long run-on sentence or paragraph!\n"
-            prompt += "6. **Use intelligent judgment**: Include 'Alternative that might be helpful' and 'General Engineering Guidance' sections only when they add genuine value to the user's question\n"
-            prompt += "7. **IF PRIMARY RESULTS DON'T MAKE SENSE**: Provide intelligent alternatives:\n"
-            prompt += "   - Look through ALL the retrieved content for any documents that might be relevant (even from 'ignored' folders)\n"
-            prompt += "   - Label these clearly as 'Alternative from SuiteFiles:'\n"
-            prompt += "   - Also provide 'General Engineering Guidance:' using your knowledge\n"
-            prompt += "   - Explain why the primary search wasn't perfect\n"
-            prompt += "8. For COMPLEX ANALYSIS QUESTIONS (scenarios, lessons learned, cost insights, comparisons):\n"
-            prompt += "   - Search across multiple projects to find patterns and examples\n"
-            prompt += "   - Aggregate information from similar projects or situations\n"
-            prompt += "   - Summarize trends, common issues, and solutions\n"
-            prompt += "   - Provide specific project examples with SuiteFiles links\n"
-            prompt += "   - Extract quantitative data when available (costs, timelines, specifications)\n"
-            prompt += "7. Apply the correct linking strategy consistently throughout your response\n"
-            prompt += "8. Always be comprehensive - if in doubt, include both types of resources\n\n"
-            prompt += "SPECIAL HANDLING FOR PROJECT & CLIENT QUERIES (Most Complex):\n"
-            prompt += "Project data is less structured, so use these strategies:\n\n"
-            prompt += "**For PROJECT REFERENCE queries:**\n"
-            prompt += "- Look for project numbers (225xxx, 224xxx, etc.) to identify specific projects\n"
-            prompt += "- Extract client names, addresses, project scope from document names and content\n"
-            prompt += "- Look for quantitative data: total hours, costs, timelines, specifications\n"
-            prompt += "- Identify lessons learned, challenges encountered, solutions used\n"
-            prompt += "- Compare similar projects to find patterns and best practices\n"
-            prompt += "- Include folder structure context: Projects/[year]/[project_number]/[document_type]\n\n"
-            prompt += "**For CLIENT REFERENCE queries:**\n"
-            prompt += "- Aggregate all projects for a specific client across multiple years\n"
-            prompt += "- Look for contact details in project documents\n"
-            prompt += "- Summarize relationship history and project types\n"
-            prompt += "- Include most recent contact information found\n\n"
-            prompt += "**Project Data Structure Understanding:**\n"
-            prompt += "- DTCE uses folder structure: Projects/[3-digit year]/[6-digit project number]/[document folders]\n"
-            prompt += "- Example: Projects/225/225123/01 Admin Documents/ contains project admin files\n"
-            prompt += "- Example: Projects/224/224567/03 Drawings/ contains project drawings\n"
-            prompt += "- Extract project details from folder names and document titles when content is limited\n\n"
-            prompt += "Reference Example (rag.txt)\n"
-            prompt += "You may refer to the following example file — rag.txt — which contains example question-answer formats showing how the AI could respond to different structural engineering and project-related queries.\n"
-            prompt += "However, do not copy from this file or rely on its content directly. It is only a reference to help you understand the style and expectations of the response. You must still follow the actual question, the user's intent, and the retrieved documents.\n\n"
-            prompt += "Retrieved content from SuiteFiles:\n" + retrieved_content + "\n\n"
-            
-            prompt += "==== MANDATORY RESPONSE FORMAT ====\n"
-            prompt += "CRITICAL: Format your response with proper paragraph breaks and readable structure. DO NOT dump everything in one long paragraph!\n\n"
-            prompt += "Use this format:\n"
-            prompt += "1. Start with a clear introductory sentence\n"
-            prompt += "2. Break information into separate paragraphs for readability\n"
-            prompt += "3. Use bullet points or numbered lists when listing multiple items\n"
-            prompt += "4. Add line breaks between different concepts or sections\n\n"
-            prompt += "SPECIAL RULE FOR PROJECT QUERIES: When users ask for 'past projects', 'project examples', or 'projects about X':\n"
-            prompt += "- ALWAYS extract and mention the PROJECT NUMBER/JOB NUMBER from document names or content\n"
-            prompt += "- Format as: 'Project 224001', 'Job 22345', 'Project Number 23042', etc.\n"
-            prompt += "- Users need specific project references they can look up, not generic technical documents\n\n"
-            prompt += "RESPONSE STRUCTURE:\n"
-            prompt += "1. Start with your answer (NO document references first)\n"
-            prompt += "2. Break content into readable paragraphs with proper spacing\n"
-            prompt += "3. ALWAYS provide comprehensive sources section with this EXACT format:\n\n"
-            prompt += "**Primary Sources:** (If documents contain relevant information)\n"
-            prompt += "- **[Document Name] (Project XXXXX)**: [QUOTE specific procedures, requirements, dates, numbers, or key content from this document. For example: 'Contains the lockout/tagout procedure requiring 3-step verification' or 'Specifies infection control measures implemented April 1, 2021 including mandatory temperature checks' or 'Lists the required PPE for electrical work: safety glasses, hard hat, and insulated gloves']\n"
-            prompt += "  SuiteFiles Link: [[Document Filename]](EXACT_URL_FROM_LINK_FIELD)\n"
-            prompt += "  NOTE: If a document shows 'Project: Project XXXXX' in the retrieved content, include the project number in parentheses after the document name. If no project information is shown, just use **[Document Name]**:\n\n"
-            prompt += "**Alternative that might be helpful:** (Include only if there are other relevant documents that add useful context)\n"
-            prompt += "- **[Document Name] (Project XXXXX)**: [QUOTE or describe specific sections/content that provide background or related information. For example: 'Section 3.2 covers site safety protocols for contaminated soil' or 'Contains the emergency contact procedures and evacuation routes for the Auckland office']\n"
-            prompt += "  SuiteFiles Link: [[Document Filename]](EXACT_URL_FROM_LINK_FIELD)\n"
-            prompt += "  NOTE: Include project number if available in the retrieved content\n\n"
-            prompt += "**General Engineering Guidance:** (Include when relevant standards, codes, or guidance apply)\n"
-            prompt += "- [Resource]: [SPECIFIC standards, codes, or guidance that directly relate to the question]\n\n"
-            prompt += "EXAMPLES OF GOOD vs BAD descriptions:\n"
-            prompt += "BAD: 'Details DTCE's commitment to health and safety'\n"
-            prompt += "GOOD: 'Specifies the updated infection control measures effective April 1, 2021, including site access restrictions, mandatory hand sanitizing, and social distancing requirements for project meetings'\n"
-            prompt += "BAD: 'Contains safety information'\n"
-            prompt += "GOOD: 'Section 4.1 outlines the electrical safety lockout/tagout procedure requiring three-point verification and supervisor sign-off before re-energizing circuits'\n\n"
-            prompt += "NEVER use generic phrases like 'commitment to', 'outlines', 'details', 'highlights' - instead describe the ACTUAL CONTENT!\n\n"
-            prompt += "FORMATTING EXAMPLES - GOOD vs BAD:\n"
-            prompt += "BAD FORMATTING (one long paragraph):\n"
-            prompt += "The wellness policy at Don Thomson Consulting Engineers (DTCE) is detailed in the \"Health and Safety Policy\" document. Here is the specific content related to the wellness policy: \"DTCE Ltd. takes its Health and Safety responsibilities very seriously and is continuing its efforts to eliminate, isolate, and minimise risk. Safety in Design has become a priority for DTCE, and we continue to liaise with clients and designers throughout the entire design process to consider all relevant risk associated with projects we undertake.\" Additionally, the document states: \"DTCE is committed to the protection of its employees, its property and other people from accidental injury or damage from work conditions.\"\n\n"
-            prompt += "GOOD FORMATTING (proper paragraph breaks):\n"
-            prompt += "The wellness policy at Don Thomson Consulting Engineers (DTCE) is detailed in the \"Health and Safety Policy\" document.\n\n"
-            prompt += "Key aspects of DTCE's wellness policy include:\n\n"
-            prompt += "- **Risk Management**: DTCE takes its Health and Safety responsibilities very seriously and is continuing its efforts to eliminate, isolate, and minimise risk.\n\n"
-            prompt += "- **Safety in Design**: This has become a priority for DTCE, with ongoing liaison with clients and designers throughout the entire design process to consider all relevant risk associated with projects.\n\n"
-            prompt += "- **Employee Protection**: DTCE is committed to the protection of its employees, its property and other people from accidental injury or damage from work conditions.\n\n"
-            prompt += "CRITICAL: ONLY use the EXACT SuiteFiles links provided in the retrieved content above. DO NOT construct your own links or modify the provided URLs. If a document is mentioned in the retrieved content, use its exact link. If no link is provided for a document in the retrieved content, do not include it in your sources.\n\n"
-            prompt += "CRITICAL RULES FOR COMPREHENSIVE RESPONSES:\n"
-            prompt += "1. NEVER write '[Link not provided in the retrieved content]' - this is FORBIDDEN\n"
-            prompt += "2. NEVER write 'SuiteFiles Link: [link]' - this is FORBIDDEN\n"
-            prompt += "3. Include 'Primary Sources' section if any relevant documents are retrieved\n"
-            prompt += "4. Include 'Alternative that might be helpful' ONLY if there are genuinely useful related documents\n"
-            prompt += "5. Include 'General Engineering Guidance' ONLY when relevant standards or codes apply\n"
-            prompt += "6. Provide DETAILED responses but don't force sections that don't add value\n"
-            prompt += "7. ALWAYS use Markdown link format: [Document Filename](exact_url)\n"
-            prompt += "8. Extract the filename from the document name and use it as the link text\n"
-            prompt += "9. If you cannot find a 'Link: https://...' for a document, DO NOT include that document\n"
-            prompt += "10. EXAMPLE: If you see 'DOCUMENT: Health & Safety Policy.pdf' and 'Link: https://dtcestorage.blob.core.windows.net/suitefiles/Health%20%26%20Safety%20Policy.pdf', format as: [Health & Safety Policy.pdf](https://dtcestorage.blob.core.windows.net/suitefiles/Health%20%26%20Safety%20Policy.pdf)\n\n"
-            prompt += "LINK EXAMPLES - DO THIS:\n"
-            prompt += "CORRECT: SuiteFiles Link: [Health & Safety Policy.pdf](https://dtcestorage.blob.core.windows.net/suitefiles/Health%20%26%20Safety%20Policy.pdf)\n"
-            prompt += "WRONG: SuiteFiles Link: [link]\n"
-            prompt += "WRONG: SuiteFiles Link: https://dtcestorage.blob.core.windows.net/suitefiles/Health%20%26%20Safety%20Policy.pdf\n"
-            prompt += "WRONG: SuiteFiles Link: [Link not provided in the retrieved content]\n\n"
-            prompt += "ABSOLUTE RULE - NO DOCUMENT HALLUCINATION:\n"
-            prompt += "You MUST ONLY reference documents that appear in the 'Retrieved content from SuiteFiles' section above.\n"
-            prompt += "Each document in the retrieved content starts with 'DOCUMENT: [exact filename]'.\n"
-            prompt += "You are FORBIDDEN from inventing, creating, or mentioning any document names that do not appear in the retrieved content.\n"
-            prompt += "If you reference a document, it MUST be copied EXACTLY from a 'DOCUMENT: [filename]' line above.\n"
-            prompt += "DO NOT create or assume the existence of any documents that are not explicitly listed in the retrieved content.\n\n"
-            
-            # Send the full prompt directly to GPT instead of using the secondary prompt system
-            try:
-                response = await self.openai_client.chat.completions.create(
-                    model=self.model_name,
-                    messages=[
-                        {"role": "user", "content": prompt}
-                    ],
-                    max_tokens=1500,
-                    temperature=0.3
-                )
-                
-                answer = response.choices[0].message.content.strip()
-                
-            except Exception as e:
-                logger.error("GPT response generation failed", error=str(e))
-                answer = f"I encountered an error generating the response: {str(e)}"
-            
+
             return {
                 'answer': answer,
-                'sources': self._format_sources(documents) if documents else [],
-                'confidence': 'high',  # High confidence for comprehensive RAG responses
+                'sources': sources,
+                'confidence': 'high',  # High confidence for ChatGPT-style responses
                 'documents_searched': len(documents),
-                'rag_type': 'comprehensive_conversational_rag',
-                'response_type': 'detailed_synthesis'
+                'rag_type': 'chatgpt_conversational',
+                'response_type': 'natural_conversation'
             }
                 
         except Exception as e:
@@ -1485,41 +1243,588 @@ Respond naturally as DTCE AI Assistant would in conversation."""
             }
 
     async def universal_ai_assistant(self, question: str) -> Dict[str, Any]:
-        """Universal ChatGPT-style AI assistant that can handle ANY topic.
+        """Universal AI assistant that follows the 5 DTCE prompt categories.
         
-        Intelligently routes to:
-        - DTCE document search (with job numbers and links)
-        - External web search for forums/products
-        - Database search for clients/builders
-        - Pure AI knowledge for general questions
+        Routes questions to the correct DTCE prompt category:
+        1. Policy Prompt (H&S, IT policies)
+        2. Technical & Admin Procedures (H2H handbooks)  
+        3. NZ Engineering Standards
+        4. Project Reference
+        5. Client Reference
+        6. General Engineering (no DTCE search)
         """
         try:
-            # Let AI analyze what type of information is needed
-            routing_analysis = await self._analyze_information_needs(question)
+            # STEP 1: Classify into one of the 5 DTCE prompt categories
+            strategy = await self._determine_search_strategy(question)
             
-            logger.info(f"AI routing analysis: {routing_analysis}")
+            logger.info(f"DTCE Prompt Category: {strategy.get('prompt_category')}", 
+                       reasoning=strategy.get('reasoning'))
             
-            # Handle different types of information needs
-            if routing_analysis.get('needs_database_search', False):
-                # Search client/builder database
-                return await self._handle_database_search(question, routing_analysis)
+            # STEP 2: Handle based on category
+            if strategy.get('prompt_category') == 'general_engineering':
+                # General engineering - no DTCE search needed
+                return await self._provide_general_engineering_advice(question)
                 
-            elif routing_analysis.get('needs_web_search', False):
-                # Search external web for forums, products, etc.
-                return await self._handle_web_search(question, routing_analysis)
-                
-            elif routing_analysis.get('needs_dtce_documents', False):
-                # Search DTCE documents with enhanced features
-                return await self._handle_dtce_document_search(question, routing_analysis)
+            elif strategy.get('needs_dtce_search', False):
+                # Search DTCE SuiteFiles using category-specific logic
+                return await self._search_dtce_by_category(question, strategy)
                 
             else:
-                # General ChatGPT-style response
-                return await self._generate_general_ai_response(question, routing_analysis)
+                # Fallback to general advice if unsure
+                return await self._provide_general_engineering_advice(question)
                 
         except Exception as e:
             logger.error("Universal AI assistant failed", error=str(e), question=question)
-            import traceback
-            logger.error("Full traceback", traceback=traceback.format_exc())
+            return await self._handle_ai_error(question, str(e))
+
+    async def _search_dtce_by_category(self, question: str, strategy: Dict[str, Any]) -> Dict[str, Any]:
+        """Search DTCE SuiteFiles based on the specific prompt category."""
+        try:
+            category = strategy.get('prompt_category')
+            search_folders = strategy.get('search_folders', [])
+            
+            logger.info(f"Searching DTCE for {category}", folders=search_folders)
+            
+            # Perform semantic search (the search service will handle folder filtering)
+            documents = await self.semantic_search.search_documents(question)
+            
+            if documents:
+                # Filter documents by category if needed
+                filtered_docs = self._filter_documents_by_category(documents, category, search_folders, question)
+                
+                if filtered_docs:
+                    # Generate category-specific response
+                    return await self._generate_category_response(question, filtered_docs, category)
+                else:
+                    # No relevant documents found for this category
+                    return await self._handle_no_category_documents(question, category)
+            else:
+                # No documents found at all
+                return await self._handle_no_category_documents(question, category)
+                
+        except Exception as e:
+            logger.error("DTCE category search failed", error=str(e))
+            return await self._handle_ai_error(question, str(e))
+
+    def _filter_documents_by_category(self, documents: List[Dict], category: str, search_folders: List[str], question: str = "") -> List[Dict]:
+        """Filter documents to match the specific DTCE prompt category with superseded document intelligence."""
+        if not search_folders:
+            return documents  # No specific filtering needed
+        
+        # Check if user specifically asks for superseded/old documents
+        include_superseded = any(term in question.lower() for term in ['superseded', 'old', 'previous', 'outdated', 'history', 'supersede'])
+            
+        filtered = []
+        superseded_docs = []
+        
+        for doc in documents:
+            filename = doc.get('filename', '').lower()
+            blob_url = doc.get('blob_url', '').lower()
+            
+            # Check for superseded/old documents
+            is_superseded = any(term in filename or term in blob_url for term in ['superseded', 'superceded', 'old', 'archive', 'obsolete', 'outdated'])
+            
+            # Check if document matches the category folders
+            matches_category = False
+            
+            if category == 'policy':
+                # Policy documents: H&S, IT, Employment folders
+                if any(folder in blob_url for folder in ['h&s', 'health', 'safety', 'it/', 'employment', 'policy']):
+                    matches_category = True
+                    
+            elif category == 'procedures':
+                # Procedures: H2H handbooks, How-to guides
+                if any(folder in blob_url for folder in ['h2h', 'how-to', 'procedure', 'handbook']):
+                    matches_category = True
+                    
+            elif category == 'nz_standards':
+                # NZ Standards: Engineering codes and standards
+                if any(folder in blob_url for folder in ['nz', 'standard', 'code', 'nzs']):
+                    matches_category = True
+                    
+            elif category == 'project_reference':
+                # Project documents: Project folders
+                if any(folder in blob_url for folder in ['project', '/22', '/23', '/24', '/25']):
+                    matches_category = True
+                    
+            elif category == 'client_reference':
+                # Client information: Usually in project folders
+                if any(folder in blob_url for folder in ['project', '/22', '/23', '/24', '/25']):
+                    matches_category = True
+            
+            if matches_category:
+                if is_superseded:
+                    superseded_docs.append(doc)
+                else:
+                    filtered.append(doc)
+        
+        # Combine current and superseded documents based on user request
+        if include_superseded:
+            # User specifically asked for superseded content
+            result = filtered[:8] + superseded_docs[:2]  # Mix current and superseded
+        else:
+            # Normal operation - prefer current documents but include superseded if no current ones
+            result = filtered[:10] if filtered else superseded_docs[:5]
+                
+        return result
+
+    async def _generate_category_response(self, question: str, documents: List[Dict], category: str) -> Dict[str, Any]:
+        """Generate advisory response specific to the DTCE prompt category with enhanced intelligence."""
+        try:
+            # Format documents content
+            retrieved_content = self._format_documents_content(documents)
+            
+            # Check if superseded documents should be included
+            include_superseded = any(term in question.lower() for term in ['superseded', 'old', 'previous', 'outdated', 'history', 'supersede'])
+            
+            # Create enhanced category-specific prompts with advisory features
+            if category == 'policy':
+                system_prompt = """You are a senior DTCE policy advisor and engineering consultant. Provide authoritative policy guidance with comprehensive advisory context."""
+                
+                user_prompt = f"""USER QUESTION: "{question}"
+
+DTCE POLICY DOCUMENTS:
+{retrieved_content[:2500]}
+
+ENHANCED ADVISORY RESPONSE REQUIRED:
+
+**1. POLICY ANSWER**: Provide clear policy information from DTCE documents
+
+**2. ADVISORY ANALYSIS**: 
+- Scan for any compliance issues, client complaints, or enforcement problems in the documents
+- Identify any policy violations or non-compliance mentioned in past projects
+- Look for phrases like "non-compliant", "violation", "breach", "client complaint", "issue", "problem"
+
+**3. SUPERSEDED CONTENT WARNINGS**:
+{'- Include superseded/outdated policies if mentioned, but clearly mark them as OUTDATED with current alternatives' if include_superseded else '- Flag any outdated policies and provide current alternatives'}
+
+**4. LESSONS LEARNED & WARNINGS**:
+- Extract any policy failures or problems mentioned in the documents
+- Identify what went wrong and how to prevent policy breaches
+- Provide "DO" and "DON'T" guidance based on past issues
+
+**5. GENERAL GUIDELINES**: Combine DTCE policies with:
+- General NZ health & safety standards
+- Industry best practices for engineering firms
+- Regulatory compliance requirements
+
+**6. COMBINED KNOWLEDGE**: Integrate DTCE policies with general engineering standards and NZ regulations"""
+                
+            elif category == 'procedures':
+                system_prompt = """You are a senior DTCE procedures advisor and engineering consultant. Provide practical procedural guidance with comprehensive advisory context."""
+                
+                user_prompt = f"""USER QUESTION: "{question}"
+
+DTCE PROCEDURE DOCUMENTS (H2H Handbooks):
+{retrieved_content[:2500]}
+
+ENHANCED ADVISORY RESPONSE REQUIRED:
+
+**1. PROCEDURAL ANSWER**: Provide step-by-step guidance from DTCE H2H handbooks
+
+**2. ADVISORY ANALYSIS**:
+- Scan for procedural failures, errors, or inefficiencies mentioned in documents
+- Look for phrases like "error", "mistake", "rework", "delay", "problem", "issue", "better approach"
+
+**3. SUPERSEDED PROCEDURES**:
+{'- Include old procedures if mentioned, but clearly mark as OUTDATED with current best practices' if include_superseded else '- Flag any outdated procedures and explain current methods'}
+
+**4. LESSONS LEARNED & PROCESS IMPROVEMENTS**:
+- Extract what procedures caused problems or were improved
+- Identify why procedures were changed or updated
+- Provide efficiency tips and common pitfalls to avoid
+
+**5. GENERAL GUIDELINES**: Combine DTCE procedures with:
+- Industry standard engineering practices
+- NZ engineering workflow standards
+- Quality assurance best practices
+
+**6. COMBINED KNOWLEDGE**: Integrate DTCE procedures with general engineering methodologies and standards"""
+                
+            elif category == 'nz_standards':
+                system_prompt = """You are a senior NZ engineering standards expert and regulatory advisor. Provide comprehensive standards guidance with advisory context."""
+                
+                user_prompt = f"""USER QUESTION: "{question}"
+
+NZ ENGINEERING STANDARDS DOCUMENTS:
+{retrieved_content[:2500]}
+
+ENHANCED ADVISORY RESPONSE REQUIRED:
+
+**1. STANDARDS ANSWER**: Provide detailed NZ standards information with specific clause references
+
+**2. ADVISORY ANALYSIS**:
+- Identify any standards violations or non-compliance issues mentioned
+- Look for phrases like "non-compliant", "does not meet", "violation", "breach", "updated standard"
+
+**3. SUPERSEDED STANDARDS**:
+{'- Include superseded standards if mentioned, but clearly mark as OUTDATED with current versions' if include_superseded else '- Flag any outdated standards and provide current versions'}
+
+**4. COMPLIANCE WARNINGS & GUIDANCE**:
+- Highlight critical compliance requirements
+- Identify common non-compliance issues and how to avoid them
+- Provide verification and checking procedures
+
+**5. GENERAL GUIDELINES**: Combine NZ standards with:
+- International engineering standards (where applicable)
+- Building Code requirements
+- Industry best practice interpretations
+
+**6. COMBINED KNOWLEDGE**: Integrate specific NZ standards with general engineering principles and global standards"""
+                
+            elif category == 'project_reference':
+                system_prompt = """You are a senior DTCE project advisor and engineering consultant. Provide comprehensive project analysis with advisory insights rather than just links."""
+                
+                user_prompt = f"""USER QUESTION: "{question}"
+
+DTCE PROJECT DOCUMENTS:
+{retrieved_content[:2500]}
+
+ENHANCED ADVISORY RESPONSE REQUIRED:
+
+**1. PROJECT SUMMARY**: Summarize findings from projects rather than just providing links
+
+**2. CRITICAL ISSUE ANALYSIS**:
+- SCAN FOR CLIENT COMPLAINTS: Look for "client unhappy", "complaint", "dissatisfied", "issue", "problem", "change request", "dispute"
+- IDENTIFY PROJECT PROBLEMS: Look for "delay", "cost overrun", "rework", "error", "redesign", "failure", "non-compliant"
+- EXTRACT CLIENT FEEDBACK: Any mentions of client satisfaction issues, communication problems, or relationship challenges
+
+**3. SUPERSEDED APPROACHES**:
+{'- Include old design approaches if mentioned, explaining why they were superseded' if include_superseded else '- Flag any outdated design approaches and explain current best practices'}
+
+**4. LESSONS LEARNED & ENGINEERING INSIGHTS**:
+- Analyze what worked well vs what caused problems with technical explanations
+- Extract specific engineering lessons: "learned that", "discovered", "found that", "should have", "next time"
+- Identify successful vs unsuccessful approaches with reasons
+- Provide "what to DO" and "what NOT to do" based on project experience
+
+**5. PROJECT ADVISORY GUIDANCE**:
+- Risk assessment based on past project issues
+- Preventive measures for common project problems
+- Quality assurance recommendations
+- Client relationship best practices
+
+**6. GENERAL GUIDELINES**: Combine DTCE project experience with:
+- General engineering project management principles
+- NZ construction industry standards
+- Risk management best practices
+
+**7. COMBINED KNOWLEDGE**: Integrate project findings with engineering theory, NZ standards, and industry best practices"""
+                
+            elif category == 'client_reference':
+                system_prompt = """You are a senior DTCE client relationship advisor. Provide comprehensive client guidance with relationship insights."""
+                
+                user_prompt = f"""USER QUESTION: "{question}"
+
+DTCE CLIENT DOCUMENTS:
+{retrieved_content[:2500]}
+
+ENHANCED ADVISORY RESPONSE REQUIRED:
+
+**1. CLIENT INFORMATION**: Provide contact details and project history
+
+**2. RELATIONSHIP ANALYSIS**:
+- SCAN FOR CLIENT ISSUES: Look for "complaint", "unhappy", "dissatisfied", "dispute", "communication problem", "relationship issue"
+- IDENTIFY SATISFACTION PROBLEMS: Extract any client feedback or satisfaction surveys
+
+**3. CLIENT RELATIONSHIP WARNINGS**:
+- Highlight any past client relationship challenges
+- Identify communication issues or project problems with this client
+- Extract lessons learned about managing this client relationship
+
+**4. ADVISORY GUIDANCE**:
+- Best practices for working with this specific client
+- Communication preferences and relationship management tips
+- Risk factors and prevention strategies
+
+**5. GENERAL GUIDELINES**: Combine client-specific information with:
+- General client relationship management principles
+- Professional services best practices
+- Communication and project management standards
+
+**6. COMBINED KNOWLEDGE**: Integrate client history with relationship management theory and industry standards"""
+            else:
+                system_prompt = "You are a senior DTCE engineering advisor providing comprehensive assistance."
+                user_prompt = f"""USER QUESTION: "{question}"
+
+DTCE INFORMATION: {retrieved_content[:2500]}
+
+Provide comprehensive advisory guidance combining DTCE information with general engineering knowledge."""
+
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=3000  # Increased for comprehensive advisory responses
+            )
+            
+            answer = response.choices[0].message.content
+            
+            # Format sources
+            sources = []
+            for doc in documents[:5]:
+                filename = doc.get('filename', 'Unknown')
+                blob_url = self._get_blob_url_from_doc(doc)
+                suitefiles_link = self._get_safe_suitefiles_url(blob_url)
+                
+                source_entry = {
+                    'filename': filename,
+                    'excerpt': doc.get('content', '')[:200] + '...' if doc.get('content') else 'Content not available'
+                }
+                
+                if suitefiles_link:
+                    source_entry['link'] = suitefiles_link
+                    
+                sources.append(source_entry)
+            
+            return {
+                'answer': answer,
+                'sources': sources,
+                'confidence': 'high',
+                'documents_searched': len(documents),
+                'rag_type': f'dtce_{category}',
+                'prompt_category': category,
+                'response_type': 'category_specific'
+            }
+            
+        except Exception as e:
+            logger.error("Category response generation failed", error=str(e))
+            return await self._handle_ai_error(question, str(e))
+
+    async def _provide_general_engineering_advice(self, question: str) -> Dict[str, Any]:
+        """Provide comprehensive general engineering advice with advisory guidance."""
+        try:
+            prompt = f"""You are a senior structural engineering consultant providing comprehensive advisory guidance.
+
+QUESTION: "{question}"
+
+ENHANCED ADVISORY RESPONSE REQUIRED:
+
+**1. DIRECT TECHNICAL ANSWER**: Address the specific engineering question with technical principles
+
+**2. NZ STANDARDS & CODES**: Reference relevant NZ standards (NZS 3101, 3404, 1170, etc.) and Building Code requirements
+
+**3. ADVISORY ANALYSIS**:
+- Common engineering mistakes and pitfalls to avoid
+- Critical safety considerations and warnings
+- Quality assurance and verification approaches
+- Risk assessment and management
+
+**4. LESSONS LEARNED & BEST PRACTICES**:
+- Industry best practices and proven approaches
+- What works well vs what commonly causes problems
+- "DO" and "DON'T" recommendations based on engineering experience
+- Preventive measures for common engineering failures
+
+**5. GENERAL GUIDELINES**: Provide engineering principles that apply broadly:
+- Design philosophy and approach recommendations
+- Professional engineering standards and ethics
+- Project management and quality considerations
+- Client communication and engineering judgment
+
+**6. COMBINED KNOWLEDGE APPROACH**:
+- Integrate theoretical engineering principles with practical application
+- Connect NZ standards with international best practices
+- Combine structural theory with real-world construction considerations
+- Reference both current standards and emerging best practices
+
+**7. PROFESSIONAL ADVISORY GUIDANCE**:
+- Risk mitigation strategies
+- Decision-making frameworks for engineering judgment
+- Verification and checking procedures
+- Professional liability and due diligence considerations
+
+Provide comprehensive engineering guidance that combines technical knowledge with professional advisory insights."""
+
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "You are a senior structural engineering consultant providing comprehensive advisory guidance. Combine technical expertise with professional advisory insights, risk assessment, lessons learned, and general engineering guidelines. Reference NZ standards, identify common pitfalls, and provide practical professional guidance."
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.4,
+                max_tokens=3000  # Increased for comprehensive advisory responses
+            )
+            
+            answer = response.choices[0].message.content
+            
+            return {
+                'answer': answer,
+                'sources': [],
+                'confidence': 'high',
+                'documents_searched': 0,
+                'rag_type': 'general_engineering_advice',
+                'prompt_category': 'general_engineering',
+                'response_type': 'general_knowledge'
+            }
+            
+        except Exception as e:
+            logger.error("General engineering advice failed", error=str(e))
+            return {
+                'answer': f'I encountered an error providing engineering advice: {str(e)}',
+                'sources': [],
+                'confidence': 'error',
+                'documents_searched': 0,
+                'rag_type': 'error'
+            }
+
+    async def _handle_no_category_documents(self, question: str, category: str) -> Dict[str, Any]:
+        """Handle when no relevant documents found for the specific category."""
+        try:
+            fallback_prompt = f"""The user asked a question about {category} but no relevant DTCE documents were found.
+
+QUESTION: "{question}"
+CATEGORY: {category}
+
+Provide helpful guidance about:
+1. What information might be available in DTCE's {category} documentation
+2. Where they might look for this information
+3. General advice on this topic if applicable
+4. Suggestions for next steps
+
+Be helpful and professional."""
+
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": f"You are helping when no specific {category} documents were found. Provide helpful guidance and suggestions."
+                    },
+                    {"role": "user", "content": fallback_prompt}
+                ],
+                temperature=0.4,
+                max_tokens=1000
+            )
+            
+            answer = f"I couldn't find specific {category} information for your question in our DTCE documents.\n\n{response.choices[0].message.content}"
+            
+            return {
+                'answer': answer,
+                'sources': [],
+                'confidence': 'medium',
+                'documents_searched': 0,
+                'rag_type': f'no_{category}_found',
+                'prompt_category': category,
+                'response_type': 'helpful_fallback'
+            }
+            
+        except Exception as e:
+            logger.error("No category documents handler failed", error=str(e))
+            return await self._handle_ai_error(question, str(e))
+
+    async def _analyze_question_intent(self, question: str) -> str:
+        """Determine if question is general engineering, DTCE-specific, or mixed."""
+        try:
+            analysis_prompt = f"""You are analyzing an engineer's question to determine what type of response they need.
+
+QUESTION: "{question}"
+
+Determine the type:
+
+1. **general_engineering**: Pure technical/engineering question that any engineer could answer
+   Examples: "How do you design a concrete beam?", "What are seismic design principles?", "How to calculate deflection?"
+
+2. **dtce_specific**: Question specifically about DTCE procedures, projects, policies, or internal information
+   Examples: "What is DTCE's safety policy?", "Show me past precast projects", "How does DTCE handle reviews?"
+
+3. **mixed**: Question that benefits from both DTCE experience and general engineering knowledge
+   Examples: "How should we approach this design?" (could use DTCE experience + general principles)
+
+Reply with ONLY ONE WORD: general_engineering, dtce_specific, or mixed"""
+
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You analyze engineering questions to categorize them. Respond with only one word."
+                    },
+                    {"role": "user", "content": analysis_prompt}
+                ],
+                temperature=0.1,
+                max_tokens=10
+            )
+            
+            result = response.choices[0].message.content.strip().lower()
+            return result if result in ['general_engineering', 'dtce_specific', 'mixed'] else 'mixed'
+            
+        except Exception as e:
+            logger.warning("Question intent analysis failed", error=str(e))
+            return 'mixed'  # Safe default
+
+    async def _provide_general_advice(self, question: str) -> Dict[str, Any]:
+        """Provide general engineering advice without searching SuiteFiles."""
+        try:
+            prompt = f"""You are a senior engineer at DTCE providing advice to a colleague.
+
+COLLEAGUE'S QUESTION: "{question}"
+
+This is a general engineering question. Provide expert advice using your engineering knowledge. Be practical, helpful, and include relevant standards (especially NZ Standards) when applicable.
+
+Respond like a knowledgeable colleague would - naturally and helpfully."""
+
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a senior structural engineer at DTCE. Provide expert engineering advice to colleagues. Be practical, reference relevant standards, and give actionable guidance."
+                    },
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=2000
+            )
+            
+            return {
+                'answer': response.choices[0].message.content,
+                'sources': [],
+                'confidence': 'high',
+                'documents_searched': 0,
+                'rag_type': 'general_engineering_advice',
+                'response_type': 'expert_knowledge_only'
+            }
+            
+        except Exception as e:
+            logger.error("General advice generation failed", error=str(e))
+            return await self._handle_ai_error(question, str(e))
+
+    async def _search_suitefiles_and_respond(self, question: str, include_general: bool = False) -> Dict[str, Any]:
+        """Search SuiteFiles and respond like a knowledgeable DTCE colleague."""
+        try:
+            # Search SuiteFiles documents
+            normalized_result = await self.query_normalizer.normalize_query(question)
+            search_query = normalized_result['primary_search_query']
+            
+            documents = await self.semantic_search.search_documents(search_query, None)
+            
+            logger.info("SuiteFiles search results", 
+                       total_documents=len(documents),
+                       sample_filenames=[doc.get('filename', 'Unknown') for doc in documents[:3]])
+            
+            # Format document content
+            retrieved_content = self._format_documents_with_folder_context(documents, self._determine_response_context(documents, question)) if documents else ""
+            
+            # Generate response as DTCE colleague
+            result = await self._process_rag_with_full_prompt(question, retrieved_content, documents)
+            
+            result.update({
+                'rag_type': 'dtce_colleague_advice',
+                'search_method': 'suitefiles_semantic',
+                'response_type': 'smart_colleague_response'
+            })
+            
+            return result
+            
+        except Exception as e:
+            logger.error("SuiteFiles search and response failed", error=str(e))
             return await self._handle_ai_error(question, str(e))
 
     def _format_documents_content(self, documents: List[Dict]) -> str:
@@ -1552,11 +1857,25 @@ Determine:
 5. What's the user's intent?
 
 DTCE Folder Types:
-- policies: H&S policies, IT policies, employee policies  
+- policies: H&S policies, IT policies, employee policies, wellness policies, workplace policies, HR policies
 - procedures: Technical procedures, admin procedures, H2H (how-to) documents, templates, spreadsheets
 - standards: NZ engineering standards, codes, specifications, clause references
 - projects: Past project information, project references, job numbers
 - clients: Client information, contact details, builder information
+
+Policy Keywords Guide:
+- "wellness policy", "wellbeing policy", "employee wellness" → policies folder (NOT COVID/environmental)
+- "health and safety", "H&S", "safety policy" → policies folder  
+- "IT policy", "computer policy", "technology policy" → policies folder
+- "environmental policy", "sustainability" → policies folder
+- "COVID", "pandemic", "coronavirus" → policies folder (specific health response)
+- "HR policy", "human resources", "employment policy" → policies folder
+
+Technical Keywords Guide:
+- "NZ standards", "AS/NZS", "code requirements", "clause" → standards folder
+- "calculation", "design guide", "template", "spreadsheet" → procedures folder
+- "project", "job number", "past work", "examples" → projects folder
+- "client", "builder", "contact", "contractor" → clients folder
 
 Special Requirements:
 - If asking for "job numbers", "past projects with keywords", or "projects that have scope" → needs project search with job numbers
@@ -1788,28 +2107,48 @@ I encountered a technical issue, but I should still try to be helpful. Please pr
         }
 
     async def _determine_search_strategy(self, question: str) -> Dict[str, Any]:
-        """Use AI to determine what the user is asking about and which folder to search."""
+        """Determine which of the 5 DTCE prompt categories this question fits."""
         try:
-            routing_prompt = f"""Analyze this question and determine what the user is asking about:
+            routing_prompt = f"""Analyze this question and determine which DTCE prompt category it belongs to:
 
 QUESTION: "{question}"
 
-Determine which DTCE folder (if any) would have relevant information:
+THE 5 DTCE PROMPT CATEGORIES:
 
-AVAILABLE FOLDERS:
-1. Policy (H&S, IT policies) - for questions about company policies, safety procedures, what employees must follow
-2. Procedures (H2H - How to Handbooks) - for questions about how to do things at DTCE, best practices, technical procedures
-3. NZ Standards - for questions about engineering codes, standards, technical specifications
-4. Projects - for questions about past DTCE projects, project details, project history
-5. Clients - for questions about client information, contact details, past client projects
-6. General - for general knowledge questions not related to DTCE internal documents
+1. **Policy Prompt (incl H&S)** - searches H&S, IT, Employment policy folders
+   - Questions about company policies that employees MUST follow
+   - Health & Safety procedures, compliance requirements
+   - Examples: "What's our safety policy?", "COVID protocols?", "IT security requirements?"
+
+2. **Technical & Admin Procedures Prompt** - searches H2H (How to Handbooks) procedures folder
+   - How to do things at DTCE, best practices, not as strict as policies
+   - Technical procedures, admin processes
+   - Examples: "How do I use the wind speed spreadsheet?", "How to submit timesheets?", "Design workflow?"
+
+3. **NZ Engineering Standards Prompt** - searches NZ Standards folder (PDFs)
+   - Questions about specific engineering codes and standards
+   - NZ building codes, structural standards
+   - Examples: "NZS 3101 requirements?", "Wind load calculations?", "Seismic design standards?"
+
+4. **Project Reference** - searches project folders for past project information
+   - Questions about DTCE's past projects, project details, history
+   - Examples: "Past precast projects?", "Projects in Auckland?", "Similar building types?"
+
+5. **Client Reference** - searches project folders for client information
+   - Questions about client details, contact info, client project history
+   - Examples: "Contact details for ABC Company?", "Projects with XYZ Client?", "Client relationship history?"
+
+6. **General Engineering** - NO DTCE search needed, use general AI knowledge
+   - General engineering questions not specific to DTCE
+   - Examples: "How to design reinforced concrete?", "What is structural analysis?", "General wind engineering?"
 
 Respond with JSON:
 {{
-    "topic_area": "brief description of what they're asking about",
-    "target_folder": "policy|procedures|nz_standards|projects|clients|general",
-    "needs_folder_search": true/false,
-    "search_context": "explanation of why this folder or general knowledge",
+    "prompt_category": "policy|procedures|nz_standards|project_reference|client_reference|general_engineering",
+    "topic_area": "brief description",
+    "needs_dtce_search": true/false,
+    "search_folders": ["folder1", "folder2"] or [],
+    "reasoning": "why this category was chosen",
     "confidence": "high|medium|low"
 }}"""
 
@@ -1818,12 +2157,12 @@ Respond with JSON:
                 messages=[
                     {
                         "role": "system", 
-                        "content": "You are an AI that routes user questions to the right information source. Always respond with valid JSON."
+                        "content": "You are a DTCE question classifier. Classify questions into the 5 DTCE prompt categories exactly as specified. Always respond with valid JSON."
                     },
                     {"role": "user", "content": routing_prompt}
                 ],
                 temperature=0.1,
-                max_tokens=300
+                max_tokens=400
             )
             
             import json
@@ -1831,12 +2170,13 @@ Respond with JSON:
             return strategy
             
         except Exception as e:
-            logger.error("Search strategy determination failed", error=str(e))
+            logger.error("DTCE prompt categorization failed", error=str(e))
             return {
-                "topic_area": "general inquiry",
-                "target_folder": "general", 
-                "needs_folder_search": False,
-                "search_context": "general knowledge response",
+                "prompt_category": "general_engineering",
+                "topic_area": "general inquiry", 
+                "needs_dtce_search": False,
+                "search_folders": [],
+                "reasoning": "error fallback",
                 "confidence": "low"
             }
 
@@ -2141,14 +2481,37 @@ Be specific about how to access the requested documents."""
 CONTEXT FROM DTCE DOCUMENTS:
 {retrieved_content[:2000] if retrieved_content else "No specific documents found"}
 
-Please provide a comprehensive response using the DTCE document context. Include specific clause numbers, requirements, and technical details when available."""
+CRITICAL INSTRUCTION: First evaluate if the retrieved documents actually answer the user's question.
+
+If the documents are RELEVANT and helpful:
+- Provide a comprehensive response using the DTCE document context
+- Include specific details, clause numbers, requirements when available
+- Reference the document names and SuiteFiles links
+
+If the documents are IRRELEVANT or don't answer the question:
+- Acknowledge that the specific information wasn't found in DTCE documents
+- Provide general guidance based on your knowledge
+- Suggest alternative approaches or where they might find the information
+- Be honest about what information is not available
+
+Example for irrelevant results:
+"I searched DTCE's policy documents but didn't find a specific wellness policy. The search returned some COVID-19 and environmental policies, but these don't address general employee wellness programs. 
+
+For comprehensive employee wellness policies, DTCE may need to:
+1. Develop a dedicated wellness policy document
+2. Consult HR best practices for wellness programs
+3. Check if wellness guidelines are included in other HR documents
+
+I'd recommend contacting DTCE's HR department directly for current wellness policy information."
+
+Be helpful, honest, and actionable in your response."""
 
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are DTCE AI Assistant. Provide detailed, actionable responses using DTCE document context."
+                        "content": "You are DTCE AI Assistant. Evaluate document relevance first, then provide honest, helpful responses. If documents don't match the user's question, acknowledge this and provide alternative guidance."
                     },
                     {"role": "user", "content": enhanced_prompt}
                 ],
