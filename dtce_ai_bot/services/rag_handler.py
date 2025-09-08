@@ -380,18 +380,29 @@ As a senior engineering advisor, please provide a comprehensive response that:
 
 **Professional Assessment**: Acknowledge the document search limitation while providing expert engineering guidance
 **General Engineering Guidelines**: Apply relevant engineering principles, NZ Standards, and best practices to the question
-**Risk Considerations**: Identify potential technical risks, compliance issues, or common pitfalls
-**Advisory Recommendations**: Suggest practical next steps and professional approaches
+**Risk Considerations**: Identify potential technical risks, compliance issues, or common pitfalls in this area
+**Advisory Recommendations**: Suggest practical next steps, verification approaches, and professional guidance
 **Resource Guidance**: Recommend where to find additional information (standards, industry resources, internal DTCE expertise)
+**Common Issues & Warnings**: Identify typical problems in this area and how to avoid them
+**Best Practice Integration**: Combine general engineering knowledge with NZ Standards and industry practices
 
 **Engineering Advisory Approach**:
 - Draw on general structural/engineering knowledge where applicable
-- Reference relevant NZ Standards (NZS 3101, NZS 3404, NZS 1170, etc.) if pertinent
-- Provide risk mitigation strategies
-- Suggest verification and quality assurance approaches
-- Include general industry best practices
+- Reference relevant NZ Standards (NZS 3101, NZS 3404, NZS 1170, etc.) with specific clauses if known
+- Provide risk mitigation strategies and common pitfall warnings
+- Suggest verification, quality assurance, and peer review approaches
+- Include general industry best practices and lessons learned from the field
+- Offer practical guidance that prevents common engineering mistakes
+- Recommend decision-making frameworks and professional approaches
 
-Keep the response professional but approachable, like guidance from an experienced consulting engineer."""
+**Response Structure**:
+- Direct answer to the question using general engineering knowledge
+- General guidelines and best practices that apply
+- Risk warnings and common issues to avoid
+- Professional recommendations and next steps
+- Resource guidance for further information
+
+Keep the response professional, comprehensive, and advisory like guidance from an experienced consulting engineer who has seen many projects."""
             
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
@@ -403,7 +414,7 @@ Keep the response professional but approachable, like guidance from an experienc
                     {"role": "user", "content": fallback_prompt}
                 ],
                 temperature=0.3,
-                max_tokens=1200  # Increased for comprehensive advisory guidance
+                max_tokens=2000  # Increased for comprehensive advisory guidance
             )
             
             answer = response.choices[0].message.content
@@ -538,32 +549,52 @@ ENHANCED ADVISORY INSTRUCTIONS:
 5. **Advisory Tone**: Act as a senior consulting engineer providing guidance, not just information retrieval
 6. **General Guidelines**: Always include applicable general engineering principles and best practices
 7. **Past Project Analysis**: When referencing past projects, provide engineering insights and recommendations
+8. **Superseded Content Handling**: If superseded documents are included, clearly flag them as outdated and explain current best practice
+9. **Client Issue Detection**: Extract and prominently highlight any client complaints, issues, or satisfaction problems
+10. **Engineering Failure Analysis**: Identify what went wrong in past projects and how to prevent similar issues
 
 RESPONSE STRUCTURE:
 **Direct Answer**: Address the specific question with document-based information
 
+**DTCE Project Experience & Findings**: 
+- Summarize key findings from past DTCE projects rather than just listing links
+- Extract practical insights and outcomes from project documents
+- Highlight successful approaches and methodologies that worked well
+- Include specific project examples with engineering insights (not just job numbers)
+
 **Critical Warnings & Issues**: 
 - ALWAYS look for and highlight any problems, failures, client complaints, issues, or challenges mentioned in the documents
-- Extract specific problems encountered in past projects
+- Extract specific problems encountered in past projects and explain the technical causes
 - Identify design approaches that caused issues or were superseded for safety/performance reasons
 - Flag any regulatory compliance issues or standard violations
+- Warn about approaches that led to client dissatisfaction or project problems
 
 **Lessons Learned Analysis**:
 - Extract key takeaways from project outcomes (both successful and problematic)
-- Analyze what worked well vs what caused problems
+- Analyze what worked well vs what caused problems with technical explanations
 - Identify patterns in successful vs unsuccessful approaches
-- Document client feedback and satisfaction issues
+- Document client feedback and satisfaction issues with recommended improvements
+- Provide "what to do" and "what NOT to do" guidance based on past experience
 
-**Engineering Best Practices**: 
+**Engineering Best Practices & General Guidelines**: 
 - Provide general engineering guidelines and standards (including NZ Standards where relevant)
-- Reference current industry best practices
-- Include regulatory compliance requirements
+- Reference current industry best practices and compliance requirements
+- Include regulatory requirements and code compliance guidance
+- Offer general design principles that apply beyond the specific query
+- Connect general engineering knowledge with document-specific findings
+
+**Combined Knowledge Response**: 
+- Integrate SuiteFiles project data with general engineering knowledge
+- Reference relevant NZ Standards (NZS 3101, 3404, 1170, etc.) where applicable
+- Combine DTCE's practical experience with theoretical engineering principles
+- Provide comprehensive guidance that draws from both sources
 
 **Professional Recommendations**: 
-- Give specific advisory guidance based on DTCE's experience
-- Suggest preventive measures to avoid past problems
-- Recommend verification approaches and quality assurance
-- Provide actionable next steps
+- Give specific advisory guidance based on DTCE's experience and general engineering practice
+- Suggest preventive measures to avoid past problems and common pitfalls
+- Recommend verification approaches, quality assurance measures, and risk mitigation
+- Provide actionable next steps and decision-making guidance
+- Include risk assessment and recommendation priorities
 
 **Supporting Documentation**: Include relevant SuiteFiles links and references
 
@@ -575,19 +606,26 @@ TONE AND APPROACH:
 - Actionable recommendations that prevent problems
 
 CRITICAL ADVISORY ANALYSIS REQUIREMENTS:
-- **Issue Detection**: Scan documents for keywords like "problem", "issue", "failure", "complaint", "redesign", "rework", "delay", "cost overrun", "client unhappy"
-- **Warning Extraction**: Look for phrases like "avoid", "do not", "caution", "warning", "superseded", "outdated", "dangerous", "non-compliant"  
-- **Lessons Analysis**: Extract statements about "learned", "experience shows", "found that", "discovered", "realized", "should have"
-- **Client Feedback**: Identify any mentions of client satisfaction, complaints, change requests, or project relationship issues
-- **Technical Problems**: Highlight design errors, calculation mistakes, material failures, construction issues, or performance problems
-- **Standards Evolution**: Note where old approaches have been superseded by new standards or better practices
+- **Issue Detection**: Scan documents for keywords like "problem", "issue", "failure", "complaint", "redesign", "rework", "delay", "cost overrun", "client unhappy", "dispute", "non-compliance", "rejected"
+- **Warning Extraction**: Look for phrases like "avoid", "do not", "caution", "warning", "superseded", "outdated", "dangerous", "non-compliant", "not recommended", "problematic"
+- **Lessons Analysis**: Extract statements about "learned", "experience shows", "found that", "discovered", "realized", "should have", "mistake", "error", "would recommend", "next time"
+- **Client Feedback**: Identify any mentions of client satisfaction, complaints, change requests, project relationship issues, communication problems, or satisfaction surveys
+- **Technical Problems**: Highlight design errors, calculation mistakes, material failures, construction issues, performance problems, or regulatory non-compliance
+- **Standards Evolution**: Note where old approaches have been superseded by new standards, better practices, or updated regulations
+- **Success Factor Analysis**: Extract what made projects successful and why certain approaches worked well
+- **Cost and Time Issues**: Identify budget overruns, schedule delays, and efficiency problems with their causes
 
 MANDATORY ADVISORY BEHAVIORS:
-- If documents mention ANY problems or issues, these MUST be highlighted prominently 
-- If documents show superseded or outdated approaches, these MUST be flagged as warnings
-- Any client complaints or satisfaction issues MUST be extracted and discussed
-- Failed approaches or problematic designs MUST be explained as lessons learned
-- Current best practices MUST be contrasted with past problematic approaches
+- If documents mention ANY problems or issues, these MUST be highlighted prominently and analyzed for root causes
+- If documents show superseded or outdated approaches, these MUST be flagged with clear warnings and current alternatives provided
+- Any client complaints or satisfaction issues MUST be extracted, analyzed, and used to provide preventive guidance
+- Failed approaches or problematic designs MUST be explained as lessons learned with specific technical recommendations
+- Current best practices MUST be contrasted with past problematic approaches, explaining why changes were made
+- When referencing past projects, provide engineering insights and analysis, not just project lists or links
+- Combine document findings with general engineering knowledge and NZ Standards where relevant
+- Always include general guidelines that apply beyond the specific question asked
+- Provide actionable recommendations that prevent repetition of past problems
+- Extract and summarize key project findings rather than directing users to read documents themselves
 
 Here are the relevant DTCE documents and project records:
 
@@ -606,7 +644,7 @@ Based on the above documents and DTCE's engineering expertise, provide a compreh
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,  # Balanced for advisory recommendations
-                max_tokens=2000   # Increased for comprehensive advisory responses
+                max_tokens=3000   # Increased for comprehensive advisory responses with lessons learned
             )
             
             answer = response.choices[0].message.content
