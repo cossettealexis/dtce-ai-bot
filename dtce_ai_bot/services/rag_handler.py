@@ -233,11 +233,8 @@ class RAGHandler:
             blob_url = self._get_blob_url_from_doc(doc)
             suitefiles_link = self._get_safe_suitefiles_url(blob_url)
             
-            # Use FULL content for better RAG processing
-            max_content_length = 3000  # Much longer content for comprehensive answers
-            formatted_content = content[:max_content_length]
-            if len(content) > max_content_length:
-                formatted_content += "... [Content continues]"
+            # USE FULL CONTENT - NO TRUNCATION AT ALL
+            formatted_content = content  # Complete document content without any limits
             
             # Format with clear structure
             doc_info = f"""=== DOCUMENT {i}: {filename} ==="""
@@ -276,11 +273,9 @@ FULL CONTENT:
             # Extract project info using our consistent method
             extracted_project = self._extract_project_name_from_blob_url(blob_url)
             
-            # Use FULL content for comprehensive RAG - significantly increased limit
-            max_content_length = 15000  # Increased from 3000 to 15000 characters for comprehensive responses
-            formatted_content = content[:max_content_length]
-            if len(content) > max_content_length:
-                formatted_content += "... [Content continues - document has more details]"
+            # USE FULL CONTENT - NO TRUNCATION AT ALL
+            formatted_content = content  # Complete document content without any limits
+            # No truncation - let AI see everything
             
             # Format document with comprehensive information
             doc_info = f"""=== DOCUMENT {i}: {filename} ===
@@ -531,7 +526,7 @@ Please try rephrasing your question or contact support if the issue persists."""
 - **File Name:** {filename}
 - **Project:** {extracted_project}
 - **SuiteFiles Link:** {suitefiles_link}
-- **Content Preview:** {content[:800]}...
+- **Full Content:** {content}
 
 """
                     else:
@@ -539,7 +534,7 @@ Please try rephrasing your question or contact support if the issue persists."""
                         doc_result = f"""DOCUMENT FOUND:
 - **File Name:** {filename}
 - **SuiteFiles Link:** {suitefiles_link}
-- **Content Preview:** {content[:800]}...
+- **Full Content:** {content}
 
 """
                     index_results.append(doc_result)
@@ -568,32 +563,39 @@ Please try rephrasing your question or contact support if the issue persists."""
                 retrieved_content = self._format_documents_content(documents) if documents else ""
             
             # Create prompt for comprehensive information extraction
-            prompt = f"""You are an intelligent AI assistant with access to DTCE's document database. Extract and present ALL relevant information from the documents to answer questions comprehensively.
+            prompt = f"""You are an intelligent AI assistant with access to DTCE's document database. Answer the user's question EXACTLY as asked with specific, targeted information.
 
-QUESTION: "{question}"
+USER QUESTION: "{question}"
 
 DTCE DOCUMENTS:
-{retrieved_content[:4000] if retrieved_content else "No specific documents found for this query."}
+{retrieved_content if retrieved_content else "No specific documents found for this query."}
 
-MANDATORY EXTRACTION REQUIREMENTS:
+CRITICAL INSTRUCTIONS:
 
-1. **EXTRACT EVERYTHING RELEVANT**: Pull out ALL specific details, numbers, requirements, procedures, project details, technical specs, names, dates, and any other relevant information from the documents.
+1. **UNDERSTAND THE EXACT QUESTION**: Analyze what the user is specifically asking for:
+   - If they ask for "projects where clients don't like" → Find projects with client complaints, issues, rework, or problems
+   - If they ask for "wellness policy" → Extract the actual policy content and requirements
+   - If they ask for "project 225" → Give specific details about that project
+   - If they ask for NZ standards → Extract the exact technical requirements and clause numbers
 
-2. **BE SPECIFIC AND DETAILED**: Instead of saying "documents mention X", extract and list the actual details. Include:
-   - Specific project numbers, dates, and details
-   - Exact technical requirements and specifications  
-   - Names of people, companies, and contacts
-   - Specific procedures and steps
-   - Technical calculations and standards
-   - Policy details and requirements
+2. **ANSWER THE ACTUAL QUESTION**: Don't give generic information. Answer specifically what was asked:
+   - For problem projects → Identify which projects had issues and what went wrong
+   - For policies → Extract the actual policy text and requirements
+   - For technical questions → Give exact specifications, calculations, and standards
+   - For project references → List relevant project numbers and scope details
 
-3. **NO GENERIC RESPONSES**: Avoid responses like "documents don't contain specific information" or "appears that there is no specific information". If there are any relevant details in the documents, extract and present them.
+3. **BE SPECIFIC AND TARGETED**: Extract exactly what the user needs:
+   - Project numbers and job details
+   - Specific technical requirements and standards
+   - Exact policy text and procedures
+   - Names, contacts, and company details
+   - Problem areas and lessons learned
 
-4. **COMPREHENSIVE CONTENT**: Provide substantial, detailed responses that give users complete information they can act on immediately.
+4. **NO OFF-TOPIC RESPONSES**: Stay focused on answering the exact question asked. Don't provide general information if they asked for something specific.
 
-5. **EXTRACT FROM ALL DOCUMENTS**: Look through all provided documents and pull relevant information from each one that relates to the question.
+5. **EXTRACT ACTIONABLE DETAILS**: Give information the user can immediately use for their work.
 
-Extract and present all relevant information from the documents:"""
+Now answer the user's question with specific, targeted information from the documents:"""
 
             # Generate response as smart DTCE colleague
             response = await self.openai_client.chat.completions.create(
@@ -1746,7 +1748,7 @@ Respond like a knowledgeable colleague would - naturally and helpfully."""
             title = doc.get('filename', f'Document {i}')
             score = doc.get('@search.score', doc.get('score', 0))
             
-            formatted_content.append(f"Document {i}: {title} (relevance: {score:.2f})\n{content[:2000]}...")  # Increased from 500 to 2000
+            formatted_content.append(f"Document {i}: {title} (relevance: {score:.2f})\n{content}")  # FULL CONTENT - NO TRUNCATION
         
         return "\n\n".join(formatted_content)
 
@@ -2040,6 +2042,10 @@ THE 5 DTCE PROMPT CATEGORIES:
 
 4. **Project Reference** - searches project folders for past project information
    - Questions about DTCE's past projects, project details, history
+   - SPECIAL CASES:
+     * "projects where clients don't like" = search for projects with complaints/issues/problems
+     * "problem projects" = search for projects with rework/client complaints
+     * "lessons learned" = search for projects with issues/failures
    - IMPORTANT: DTCE uses folder structure Projects/YYY where YYY = last 3 digits of year:
      * "projects in 2025" = search Projects/225/ folder
      * "projects in 2024" = search Projects/224/ folder  
@@ -2055,12 +2061,16 @@ THE 5 DTCE PROMPT CATEGORIES:
    - General engineering questions not specific to DTCE
    - Examples: "How to design reinforced concrete?", "What is structural analysis?", "General wind engineering?"
 
+SPECIAL ATTENTION FOR PROBLEM PROJECTS:
+If the question asks about "clients don't like", "problem projects", "issues", "complaints", or "lessons learned", classify as "project_reference" but note this is seeking PROBLEMATIC projects specifically.
+
 Respond with JSON:
 {{
     "prompt_category": "policy|procedures|nz_standards|project_reference|client_reference|general_engineering",
     "topic_area": "brief description",
     "needs_dtce_search": true/false,
     "search_folders": ["folder1", "folder2"] or [],
+    "search_intent": "normal|problem_projects|lessons_learned|client_issues",
     "reasoning": "why this category was chosen",
     "confidence": "high|medium|low"
 }}"""
