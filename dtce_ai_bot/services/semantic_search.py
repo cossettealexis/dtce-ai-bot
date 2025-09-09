@@ -92,8 +92,8 @@ class SemanticSearchService:
         
         # Execute search
         try:
-            results = self.search_client.search(**search_params)
-            documents = [dict(result) for result in results]
+            results = await self.search_client.search(**search_params)
+            documents = [dict(result) async for result in results]
             
             # POST-PROCESS: Apply folder routing after getting results
             filtered_documents = self._apply_folder_routing_post_search(documents, category)
@@ -115,8 +115,8 @@ class SemanticSearchService:
             search_params.pop('query_caption', None)
             search_params.pop('query_answer', None)
             
-            results = self.search_client.search(**search_params)
-            documents = [dict(result) for result in results]
+            results = await self.search_client.search(**search_params)
+            documents = [dict(result) async for result in results]
             
             # Still apply post-search filtering
             return self._apply_folder_routing_post_search(documents, category)
@@ -209,8 +209,8 @@ class SemanticSearchService:
         
         # Execute search
         try:
-            results = self.search_client.search(**search_params)
-            documents = [dict(result) for result in results]
+            results = await self.search_client.search(**search_params)
+            documents = [dict(result) async for result in results]
             
             logger.info("Semantic search executed", documents_found=len(documents))
             
@@ -224,8 +224,8 @@ class SemanticSearchService:
             search_params.pop('query_caption', None)
             search_params.pop('query_answer', None)
             
-            results = self.search_client.search(**search_params)
-            return [dict(result) for result in results]
+            results = await self.search_client.search(**search_params)
+            return [dict(result) async for result in results]
     
     def _build_intent_filters(self, strategy: Dict[str, any], project_filter: Optional[str] = None) -> List[str]:
         """Build search filters based on intent strategy."""
@@ -402,8 +402,8 @@ class SemanticSearchService:
             search_params['filter'] = ' and '.join(filters)
         
         try:
-            results = self.search_client.search(**search_params)
-            documents = [dict(result) for result in results]
+            results = await self.search_client.search(**search_params)
+            documents = [dict(result) async for result in results]
             logger.info("Fallback search completed", documents_found=len(documents))
             return self._filter_quality_documents(documents)
         except Exception as e:

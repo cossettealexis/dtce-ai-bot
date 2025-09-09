@@ -1285,8 +1285,11 @@ Respond naturally as DTCE AI Assistant would in conversation."""
             
             logger.info(f"Searching DTCE for {category}", folders=search_folders)
             
+            # Enhance search query for project questions with year understanding
+            enhanced_question = self._enhance_project_search_query(question, category)
+            
             # Perform semantic search (the search service will handle folder filtering)
-            documents = await self.semantic_search.search_documents(question)
+            documents = await self.semantic_search.search_documents(enhanced_question)
             
             if documents:
                 # Filter documents by category if needed
@@ -1306,67 +1309,56 @@ Respond naturally as DTCE AI Assistant would in conversation."""
             logger.error("DTCE category search failed", error=str(e))
             return await self._handle_ai_error(question, str(e))
 
+    def _enhance_project_search_query(self, question: str, category: str) -> str:
+        """Enhance search queries for project questions with year-to-folder conversion."""
+        if category != 'project_reference':
+            return question
+            
+        enhanced_query = question.lower()
+        
+        # Convert year references to folder paths for better search
+        year_conversions = {
+            '2025': 'Projects/225',
+            '2024': 'Projects/224', 
+            '2023': 'Projects/223',
+            '2022': 'Projects/222',
+            '2021': 'Projects/221',
+            '2020': 'Projects/220',
+            '2019': 'Projects/219'
+        }
+        
+        # Check if question mentions specific years
+        for year, folder_path in year_conversions.items():
+            if year in enhanced_query:
+                # Add folder path to search query
+                enhanced_query += f" {folder_path}"
+                logger.info(f"Enhanced project search: {year} -> {folder_path}")
+        
+        return enhanced_query
+
     def _filter_documents_by_category(self, documents: List[Dict], category: str, search_folders: List[str], question: str = "") -> List[Dict]:
-        """Filter documents to match the specific DTCE prompt category with superseded document intelligence."""
-        if not search_folders:
-            return documents  # No specific filtering needed
+        """Let AI be smart - minimal filtering, let semantic search and AI handle relevance."""
         
         # Check if user specifically asks for superseded/old documents
         include_superseded = any(term in question.lower() for term in ['superseded', 'old', 'previous', 'outdated', 'history', 'supersede'])
-            
-        filtered = []
-        superseded_docs = []
         
-        for doc in documents:
-            filename = doc.get('filename', '').lower()
-            blob_url = doc.get('blob_url', '').lower()
-            
-            # Check for superseded/old documents
-            is_superseded = any(term in filename or term in blob_url for term in ['superseded', 'superceded', 'old', 'archive', 'obsolete', 'outdated'])
-            
-            # Check if document matches the category folders
-            matches_category = False
-            
-            if category == 'policy':
-                # Policy documents: H&S, IT, Employment folders
-                if any(folder in blob_url for folder in ['h&s', 'health', 'safety', 'it/', 'employment', 'policy']):
-                    matches_category = True
-                    
-            elif category == 'procedures':
-                # Procedures: H2H handbooks, How-to guides
-                if any(folder in blob_url for folder in ['h2h', 'how-to', 'procedure', 'handbook']):
-                    matches_category = True
-                    
-            elif category == 'nz_standards':
-                # NZ Standards: Engineering codes and standards
-                if any(folder in blob_url for folder in ['nz', 'standard', 'code', 'nzs']):
-                    matches_category = True
-                    
-            elif category == 'project_reference':
-                # Project documents: Project folders
-                if any(folder in blob_url for folder in ['project', '/22', '/23', '/24', '/25']):
-                    matches_category = True
-                    
-            elif category == 'client_reference':
-                # Client information: Usually in project folders
-                if any(folder in blob_url for folder in ['project', '/22', '/23', '/24', '/25']):
-                    matches_category = True
-            
-            if matches_category:
-                if is_superseded:
-                    superseded_docs.append(doc)
-                else:
-                    filtered.append(doc)
-        
-        # Combine current and superseded documents based on user request
         if include_superseded:
-            # User specifically asked for superseded content
-            result = filtered[:8] + superseded_docs[:2]  # Mix current and superseded
+            # User wants old docs - return everything
+            return documents[:10]
         else:
-            # Normal operation - prefer current documents but include superseded if no current ones
-            result = filtered[:10] if filtered else superseded_docs[:5]
+            # Normal operation - just remove obvious archive/temp folders, let AI decide relevance
+            filtered = []
+            for doc in documents:
+                filename = doc.get('filename', '').lower()
+                blob_url = doc.get('blob_url', '').lower()
                 
-        return result
+                # Only filter out obvious junk - let AI decide if documents are relevant
+                is_obvious_junk = any(term in blob_url for term in ['/archive/', '/temp/', '/trash/', '/backup/', '/deleted/'])
+                
+                if not is_obvious_junk:
+                    filtered.append(doc)
+            
+            return filtered[:15]  # Return more documents, let AI decide relevance
 
     async def _generate_category_response(self, question: str, documents: List[Dict], category: str) -> Dict[str, Any]:
         """Generate advisory response specific to the DTCE prompt category with enhanced intelligence."""
@@ -1379,177 +1371,62 @@ Respond naturally as DTCE AI Assistant would in conversation."""
             
             # Create enhanced category-specific prompts with advisory features
             if category == 'policy':
-                system_prompt = """You are a senior DTCE policy advisor and engineering consultant. Provide authoritative policy guidance with comprehensive advisory context."""
+                system_prompt = """You are ChatGPT, but with access to DTCE's internal documents. Answer questions directly and intelligently using the information provided."""
                 
-                user_prompt = f"""USER QUESTION: "{question}"
+                user_prompt = f"""Question: {question}
 
-DTCE POLICY DOCUMENTS:
+DTCE Documents:
 {retrieved_content[:2500]}
 
-ENHANCED ADVISORY RESPONSE REQUIRED:
-
-**1. POLICY ANSWER**: Provide clear policy information from DTCE documents
-
-**2. ADVISORY ANALYSIS**: 
-- Scan for any compliance issues, client complaints, or enforcement problems in the documents
-- Identify any policy violations or non-compliance mentioned in past projects
-- Look for phrases like "non-compliant", "violation", "breach", "client complaint", "issue", "problem"
-
-**3. SUPERSEDED CONTENT WARNINGS**:
-{'- Include superseded/outdated policies if mentioned, but clearly mark them as OUTDATED with current alternatives' if include_superseded else '- Flag any outdated policies and provide current alternatives'}
-
-**4. LESSONS LEARNED & WARNINGS**:
-- Extract any policy failures or problems mentioned in the documents
-- Identify what went wrong and how to prevent policy breaches
-- Provide "DO" and "DON'T" guidance based on past issues
-
-**5. GENERAL GUIDELINES**: Combine DTCE policies with:
-- General NZ health & safety standards
-- Industry best practices for engineering firms
-- Regulatory compliance requirements
-
-**6. COMBINED KNOWLEDGE**: Integrate DTCE policies with general engineering standards and NZ regulations"""
+Answer this question directly using the information in these documents. Extract the relevant details and present them clearly. Don't overthink it - just be helpful and direct like ChatGPT would be."""
                 
             elif category == 'procedures':
-                system_prompt = """You are a senior DTCE procedures advisor and engineering consultant. Provide practical procedural guidance with comprehensive advisory context."""
+                system_prompt = """You are ChatGPT with access to DTCE's procedures. Be direct and helpful."""
                 
-                user_prompt = f"""USER QUESTION: "{question}"
+                user_prompt = f"""Question: {question}
 
-DTCE PROCEDURE DOCUMENTS (H2H Handbooks):
+DTCE Procedures:
 {retrieved_content[:2500]}
 
-ENHANCED ADVISORY RESPONSE REQUIRED:
-
-**1. PROCEDURAL ANSWER**: Provide step-by-step guidance from DTCE H2H handbooks
-
-**2. ADVISORY ANALYSIS**:
-- Scan for procedural failures, errors, or inefficiencies mentioned in documents
-- Look for phrases like "error", "mistake", "rework", "delay", "problem", "issue", "better approach"
-
-**3. SUPERSEDED PROCEDURES**:
-{'- Include old procedures if mentioned, but clearly mark as OUTDATED with current best practices' if include_superseded else '- Flag any outdated procedures and explain current methods'}
-
-**4. LESSONS LEARNED & PROCESS IMPROVEMENTS**:
-- Extract what procedures caused problems or were improved
-- Identify why procedures were changed or updated
-- Provide efficiency tips and common pitfalls to avoid
-
-**5. GENERAL GUIDELINES**: Combine DTCE procedures with:
-- Industry standard engineering practices
-- NZ engineering workflow standards
-- Quality assurance best practices
-
-**6. COMBINED KNOWLEDGE**: Integrate DTCE procedures with general engineering methodologies and standards"""
+Answer their question using these procedures. Give them the steps or information they need."""
                 
             elif category == 'nz_standards':
-                system_prompt = """You are a senior NZ engineering standards expert and regulatory advisor. Provide comprehensive standards guidance with advisory context."""
+                system_prompt = """You are ChatGPT with access to NZ engineering standards. Answer technical questions directly."""
                 
-                user_prompt = f"""USER QUESTION: "{question}"
+                user_prompt = f"""Question: {question}
 
-NZ ENGINEERING STANDARDS DOCUMENTS:
+NZ Standards:
 {retrieved_content[:2500]}
 
-ENHANCED ADVISORY RESPONSE REQUIRED:
-
-**1. STANDARDS ANSWER**: Provide detailed NZ standards information with specific clause references
-
-**2. ADVISORY ANALYSIS**:
-- Identify any standards violations or non-compliance issues mentioned
-- Look for phrases like "non-compliant", "does not meet", "violation", "breach", "updated standard"
-
-**3. SUPERSEDED STANDARDS**:
-{'- Include superseded standards if mentioned, but clearly mark as OUTDATED with current versions' if include_superseded else '- Flag any outdated standards and provide current versions'}
-
-**4. COMPLIANCE WARNINGS & GUIDANCE**:
-- Highlight critical compliance requirements
-- Identify common non-compliance issues and how to avoid them
-- Provide verification and checking procedures
-
-**5. GENERAL GUIDELINES**: Combine NZ standards with:
-- International engineering standards (where applicable)
-- Building Code requirements
-- Industry best practice interpretations
-
-**6. COMBINED KNOWLEDGE**: Integrate specific NZ standards with general engineering principles and global standards"""
+Answer their standards question using these documents. Give them the specific clauses, requirements, and technical details they need."""
                 
             elif category == 'project_reference':
-                system_prompt = """You are a senior DTCE project advisor and engineering consultant. Provide comprehensive project analysis with advisory insights rather than just links."""
+                system_prompt = """You are ChatGPT with access to DTCE's project history. Answer questions about past projects directly."""
                 
-                user_prompt = f"""USER QUESTION: "{question}"
+                user_prompt = f"""Question: {question}
 
-DTCE PROJECT DOCUMENTS:
+DTCE Projects:
 {retrieved_content[:2500]}
 
-ENHANCED ADVISORY RESPONSE REQUIRED:
-
-**1. PROJECT SUMMARY**: Summarize findings from projects rather than just providing links
-
-**2. CRITICAL ISSUE ANALYSIS**:
-- SCAN FOR CLIENT COMPLAINTS: Look for "client unhappy", "complaint", "dissatisfied", "issue", "problem", "change request", "dispute"
-- IDENTIFY PROJECT PROBLEMS: Look for "delay", "cost overrun", "rework", "error", "redesign", "failure", "non-compliant"
-- EXTRACT CLIENT FEEDBACK: Any mentions of client satisfaction issues, communication problems, or relationship challenges
-
-**3. SUPERSEDED APPROACHES**:
-{'- Include old design approaches if mentioned, explaining why they were superseded' if include_superseded else '- Flag any outdated design approaches and explain current best practices'}
-
-**4. LESSONS LEARNED & ENGINEERING INSIGHTS**:
-- Analyze what worked well vs what caused problems with technical explanations
-- Extract specific engineering lessons: "learned that", "discovered", "found that", "should have", "next time"
-- Identify successful vs unsuccessful approaches with reasons
-- Provide "what to DO" and "what NOT to do" based on project experience
-
-**5. PROJECT ADVISORY GUIDANCE**:
-- Risk assessment based on past project issues
-- Preventive measures for common project problems
-- Quality assurance recommendations
-- Client relationship best practices
-
-**6. GENERAL GUIDELINES**: Combine DTCE project experience with:
-- General engineering project management principles
-- NZ construction industry standards
-- Risk management best practices
-
-**7. COMBINED KNOWLEDGE**: Integrate project findings with engineering theory, NZ standards, and industry best practices"""
+Answer their question about DTCE projects using this information. Give them the project details, insights, and information they're looking for."""
                 
             elif category == 'client_reference':
-                system_prompt = """You are a senior DTCE client relationship advisor. Provide comprehensive client guidance with relationship insights."""
+                system_prompt = """You are ChatGPT with access to DTCE's client information. Answer client questions directly."""
                 
-                user_prompt = f"""USER QUESTION: "{question}"
+                user_prompt = f"""Question: {question}
 
-DTCE CLIENT DOCUMENTS:
+Client Information:
 {retrieved_content[:2500]}
 
-ENHANCED ADVISORY RESPONSE REQUIRED:
-
-**1. CLIENT INFORMATION**: Provide contact details and project history
-
-**2. RELATIONSHIP ANALYSIS**:
-- SCAN FOR CLIENT ISSUES: Look for "complaint", "unhappy", "dissatisfied", "dispute", "communication problem", "relationship issue"
-- IDENTIFY SATISFACTION PROBLEMS: Extract any client feedback or satisfaction surveys
-
-**3. CLIENT RELATIONSHIP WARNINGS**:
-- Highlight any past client relationship challenges
-- Identify communication issues or project problems with this client
-- Extract lessons learned about managing this client relationship
-
-**4. ADVISORY GUIDANCE**:
-- Best practices for working with this specific client
-- Communication preferences and relationship management tips
-- Risk factors and prevention strategies
-
-**5. GENERAL GUIDELINES**: Combine client-specific information with:
-- General client relationship management principles
-- Professional services best practices
-- Communication and project management standards
-
-**6. COMBINED KNOWLEDGE**: Integrate client history with relationship management theory and industry standards"""
+Answer their question about clients using this information. Give them the contact details, project history, or client insights they need."""
             else:
-                system_prompt = "You are a senior DTCE engineering advisor providing comprehensive assistance."
-                user_prompt = f"""USER QUESTION: "{question}"
+                system_prompt = "You are ChatGPT with access to DTCE documents. Answer questions directly and helpfully."
+                user_prompt = f"""Question: {question}
 
-DTCE INFORMATION: {retrieved_content[:2500]}
+DTCE Information:
+{retrieved_content[:2500]}
 
-Provide comprehensive advisory guidance combining DTCE information with general engineering knowledge."""
+Answer their question using this information."""
 
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
@@ -2132,7 +2009,12 @@ THE 5 DTCE PROMPT CATEGORIES:
 
 4. **Project Reference** - searches project folders for past project information
    - Questions about DTCE's past projects, project details, history
-   - Examples: "Past precast projects?", "Projects in Auckland?", "Similar building types?"
+   - IMPORTANT: DTCE uses folder structure Projects/YYY where YYY = last 3 digits of year:
+     * "projects in 2025" = search Projects/225/ folder
+     * "projects in 2024" = search Projects/224/ folder  
+     * "projects in 2023" = search Projects/223/ folder
+     * "2022 projects" = search Projects/222/ folder
+   - Examples: "Past precast projects?", "Projects in Auckland?", "What projects in 2025?", "2024 building projects?"
 
 5. **Client Reference** - searches project folders for client information
    - Questions about client details, contact info, client project history
@@ -2153,7 +2035,7 @@ Respond with JSON:
 }}"""
 
             response = await self.openai_client.chat.completions.create(
-                model="gpt-4",
+                model=self.model_name,
                 messages=[
                     {
                         "role": "system", 
