@@ -76,8 +76,8 @@ class DocumentQAService:
             if self._is_greeting(question):
                 return self._get_greeting_response()
             
-            # Use RAG handler with smart prompting for all questions (Dependency Inversion)
-            result = await self.rag_handler.process_rag_query(question, project_filter)
+            # Use RAG handler with NEW universal AI system (Dependency Inversion)
+            result = await self.rag_handler.process_question(question)
             
             # Add processing metadata
             result['processing_time'] = time.time() - start_time

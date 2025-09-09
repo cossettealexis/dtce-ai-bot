@@ -420,7 +420,7 @@ Keep the response professional, comprehensive, and advisory like guidance from a
                     },
                     {"role": "user", "content": fallback_prompt}
                 ],
-                temperature=0.3,
+                temperature=0.1,  # Consistent low temperature for deterministic responses
                 max_tokens=2000  # Increased for comprehensive advisory guidance
             )
             
@@ -469,7 +469,7 @@ Your responses should be thorough and educational, providing real value even whe
                     {"role": "user", "content": prompt}
                 ],
                 max_tokens=1200,  # Increased for more comprehensive responses
-                temperature=0.3
+                temperature=0.1  # Consistent low temperature for deterministic responses
             )
             
             fallback_answer = response.choices[0].message.content.strip()
@@ -600,8 +600,9 @@ Now answer the user's question with specific, targeted information from the docu
                     },
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3,  # Balanced for natural but consistent advice
-                max_tokens=2500   # Adequate for comprehensive engineering advice
+                temperature=0.1,  # Very low for maximum consistency
+                max_tokens=2500,   # Adequate for comprehensive engineering advice
+                seed=12345  # Fixed seed for deterministic responses
             )
             
             answer = response.choices[0].message.content
@@ -1211,7 +1212,7 @@ Respond naturally as DTCE AI Assistant would in conversation."""
                     {"role": "user", "content": conversational_prompt}
                 ],
                 max_tokens=300,
-                temperature=0.4  # Slightly higher temperature for more natural conversation
+                temperature=0.1  # Consistent low temperature for deterministic responses
             )
             
             answer = response.choices[0].message.content.strip()
