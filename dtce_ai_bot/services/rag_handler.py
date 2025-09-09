@@ -556,8 +556,8 @@ Please try rephrasing your question or contact support if the issue persists."""
             # Create prompt for comprehensive information extraction
             prompt = f"""You are an intelligent AI assistant with access to DTCE's document database. Answer the user's question EXACTLY as asked with specific, targeted information.
 
-🚨 CRITICAL: ALWAYS include SuiteFiles links at the end of your response in this format:
-📄 **Sources:**
+CRITICAL: ALWAYS include SuiteFiles links at the end of your response in this format:
+**Sources:**
 - **Document Name** - [SuiteFiles Link]
 - **Document Name** - [SuiteFiles Link]
 
@@ -588,8 +588,8 @@ CRITICAL INSTRUCTIONS:
    - Problem areas and lessons learned
 
 4. **ALWAYS INCLUDE SUITEFILES LINKS**: When referencing documents, ALWAYS include the SuiteFiles links provided in the document information. Format them like this:
-   📄 **Source:** [Document Name]
-   🔗 **SuiteFiles Link:** [The SuiteFiles URL from the document]
+   **Source:** [Document Name]
+   **SuiteFiles Link:** [The SuiteFiles URL from the document]
    
    Include this for EVERY document you reference in your answer.
 
