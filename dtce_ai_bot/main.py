@@ -1,5 +1,6 @@
 """
 Main FastAPI application entry point for DTCE AI Bot.
+Updated: ChatGPT-style responses deployed.
 """
 
 from fastapi import FastAPI
