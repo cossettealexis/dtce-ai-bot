@@ -1371,62 +1371,94 @@ Respond naturally as DTCE AI Assistant would in conversation."""
             
             # Create enhanced category-specific prompts with advisory features
             if category == 'policy':
-                system_prompt = """You are ChatGPT, but with access to DTCE's internal documents. Answer questions directly and intelligently using the information provided."""
+                system_prompt = """You are an intelligent AI assistant with access to DTCE's internal documents. Your job is to extract and summarize the actual information from these documents to answer questions thoroughly. Never just provide links - extract the content and explain it clearly."""
                 
                 user_prompt = f"""Question: {question}
 
 DTCE Documents:
-{retrieved_content[:2500]}
+{retrieved_content[:3500]}
 
-Answer this question directly using the information in these documents. Extract the relevant details and present them clearly. Don't overthink it - just be helpful and direct like ChatGPT would be."""
+CRITICAL: Extract the actual policy information from these documents and provide a comprehensive answer. Include:
+1. The specific policy details and requirements
+2. Key points and provisions
+3. Any relevant procedures or guidelines
+4. Practical implications for employees
+
+Do NOT just mention document names or provide links. Extract and explain the actual content so the user gets their answer immediately without having to open other documents."""
                 
             elif category == 'procedures':
-                system_prompt = """You are ChatGPT with access to DTCE's procedures. Be direct and helpful."""
+                system_prompt = """You are an intelligent AI assistant with access to DTCE's procedures. Extract and explain the actual procedural information to help users understand what they need to do."""
                 
                 user_prompt = f"""Question: {question}
 
 DTCE Procedures:
-{retrieved_content[:2500]}
+{retrieved_content[:3500]}
 
-Answer their question using these procedures. Give them the steps or information they need."""
+Extract the actual procedural information from these documents. Provide:
+1. Step-by-step procedures if applicable
+2. Requirements and guidelines
+3. Forms, templates, or tools mentioned
+4. Practical implementation details
+
+Give them the complete information they need to follow the procedure, not just document references."""
                 
             elif category == 'nz_standards':
-                system_prompt = """You are ChatGPT with access to NZ engineering standards. Answer technical questions directly."""
+                system_prompt = """You are an intelligent AI assistant with access to NZ engineering standards. Extract and explain the actual technical requirements and standards information."""
                 
                 user_prompt = f"""Question: {question}
 
 NZ Standards:
-{retrieved_content[:2500]}
+{retrieved_content[:3500]}
 
-Answer their standards question using these documents. Give them the specific clauses, requirements, and technical details they need."""
+Extract the specific technical information from these standards documents. Provide:
+1. Exact clauses, requirements, and specifications
+2. Technical parameters and limits
+3. Design requirements and calculations
+4. Compliance guidelines and best practices
+
+Give them the complete technical details they need, not just standard numbers or document names."""
                 
             elif category == 'project_reference':
-                system_prompt = """You are ChatGPT with access to DTCE's project history. Answer questions about past projects directly."""
+                system_prompt = """You are an intelligent AI assistant with access to DTCE's project history. Extract and explain the actual project information and insights to help with current work."""
                 
                 user_prompt = f"""Question: {question}
 
 DTCE Projects:
-{retrieved_content[:2500]}
+{retrieved_content[:3500]}
 
-Answer their question about DTCE projects using this information. Give them the project details, insights, and information they're looking for."""
+Extract the actual project information from these documents. Provide:
+1. Specific project details, scope, and outcomes
+2. Design approaches and solutions used
+3. Lessons learned and insights
+4. Technical specifications and methods
+5. Client feedback and project results
+
+Give them comprehensive project insights they can apply to their current work, not just project names or file references."""
                 
             elif category == 'client_reference':
-                system_prompt = """You are ChatGPT with access to DTCE's client information. Answer client questions directly."""
+                system_prompt = """You are an intelligent AI assistant with access to DTCE's client information. Extract and provide the actual client details and interaction history."""
                 
                 user_prompt = f"""Question: {question}
 
 Client Information:
-{retrieved_content[:2500]}
+{retrieved_content[:3500]}
 
-Answer their question about clients using this information. Give them the contact details, project history, or client insights they need."""
+Extract the actual client information from these documents. Provide:
+1. Specific client details and contact information
+2. Project history and collaboration details
+3. Communication records and feedback
+4. Technical requirements and preferences
+5. Relationship insights and recommendations
+
+Give them complete client information they can use immediately, not just document names or references."""
             else:
-                system_prompt = "You are ChatGPT with access to DTCE documents. Answer questions directly and helpfully."
+                system_prompt = "You are an intelligent AI assistant with access to DTCE documents. Extract and explain the actual information to answer questions thoroughly, not just document references."
                 user_prompt = f"""Question: {question}
 
 DTCE Information:
-{retrieved_content[:2500]}
+{retrieved_content[:3500]}
 
-Answer their question using this information."""
+Extract and explain the actual information from these documents to answer this question comprehensively. Provide specific details, not just document names or links."""
 
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
