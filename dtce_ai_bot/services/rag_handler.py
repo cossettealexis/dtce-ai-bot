@@ -601,6 +601,7 @@ Now answer the user's question with specific, targeted information from the docu
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.1,  # Very low for maximum consistency
+                top_p=0.1,  # Limit token sampling for deterministic responses
                 max_tokens=2500,   # Adequate for comprehensive engineering advice
                 seed=12345  # Fixed seed for deterministic responses
             )
