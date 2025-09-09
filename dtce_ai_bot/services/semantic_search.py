@@ -92,8 +92,17 @@ class SemanticSearchService:
         
         # Execute search
         try:
-            results = await self.search_client.search(**search_params)
-            documents = [dict(result) async for result in results]
+            # Handle both sync and async search clients
+            import inspect
+            
+            if inspect.iscoroutinefunction(self.search_client.search):
+                # Async version
+                result_obj = await self.search_client.search(**search_params)
+                documents = [dict(result) async for result in result_obj]
+            else:
+                # Sync version
+                result_obj = self.search_client.search(**search_params)
+                documents = [dict(result) for result in result_obj]
             
             # POST-PROCESS: Apply folder routing after getting results
             filtered_documents = self._apply_folder_routing_post_search(documents, category)
@@ -115,11 +124,20 @@ class SemanticSearchService:
             search_params.pop('query_caption', None)
             search_params.pop('query_answer', None)
             
-            results = await self.search_client.search(**search_params)
-            documents = [dict(result) async for result in results]
-            
-            # Still apply post-search filtering
-            return self._apply_folder_routing_post_search(documents, category)
+            try:
+                if inspect.iscoroutinefunction(self.search_client.search):
+                    result_obj = await self.search_client.search(**search_params)
+                    documents = [dict(result) async for result in result_obj]
+                else:
+                    result_obj = self.search_client.search(**search_params)
+                    documents = [dict(result) for result in result_obj]
+                
+                # Still apply post-search filtering
+                return self._apply_folder_routing_post_search(documents, category)
+                
+            except Exception as fallback_error:
+                logger.error("Fallback search also failed", error=str(fallback_error))
+                return []
     
     def _build_basic_filters(self, project_filter: Optional[str] = None) -> List[str]:
         """Build basic filters that work with Azure Search limitations."""
@@ -209,8 +227,14 @@ class SemanticSearchService:
         
         # Execute search
         try:
-            results = await self.search_client.search(**search_params)
-            documents = [dict(result) async for result in results]
+            import inspect
+            
+            if inspect.iscoroutinefunction(self.search_client.search):
+                result_obj = await self.search_client.search(**search_params)
+                documents = [dict(result) async for result in result_obj]
+            else:
+                result_obj = self.search_client.search(**search_params)
+                documents = [dict(result) for result in result_obj]
             
             logger.info("Semantic search executed", documents_found=len(documents))
             
@@ -224,8 +248,16 @@ class SemanticSearchService:
             search_params.pop('query_caption', None)
             search_params.pop('query_answer', None)
             
-            results = await self.search_client.search(**search_params)
-            return [dict(result) async for result in results]
+            try:
+                if inspect.iscoroutinefunction(self.search_client.search):
+                    result_obj = await self.search_client.search(**search_params)
+                    return [dict(result) async for result in result_obj]
+                else:
+                    result_obj = self.search_client.search(**search_params)
+                    return [dict(result) for result in result_obj]
+            except Exception as fallback_error:
+                logger.error("Fallback search failed", error=str(fallback_error))
+                return []
     
     def _build_intent_filters(self, strategy: Dict[str, any], project_filter: Optional[str] = None) -> List[str]:
         """Build search filters based on intent strategy."""
@@ -402,8 +434,15 @@ class SemanticSearchService:
             search_params['filter'] = ' and '.join(filters)
         
         try:
-            results = await self.search_client.search(**search_params)
-            documents = [dict(result) async for result in results]
+            import inspect
+            
+            if inspect.iscoroutinefunction(self.search_client.search):
+                result_obj = await self.search_client.search(**search_params)
+                documents = [dict(result) async for result in result_obj]
+            else:
+                result_obj = self.search_client.search(**search_params)
+                documents = [dict(result) for result in result_obj]
+                
             logger.info("Fallback search completed", documents_found=len(documents))
             return self._filter_quality_documents(documents)
         except Exception as e:
