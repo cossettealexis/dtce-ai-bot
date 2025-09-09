@@ -51,15 +51,15 @@ class RAGHandler:
     
     async def process_rag_query(self, question: str, project_filter: Optional[str] = None, conversation_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
         """
-        INTELLIGENT FOLDER-ROUTED SEARCH WITH CONVERSATIONAL CONTEXT:
+        CONSISTENT INTELLIGENT SEARCH WITH NORMALIZED QUERIES:
         
-        1. Check if query is conversational (requires context) vs informational (requires search)
-        2. For conversational queries: Use conversation history to generate contextual response
-        3. For informational queries: Classify intent, route to appropriate folder, and search
-        4. Generate appropriate response based on query type
+        1. Normalize similar questions to search for same documents consistently
+        2. Use consistent document ranking and selection 
+        3. Generate comprehensive responses from same source documents
+        4. Ensure same questions always get same foundational documents
         """
         try:
-            logger.info("Processing question with conversational context analysis", question=question)
+            logger.info("Processing question with consistent search approach", question=question)
             
             # STEP 0: Check if this is a conversational query that doesn't need document search
             is_conversational = await self._is_conversational_query(question, conversation_history)
@@ -68,21 +68,20 @@ class RAGHandler:
                 logger.info("Detected conversational query - using context instead of search")
                 return await self._handle_conversational_query(question, conversation_history)
             
-            # STEP 1: Normalize query for consistent semantic search results
-            logger.info("Detected informational query - proceeding with document search")
-            normalized_result = await self.query_normalizer.normalize_query(question)
+            # STEP 1: Normalize query for CONSISTENT search results - similar questions should find same documents
+            logger.info("Detected informational query - proceeding with consistent document search")
             
-            # Use normalized query for semantic search
-            search_query = normalized_result['primary_search_query']
-            logger.info("Query normalized", 
+            # Create consistent search terms for similar questions
+            normalized_query = self._create_consistent_search_query(question)
+            
+            logger.info("Query normalized for consistency", 
                        original=question,
-                       normalized=search_query,
-                       confidence=normalized_result['confidence'])
+                       normalized=normalized_query)
             
-            # STEP 2: Use intelligent semantic search with folder routing
-            documents = await self.semantic_search.search_documents(search_query, project_filter)
+            # STEP 2: Use intelligent semantic search with consistent query
+            documents = await self.semantic_search.search_documents(normalized_query, project_filter)
             
-            logger.info("Intelligent search results", 
+            logger.info("Consistent search results", 
                        total_documents=len(documents),
                        sample_filenames=[doc.get('filename', 'Unknown') for doc in documents[:3]])
             
@@ -97,31 +96,23 @@ class RAGHandler:
                 
                 result.update({
                     'rag_type': 'comprehensive_conversational_rag',
-                    'search_method': 'ai_semantic_with_full_content',
+                    'search_method': 'consistent_semantic_search',
                     'response_style': 'chatgpt_like_conversation',
                     'query_normalization': {
                         'original_query': question,
-                        'normalized_query': search_query,
-                        'confidence': normalized_result['confidence'],
-                        'semantic_concepts': normalized_result.get('semantic_concepts', []),
-                        'document_terms': normalized_result.get('document_terms', []),
-                        'method': normalized_result.get('method', 'unknown'),
-                        'reasoning': normalized_result.get('reasoning', '')
+                        'normalized_query': normalized_query,
+                        'method': 'consistent_search_terms'
                     }
                 })
                 
                 return result
             else:
-                # No documents found - provide general response with normalization info
+                # No documents found - provide general response
                 result = await self._handle_no_documents_found(question)
                 result['query_normalization'] = {
                     'original_query': question,
-                    'normalized_query': search_query,
-                    'confidence': normalized_result['confidence'],
-                    'semantic_concepts': normalized_result.get('semantic_concepts', []),
-                    'document_terms': normalized_result.get('document_terms', []),
-                    'method': normalized_result.get('method', 'unknown'),
-                    'reasoning': normalized_result.get('reasoning', '')
+                    'normalized_query': normalized_query,
+                    'method': 'consistent_search_terms'
                 }
                 return result
                 
@@ -2509,3 +2500,51 @@ LINKS:
 [Placeholder - Real implementation would include actual URLs]
 
 Note: For live web search, integrate with search APIs."""
+
+    def _create_consistent_search_query(self, question: str) -> str:
+        """Create consistent search terms for similar questions to ensure same documents are found."""
+        
+        # Normalize the question to lowercase for consistent matching
+        question_lower = question.lower().strip()
+        
+        # Define consistent search term mappings for common question variations
+        consistent_mappings = {
+            # Wellness/Wellbeing Policy variations
+            'wellness': ['wellness policy', 'wellbeing policy', 'wellness', 'wellbeing', 'employee wellness', 'staff wellbeing'],
+            'wellbeing': ['wellness policy', 'wellbeing policy', 'wellness', 'wellbeing', 'employee wellness', 'staff wellbeing'],
+            'wellness policy': ['wellness policy', 'wellbeing policy', 'employee wellness policy'],
+            'wellbeing policy': ['wellness policy', 'wellbeing policy', 'employee wellness policy'],
+            
+            # Health & Safety variations
+            'health and safety': ['health safety policy', 'H&S policy', 'health and safety'],
+            'h&s': ['health safety policy', 'H&S policy', 'health and safety'],
+            'safety policy': ['health safety policy', 'H&S policy', 'safety'],
+            
+            # Project variations
+            'project 225': ['project 225', '225', 'project job 225'],
+            'project 224': ['project 224', '224', 'project job 224'],
+            'project 223': ['project 223', '223', 'project job 223'],
+            
+            # Client issues variations
+            'clients don\'t like': ['client complaints', 'client issues', 'problem projects', 'client dissatisfaction', 'rework'],
+            'client complaints': ['client complaints', 'client issues', 'problem projects', 'client dissatisfaction'],
+            'problem projects': ['client complaints', 'client issues', 'problem projects', 'client dissatisfaction', 'rework'],
+            
+            # NZ Standards variations  
+            'nzs': ['NZ standards', 'New Zealand standards', 'building codes'],
+            'clear cover': ['concrete cover', 'clear cover requirements', 'concrete protection'],
+            'beam design': ['structural beam', 'beam detailing', 'beam requirements'],
+            
+            # Template variations
+            'ps1 template': ['PS1 form', 'producer statement', 'PS1 template'],
+            'timber beam': ['timber design', 'timber beam spreadsheet', 'timber calculations'],
+        }
+        
+        # Check for exact matches first
+        for key, search_terms in consistent_mappings.items():
+            if key in question_lower:
+                # Return the primary search term (first in list) for consistency
+                return search_terms[0]
+        
+        # If no specific mapping found, return the original question
+        return question
