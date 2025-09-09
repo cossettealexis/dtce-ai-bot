@@ -554,12 +554,13 @@ Please try rephrasing your question or contact support if the issue persists."""
                 retrieved_content = self._format_documents_content(documents) if documents else ""
             
             # Create prompt for comprehensive information extraction
-            prompt = f"""You are an intelligent AI assistant with access to DTCE's document database. Answer the user's question EXACTLY as asked with specific, targeted information.
+            prompt = f"""MANDATORY REQUIREMENT: YOU MUST END YOUR RESPONSE WITH SUITEFILES LINKS IN THIS EXACT FORMAT:
 
-CRITICAL: ALWAYS include SuiteFiles links at the end of your response in this format:
 **Sources:**
 - **Document Name** - [SuiteFiles Link]
 - **Document Name** - [SuiteFiles Link]
+
+You are an intelligent AI assistant with access to DTCE's document database. Answer the user's question EXACTLY as asked with specific, targeted information.
 
 USER QUESTION: "{question}"
 
@@ -587,15 +588,11 @@ CRITICAL INSTRUCTIONS:
    - Names, contacts, and company details
    - Problem areas and lessons learned
 
-4. **ALWAYS INCLUDE SUITEFILES LINKS**: When referencing documents, ALWAYS include the SuiteFiles links provided in the document information. Format them like this:
-   **Source:** [Document Name]
-   **SuiteFiles Link:** [The SuiteFiles URL from the document]
-   
-   Include this for EVERY document you reference in your answer.
+4. **NO OFF-TOPIC RESPONSES**: Stay focused on answering the exact question asked. Don't provide general information if they asked for something specific.
 
-5. **NO OFF-TOPIC RESPONSES**: Stay focused on answering the exact question asked. Don't provide general information if they asked for something specific.
+5. **EXTRACT ACTIONABLE DETAILS**: Give information the user can immediately use for their work.
 
-6. **EXTRACT ACTIONABLE DETAILS**: Give information the user can immediately use for their work.
+MANDATORY: After providing your answer, you MUST include a "Sources:" section with SuiteFiles links for every document you referenced. This is required for every response that uses DTCE documents.
 
 Now answer the user's question with specific, targeted information from the documents:"""
 
@@ -616,6 +613,25 @@ Now answer the user's question with specific, targeted information from the docu
             )
             
             answer = response.choices[0].message.content
+            
+            # POST-PROCESSING: Force SuiteFiles links if AI didn't include them
+            if documents and "SuiteFiles" not in answer:
+                logger.warning("AI response missing SuiteFiles links - forcing inclusion")
+                
+                # Build the Sources section manually
+                sources_section = "\n\n**Sources:**"
+                for doc in documents[:3]:  # Limit to top 3 for readability
+                    filename = doc.get('filename', 'Unknown Document')
+                    blob_url = self._get_blob_url_from_doc(doc)
+                    suitefiles_link = self._get_safe_suitefiles_url(blob_url)
+                    
+                    if suitefiles_link:
+                        # Clean filename for display
+                        display_name = filename.replace('.pdf', '').replace('_', ' ').title()
+                        sources_section += f"\n- **{display_name}** - {suitefiles_link}"
+                
+                # Append the sources section to the answer
+                answer += sources_section
             
             # Format sources for display
             sources = []
