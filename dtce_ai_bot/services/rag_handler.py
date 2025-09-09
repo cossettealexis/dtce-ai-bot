@@ -256,7 +256,7 @@ class RAGHandler:
             
             # Get SuiteFiles link
             blob_url = self._get_blob_url_from_doc(doc)
-            suitefiles_link = self.suitefiles_converter.get_safe_suitefiles_url(blob_url)
+            suitefiles_link = suitefiles_converter.get_safe_suitefiles_url(blob_url)
             
             # USE FULL CONTENT - NO TRUNCATION AT ALL
             formatted_content = content  # Complete document content without any limits
@@ -293,7 +293,7 @@ FULL CONTENT:
             
             # Get SuiteFiles link
             blob_url = self._get_blob_url_from_doc(doc)
-            suitefiles_link = self.suitefiles_converter.get_safe_suitefiles_url(blob_url)
+            suitefiles_link = suitefiles_converter.get_safe_suitefiles_url(blob_url)
             
             # Extract project info using our consistent method
             extracted_project = self._extract_project_name_from_blob_url(blob_url)
@@ -657,7 +657,7 @@ Now answer the user's question with specific, targeted information from the docu
                 for doc in documents[:3]:  # Limit to top 3 for readability
                     filename = doc.get('filename', 'Unknown Document')
                     blob_url = self._get_blob_url_from_doc(doc)
-                    suitefiles_link = self.suitefiles_converter.get_safe_suitefiles_url(blob_url)
+                    suitefiles_link = suitefiles_converter.get_safe_suitefiles_url(blob_url)
                     
                     if suitefiles_link:
                         # Clean filename for display
@@ -672,7 +672,7 @@ Now answer the user's question with specific, targeted information from the docu
             for doc in documents[:5]:
                 filename = doc.get('filename', 'Unknown')
                 blob_url = self._get_blob_url_from_doc(doc)
-                suitefiles_link = self.suitefiles_converter.get_safe_suitefiles_url(blob_url)
+                suitefiles_link = suitefiles_converter.get_safe_suitefiles_url(blob_url)
                 
                 source_entry = {
                     'filename': filename,
@@ -1082,7 +1082,7 @@ Now answer the user's question with specific, targeted information from the docu
                 # Note: If not from Projects folder, no 'project' key is added to source
                 
                 # Add SuiteFiles link
-                suitefiles_url = self.suitefiles_converter.get_safe_suitefiles_url(blob_url)
+                suitefiles_url = suitefiles_converter.get_safe_suitefiles_url(blob_url)
                 if suitefiles_url and suitefiles_url != "Document available in SuiteFiles":
                     source['suitefiles_url'] = suitefiles_url
                     source['url'] = suitefiles_url  # Add url field for consistency
@@ -1535,7 +1535,7 @@ Extract and explain the actual information from these documents to answer this q
             for doc in documents[:5]:
                 filename = doc.get('filename', 'Unknown')
                 blob_url = self._get_blob_url_from_doc(doc)
-                suitefiles_link = self.suitefiles_converter.get_safe_suitefiles_url(blob_url)
+                suitefiles_link = suitefiles_converter.get_safe_suitefiles_url(blob_url)
                 
                 source_entry = {
                     'filename': filename,
@@ -1805,7 +1805,7 @@ Respond like a knowledgeable colleague would - naturally and helpfully."""
             title = doc.get('filename', f'Document {i}')
             score = doc.get('@search.score', doc.get('score', 0))
             blob_url = self._get_blob_url_from_doc(doc)
-            suitefiles_link = self.suitefiles_converter.get_safe_suitefiles_url(blob_url)
+            suitefiles_link = suitefiles_converter.get_safe_suitefiles_url(blob_url)
             
             # Include SuiteFiles link in the content
             link_text = f"\nSuiteFiles Link: {suitefiles_link}" if suitefiles_link else ""
