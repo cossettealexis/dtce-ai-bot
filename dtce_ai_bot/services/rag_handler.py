@@ -32,6 +32,39 @@ class RAGHandler:
         # Initialize query normalizer for better semantic search consistency
         self.query_normalizer = QueryNormalizer(openai_client, model_name)
 
+    def _force_suitefiles_links(self, answer: str, documents: list) -> str:
+        """Force SuiteFiles links to be included in the response if documents are available."""
+        if not documents:
+            return answer
+            
+        # Check if SuiteFiles links are already included
+        if "SuiteFiles" in answer:
+            return answer
+            
+        logger.warning("Forcing SuiteFiles links inclusion - AI didn't follow instructions")
+        
+        # Build the Sources section manually
+        sources_section = "\n\n**Sources:**"
+        links_added = 0
+        
+        for doc in documents[:3]:  # Limit to top 3 for readability
+            filename = doc.get('filename', 'Unknown Document')
+            blob_url = self._get_blob_url_from_doc(doc)
+            suitefiles_link = self._get_safe_suitefiles_url(blob_url)
+            
+            if suitefiles_link:
+                # Clean filename for display
+                display_name = filename.replace('.pdf', '').replace('_', ' ').title()
+                sources_section += f"\n- **{display_name}** - {suitefiles_link}"
+                links_added += 1
+        
+        # Only append if we actually have valid links
+        if links_added > 0:
+            return answer + sources_section
+        else:
+            logger.warning("No valid SuiteFiles links found in documents")
+            return answer
+
     async def process_question(self, question: str) -> Dict[str, Any]:
         """Universal AI assistant that can answer anything like ChatGPT + smart DTCE routing."""
         try:
@@ -1492,6 +1525,9 @@ Extract and explain the actual information from these documents to answer this q
             )
             
             answer = response.choices[0].message.content
+            
+            # FORCE SUITEFILES LINKS - Use our helper function
+            answer = self._force_suitefiles_links(answer, documents)
             
             # Format sources
             sources = []
