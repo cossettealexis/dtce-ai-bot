@@ -276,11 +276,11 @@ FULL CONTENT:
             # Extract project info using our consistent method
             extracted_project = self._extract_project_name_from_blob_url(blob_url)
             
-            # Use FULL content for better RAG - don't truncate unless absolutely necessary
-            max_content_length = 3000  # Increased from 600 to 3000 characters
+            # Use FULL content for comprehensive RAG - significantly increased limit
+            max_content_length = 15000  # Increased from 3000 to 15000 characters for comprehensive responses
             formatted_content = content[:max_content_length]
             if len(content) > max_content_length:
-                formatted_content += "... [Content continues]"
+                formatted_content += "... [Content continues - document has more details]"
             
             # Format document with comprehensive information
             doc_info = f"""=== DOCUMENT {i}: {filename} ===
@@ -567,34 +567,33 @@ Please try rephrasing your question or contact support if the issue persists."""
                 documents = await self._search_specific_folder(question, folder_type)
                 retrieved_content = self._format_documents_content(documents) if documents else ""
             
-            # Create prompt for smart DTCE colleague who knows everything
-            prompt = f"""You are a senior engineer at DTCE who has perfect knowledge of everything in SuiteFiles and can also provide general engineering advice.
+            # Create prompt for comprehensive information extraction
+            prompt = f"""You are an intelligent AI assistant with access to DTCE's document database. Extract and present ALL relevant information from the documents to answer questions comprehensively.
 
-ENGINEER'S QUESTION: "{question}"
+QUESTION: "{question}"
 
-RELEVANT SUITEFILES INFORMATION:
-{retrieved_content[:3000] if retrieved_content else "No specific documents found in SuiteFiles for this query."}
+DTCE DOCUMENTS:
+{retrieved_content[:4000] if retrieved_content else "No specific documents found for this query."}
 
-YOUR ROLE:
-- You are an experienced DTCE engineer who knows all our documents, procedures, past projects, and standards
-- Answer questions like a knowledgeable colleague would - naturally and helpfully
-- Use information from SuiteFiles when it's relevant
-- Provide general engineering advice when the question is about general topics
-- Combine both DTCE knowledge and general expertise when appropriate
+MANDATORY EXTRACTION REQUIREMENTS:
 
-SMART QUESTION ANALYSIS:
-1. **DTCE-specific questions** (policies, procedures, past projects, DTCE standards): Use SuiteFiles information primarily
-2. **General engineering questions** (design principles, NZ Standards, general advice): Use your engineering knowledge primarily  
-3. **Mixed questions** (how DTCE does something + general best practices): Combine both sources
+1. **EXTRACT EVERYTHING RELEVANT**: Pull out ALL specific details, numbers, requirements, procedures, project details, technical specs, names, dates, and any other relevant information from the documents.
 
-RESPONSE STYLE:
-- Talk like a helpful, knowledgeable colleague
-- Be practical and give actionable advice
-- If SuiteFiles has relevant info, mention it naturally in your response
-- If it's a general question, just answer from your engineering knowledge
-- Don't overthink it - just be helpful and smart
+2. **BE SPECIFIC AND DETAILED**: Instead of saying "documents mention X", extract and list the actual details. Include:
+   - Specific project numbers, dates, and details
+   - Exact technical requirements and specifications  
+   - Names of people, companies, and contacts
+   - Specific procedures and steps
+   - Technical calculations and standards
+   - Policy details and requirements
 
-Answer the engineer's question:"""
+3. **NO GENERIC RESPONSES**: Avoid responses like "documents don't contain specific information" or "appears that there is no specific information". If there are any relevant details in the documents, extract and present them.
+
+4. **COMPREHENSIVE CONTENT**: Provide substantial, detailed responses that give users complete information they can act on immediately.
+
+5. **EXTRACT FROM ALL DOCUMENTS**: Look through all provided documents and pull relevant information from each one that relates to the question.
+
+Extract and present all relevant information from the documents:"""
 
             # Generate response as smart DTCE colleague
             response = await self.openai_client.chat.completions.create(
@@ -1747,7 +1746,7 @@ Respond like a knowledgeable colleague would - naturally and helpfully."""
             title = doc.get('filename', f'Document {i}')
             score = doc.get('@search.score', doc.get('score', 0))
             
-            formatted_content.append(f"Document {i}: {title} (relevance: {score:.2f})\n{content[:500]}...")
+            formatted_content.append(f"Document {i}: {title} (relevance: {score:.2f})\n{content[:2000]}...")  # Increased from 500 to 2000
         
         return "\n\n".join(formatted_content)
 
