@@ -139,7 +139,7 @@ async def test_all_faq_questions():
                     answer = result.get('answer', 'No answer')
                     
                     print(f"✅ RESPONSE ({len(answer)} chars):")
-                    print(answer[:300] + ("..." if len(answer) > 300 else ""))
+                    print(answer)  # SHOW FULL RESPONSE - NO TRUNCATION
                     
                     if answer and "I don't have information" not in answer and "I cannot find" not in answer:
                         successful_responses += 1
@@ -154,7 +154,7 @@ async def test_all_faq_questions():
                 except Exception as e:
                     print(f"❌ ERROR: {str(e)}")
                 
-                print("-" * 50)
+                print("=" * 80)  # Make separators more visible
             
             print(f"\n📊 {category} Complete")
         

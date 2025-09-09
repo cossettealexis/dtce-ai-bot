@@ -582,9 +582,11 @@ CRITICAL INSTRUCTIONS:
    - Names, contacts, and company details
    - Problem areas and lessons learned
 
-4. **NO OFF-TOPIC RESPONSES**: Stay focused on answering the exact question asked. Don't provide general information if they asked for something specific.
+4. **ALWAYS INCLUDE SUITEFILES LINKS**: When referencing documents, include the SuiteFiles links provided in the document information so users can access the full documents directly.
 
-5. **EXTRACT ACTIONABLE DETAILS**: Give information the user can immediately use for their work.
+5. **NO OFF-TOPIC RESPONSES**: Stay focused on answering the exact question asked. Don't provide general information if they asked for something specific.
+
+6. **EXTRACT ACTIONABLE DETAILS**: Give information the user can immediately use for their work.
 
 Now answer the user's question with specific, targeted information from the documents:"""
 
@@ -1738,8 +1740,13 @@ Respond like a knowledgeable colleague would - naturally and helpfully."""
             content = doc.get('content', '')
             title = doc.get('filename', f'Document {i}')
             score = doc.get('@search.score', doc.get('score', 0))
+            blob_url = self._get_blob_url_from_doc(doc)
+            suitefiles_link = self._get_safe_suitefiles_url(blob_url)
             
-            formatted_content.append(f"Document {i}: {title} (relevance: {score:.2f})\n{content}")  # FULL CONTENT - NO TRUNCATION
+            # Include SuiteFiles link in the content
+            link_text = f"\nSuiteFiles Link: {suitefiles_link}" if suitefiles_link else ""
+            
+            formatted_content.append(f"Document {i}: {title} (relevance: {score:.2f}){link_text}\n{content}")  # FULL CONTENT - NO TRUNCATION
         
         return "\n\n".join(formatted_content)
 
