@@ -34,20 +34,20 @@ class SuiteFilesUrlConverter:
             return None
             
         try:
-            # Extract the path from blob URL
-            path_match = re.search(r'/suitefiles/(.+)', blob_url, re.IGNORECASE)
+            # Extract the path from blob URL - support both suitefiles and dtce-documents containers
+            path_match = re.search(r'/(suitefiles|dtce-documents)/(.+)', blob_url, re.IGNORECASE)
             if not path_match:
-                logger.warning("No 'suitefiles' path found in blob URL", blob_url=blob_url)
+                logger.warning("No 'suitefiles' or 'dtce-documents' path found in blob URL", blob_url=blob_url)
                 return None
                 
-            path_after_suitefiles = path_match.group(1)
+            path_after_container = path_match.group(2)
             
             # Remove query parameters
-            if "?" in path_after_suitefiles:
-                path_after_suitefiles = path_after_suitefiles.split("?")[0]
+            if "?" in path_after_container:
+                path_after_container = path_after_container.split("?")[0]
                 
             # URL decode the path
-            clean_path = unquote(path_after_suitefiles)
+            clean_path = unquote(path_after_container)
             
             # Build SharePoint URL
             if link_type == "folder":
