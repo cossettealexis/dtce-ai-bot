@@ -56,7 +56,8 @@ class RAGHandler:
             if suitefiles_link:
                 # Clean filename for display
                 display_name = filename.replace('.pdf', '').replace('_', ' ').title()
-                sources_section += f"\n- **{display_name}** - {suitefiles_link}"
+                # Use markdown link format to hide the ugly URL
+                sources_section += f"\n- [{display_name}]({suitefiles_link})"
                 links_added += 1
         
         # Only append if we actually have valid links
@@ -626,7 +627,7 @@ CRITICAL INSTRUCTIONS:
 
 5. **EXTRACT ACTIONABLE DETAILS**: Give information the user can immediately use for their work.
 
-MANDATORY: After providing your answer, you MUST include a "Sources:" section with SuiteFiles links for every document you referenced. This is required for every response that uses DTCE documents.
+MANDATORY: After providing your answer, you MUST include a "Sources:" section with SuiteFiles links for every document you referenced. Format as clickable markdown links like this: [Document Name](url). This is required for every response that uses DTCE documents.
 
 Now answer the user's question with specific, targeted information from the documents:"""
 
@@ -662,7 +663,8 @@ Now answer the user's question with specific, targeted information from the docu
                     if suitefiles_link:
                         # Clean filename for display
                         display_name = filename.replace('.pdf', '').replace('_', ' ').title()
-                        sources_section += f"\n- **{display_name}** - {suitefiles_link}"
+                        # Use markdown link format to hide the ugly URL
+                        sources_section += f"\n- [{display_name}]({suitefiles_link})"
                 
                 # Append the sources section to the answer
                 answer += sources_section
