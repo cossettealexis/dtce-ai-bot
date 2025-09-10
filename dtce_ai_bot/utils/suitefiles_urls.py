@@ -5,7 +5,7 @@ Follows SOLID principles by providing a single responsibility for URL conversion
 
 import re
 from typing import Optional
-from urllib.parse import unquote
+from urllib.parse import unquote, quote
 import structlog
 
 logger = structlog.get_logger(__name__)
@@ -53,10 +53,15 @@ class SuiteFilesUrlConverter:
             if link_type == "folder":
                 # For folder view, remove the filename
                 folder_path = "/".join(clean_path.split("/")[:-1])
-                sharepoint_url = f"{self.sharepoint_base}{self.site_path}/_layouts/15/onedrive.aspx?id=%2Fsites%2FSuiteFiles%2F{folder_path}&view=0"
+                # URL encode the folder path for SharePoint
+                encoded_folder_path = quote(folder_path, safe='/')
+                sharepoint_url = f"{self.sharepoint_base}{self.site_path}/_layouts/15/onedrive.aspx?id=%2Fsites%2FSuiteFiles%2F{encoded_folder_path}&view=0"
             else:
-                # For direct file link
-                sharepoint_url = f"{self.sharepoint_base}{self.site_path}/{clean_path}"
+                # For direct file link - encode each path component to handle spaces and special characters
+                path_components = clean_path.split('/')
+                encoded_components = [quote(component, safe='') for component in path_components]
+                encoded_path = '/'.join(encoded_components)
+                sharepoint_url = f"{self.sharepoint_base}{self.site_path}/{encoded_path}"
                 
             logger.debug("Successfully converted blob URL to SuiteFiles URL", 
                         blob_url=blob_url, sharepoint_url=sharepoint_url)
