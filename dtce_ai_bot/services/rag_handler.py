@@ -106,6 +106,15 @@ class RAGHandler:
             # STEP 1: Normalize query for CONSISTENT search results - similar questions should find same documents
             logger.info("Detected informational query - proceeding with consistent document search")
             
+            # STEP 1.5: Auto-detect project number from question if not provided
+            if not project_filter:
+                detected_project = self._extract_project_from_question(question)
+                if detected_project:
+                    project_filter = detected_project
+                    logger.info("Auto-detected project filter from question", 
+                               question=question, 
+                               detected_project=detected_project)
+            
             # Create consistent search terms for similar questions
             normalized_query = self._create_consistent_search_query(question)
             
@@ -742,6 +751,18 @@ Now answer the user's question with specific, targeted information from the docu
                 filters.append(f"({doc_filter})")
                 logger.info("Added document type filter", filter=doc_filter)
             
+            # Add project filter if specified - CRITICAL for project-specific searches
+            if project_filter:
+                # Extract just the number from project filter (e.g., "224" from "project 224")
+                import re
+                project_number_match = re.search(r'\d+', project_filter)
+                if project_number_match:
+                    project_number = project_number_match.group()
+                    # Create a filter that matches the project number in blob_url or filename
+                    project_filter_query = f"(search.ismatch('*/{project_number}/*', 'blob_url') or search.ismatch('*{project_number}*', 'filename') or search.ismatch('*{project_number}*', 'project_name'))"
+                    filters.append(project_filter_query)
+                    logger.info("Added project filter", project_number=project_number, filter=project_filter_query)
+            
             # Combine filters with AND logic
             if filters:
                 search_params['filter'] = ' and '.join(filters)
@@ -973,6 +994,36 @@ Now answer the user's question with specific, targeted information from the docu
             logger.warning("Failed to extract project from filename", filename=filename, error=str(e))
             
         return ""  # Return empty string instead of "Unknown Project"
+        
+    def _extract_project_from_question(self, question: str) -> Optional[str]:
+        """Extract project number from user's question for automatic filtering."""
+        try:
+            import re
+            # Look for project number patterns in the question
+            patterns = [
+                r'project\s+(\d{3,6})',  # "project 224", "project 225001"
+                r'project\s*#?\s*(\d{3,6})',  # "project #224", "project# 225001"
+                r'(?:^|\s)(\d{3})\s',  # standalone 3-digit number like "224 "
+                r'(?:^|\s)(\d{6})(?:\s|$)',  # standalone 6-digit number like "225001"
+            ]
+            
+            for pattern in patterns:
+                match = re.search(pattern, question.lower())
+                if match:
+                    project_number = match.group(1)
+                    # Validate project number length
+                    if len(project_number) >= 3 and len(project_number) <= 6:
+                        detected_project = f"project {project_number}"
+                        logger.info("Detected project number in question", 
+                                   question=question, 
+                                   project_number=project_number,
+                                   detected_project=detected_project)
+                        return detected_project
+                        
+        except Exception as e:
+            logger.warning("Failed to extract project from question", question=question, error=str(e))
+            
+        return None
 
     def _is_real_project_document(self, blob_name: str, project_name: str) -> bool:
         """Determine if a document is actually from a real project (not CPD, training, etc.)."""
