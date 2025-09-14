@@ -4,6 +4,12 @@ Diagnostic script to check Azure Search index configuration.
 """
 
 import asyncio
+import sys
+import os
+
+# Add the project root to Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
 from dtce_ai_bot.config.settings import get_settings
 from dtce_ai_bot.integrations.azure_search import get_search_client
 from azure.search.documents.indexes import SearchIndexClient

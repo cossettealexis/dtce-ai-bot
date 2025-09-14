@@ -758,10 +758,22 @@ Now answer the user's question with specific, targeted information from the docu
                 project_number_match = re.search(r'\d+', project_filter)
                 if project_number_match:
                     project_number = project_number_match.group()
-                    # Create a filter that matches the project number in blob_url or filename
-                    project_filter_query = f"(search.ismatch('*/{project_number}/*', 'blob_url') or search.ismatch('*{project_number}*', 'filename') or search.ismatch('*{project_number}*', 'project_name'))"
+                    
+                    # Create EXTREMELY STRICT filter to prevent partial matches
+                    # For project "224": should match "224xxx-" or "/224/" but NOT "221241" or "223154"
+                    if len(project_number) == 3:
+                        # For 3-digit projects, only match at start of filename or in exact folder structure
+                        # Match patterns: "224xxx-", "/224/", "/Projects/224/"
+                        project_filter_query = f"(search.ismatch('*/Projects/{project_number}/*', 'blob_url') or search.ismatch('*/{project_number}/*', 'blob_url') or search.ismatch('{project_number}???-*', 'filename'))"
+                    elif len(project_number) == 6:
+                        # For 6-digit projects, match at start of filename or exact folder
+                        project_filter_query = f"(search.ismatch('*/{project_number}/*', 'blob_url') or search.ismatch('{project_number}-*', 'filename') or search.ismatch('{project_number}_*', 'filename'))"
+                    else:
+                        # For other lengths, be more permissive
+                        project_filter_query = f"(search.ismatch('*/{project_number}/*', 'blob_url') or search.ismatch('{project_number}*', 'filename'))"
+                    
                     filters.append(project_filter_query)
-                    logger.info("Added project filter", project_number=project_number, filter=project_filter_query)
+                    logger.info("Added ultra-precise project filter", project_number=project_number, project_length=len(project_number), filter=project_filter_query)
             
             # Combine filters with AND logic
             if filters:
