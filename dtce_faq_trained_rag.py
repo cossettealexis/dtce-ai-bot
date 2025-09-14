@@ -434,130 +434,28 @@ class DTCEFAQTrainedRAG:
 
     def _create_faq_prompt(self, question: str, response_type: str, content: str, documents: List[Dict]) -> str:
         """
-        Create specialized prompts for different FAQ categories
+        Create direct, conversational prompts for all FAQ types
         """
-        base_prompt = f"""You are DTCE's AI assistant, specialized in providing comprehensive answers for {response_type} questions.
+        return f"""You are DTCE's AI assistant. Answer this question directly and conversationally, like a helpful colleague would.
 
 QUESTION: "{question}"
 
 RELEVANT DTCE DOCUMENTS:
 {content}
 
-"""
+INSTRUCTIONS:
+- Answer the question naturally and directly
+- Extract specific details the user needs (names, project numbers, requirements, contacts, etc.)
+- Be conversational but accurate
+- If you can't find what they're looking for, say so clearly
+- Focus on giving them exactly what they asked for
 
-        if response_type == "policy_guidance":
-            return base_prompt + """POLICY RESPONSE GUIDELINES:
-- Provide clear, authoritative guidance based on DTCE policies
-- Quote specific policy requirements where applicable
-- Include compliance requirements and consequences
-- Always include SuiteFiles links to policy documents
-- If multiple policies apply, prioritize the most relevant ones
+After your answer, include source documents with SuiteFiles links:
 
-Structure your response as:
-1. **Policy Summary**: Brief overview of relevant policy
-2. **Key Requirements**: Specific requirements employees must follow  
-3. **Additional Notes**: Any clarifications or related procedures
-4. **Sources**: SuiteFiles links to full policy documents"""
+**Sources:**
+- **Document Name** - [SuiteFiles Link]
 
-        elif response_type == "procedural_guidance":
-            return base_prompt + """PROCEDURAL RESPONSE GUIDELINES:
-- Provide step-by-step guidance based on DTCE H2H documents
-- Include best practices and "how we do things at DTCE"
-- Reference specific spreadsheets, templates, or tools mentioned
-- Always include SuiteFiles links to procedure documents
-- Note if procedures have been updated recently
-
-Structure your response as:
-1. **Procedure Overview**: What this procedure covers
-2. **Step-by-Step Process**: Clear instructions to follow
-3. **Tools & Templates**: Relevant spreadsheets or templates
-4. **Best Practices**: DTCE-specific tips and recommendations
-5. **Sources**: SuiteFiles links to H2H documents"""
-
-        elif response_type == "technical_standard":
-            return base_prompt + """NZ STANDARDS RESPONSE GUIDELINES:
-- Provide specific clause references and requirements
-- Quote exact text from standards where available
-- Include design parameters, factors, and calculations
-- Cross-reference with DTCE's interpretation or procedures
-- Always include SuiteFiles links to relevant standards
-
-Structure your response as:
-1. **Standard Reference**: Specific NZS code and clause numbers
-2. **Requirements**: Exact requirements from the standard
-3. **Design Parameters**: Relevant factors, minimums, calculations
-4. **DTCE Application**: How we typically apply this standard
-5. **Sources**: SuiteFiles links to standards documents"""
-
-        elif response_type == "project_reference":
-            return base_prompt + """PROJECT REFERENCE RESPONSE GUIDELINES:
-- List specific project numbers and brief descriptions
-- Include relevant design elements, materials, or approaches used
-- Highlight successful solutions and lessons learned
-- Provide SuiteFiles links to project folders or specific documents
-- Organize by relevance to the current inquiry
-
-Structure your response as:
-1. **Relevant Projects**: List with project numbers and descriptions
-2. **Design Approaches**: Methods and materials used
-3. **Key Insights**: Lessons learned or successful solutions
-4. **Design Philosophy**: Theoretical approach if available
-5. **Sources**: SuiteFiles links to project documents"""
-
-        elif response_type == "client_reference":
-            return base_prompt + """CLIENT REFERENCE RESPONSE GUIDELINES:
-- Provide client/builder contact information if available
-- List projects worked on together with outcomes
-- Note any issues, successes, or special considerations
-- Include project types and working relationship quality
-- Always include SuiteFiles links to relevant communications
-
-Structure your response as:
-1. **Client/Builder Information**: Contact details and background
-2. **Project History**: Past projects and outcomes
-3. **Working Relationship**: Quality of collaboration and any issues
-4. **Recommendations**: Suitability for similar future work
-5. **Sources**: SuiteFiles links to project communications"""
-
-        elif response_type == "engineering_advisory":
-            return base_prompt + """ENGINEERING ADVISORY RESPONSE GUIDELINES:
-- Provide professional engineering advice based on past experience
-- Highlight lessons learned, common pitfalls, and best practices
-- Include risk assessments and recommendations
-- Reference relevant standards and industry best practices
-- Balance past project data with general engineering principles
-
-Structure your response as:
-1. **Professional Assessment**: Engineering analysis of the situation
-2. **Lessons from Past Projects**: Relevant experience and outcomes
-3. **Risk Considerations**: Potential issues and mitigation strategies
-4. **Recommendations**: Clear actionable advice
-5. **Industry Standards**: Relevant codes and best practices
-6. **Sources**: SuiteFiles links to supporting documents"""
-
-        elif response_type == "superseded_inclusion":
-            return base_prompt + """SUPERSEDED DOCUMENTS RESPONSE GUIDELINES:
-- Include both current and superseded/archived versions
-- Explain the differences between versions where possible
-- Show the evolution of design or approach
-- Highlight what changed and why
-- Always include SuiteFiles links to all versions
-
-Structure your response as:
-1. **Current Version**: Latest issued documents
-2. **Superseded Versions**: Previous drafts and revisions
-3. **Change Summary**: What changed between versions
-4. **Reasons for Changes**: Why revisions were made if available
-5. **Sources**: SuiteFiles links to all document versions"""
-
-        else:
-            return base_prompt + """GENERAL RESPONSE GUIDELINES:
-- Provide comprehensive, professional engineering guidance
-- Include specific document references and quotes where relevant
-- Always include SuiteFiles links to source documents
-- Combine DTCE-specific knowledge with general engineering principles
-
-Generate a thorough response that addresses the question completely."""
+Answer the question now:"""
 
     # Helper methods for keyword extraction
     def _extract_policy_keywords(self, question: str) -> List[str]:

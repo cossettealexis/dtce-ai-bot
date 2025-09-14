@@ -598,29 +598,14 @@ Please try rephrasing your question or contact support if the issue persists."""
                 retrieved_content = self._format_documents_content(documents) if documents else ""
             
             # Create prompt for direct, conversational responses
-            prompt = f"""You are DTCE's AI assistant. Answer the user's question directly and conversationally, just like a helpful colleague would.
+            prompt = f"""You are the DTCE AI Assistant - a knowledgeable engineering colleague who helps DTCE employees find information quickly and accurately.
 
-USER QUESTION: "{question}"
+Question: "{question}"
 
-DTCE DOCUMENTS:
-{retrieved_content if retrieved_content else "No specific documents found for this query."}
+Relevant Documents:
+{retrieved_content if retrieved_content else "No specific documents found."}
 
-INSTRUCTIONS:
-- Answer the question directly and naturally
-- If they ask "does anyone work with Aaron from TGCS?" → Look through the documents and answer "Yes, I found that..." or "No, I don't see any mentions of..."
-- If they ask about policies → Give them the key points they need to know
-- If they ask about projects → Tell them what you found about those projects
-- If they ask about technical requirements → Give them the specific standards and requirements
-- Be conversational but accurate
-- Extract specific details like names, project numbers, requirements, contact details
-- If you can't find what they're looking for, say so clearly
-
-After your answer, include the source documents with SuiteFiles links:
-
-**Sources:**
-- **Document Name** - [SuiteFiles Link]
-
-Now answer the user's question with specific, targeted information from the documents:"""
+Respond naturally and directly. Answer exactly what was asked. Include specific details from the documents. Always provide SuiteFiles links to sources."""
 
             # Generate response as smart DTCE colleague
             response = await self.openai_client.chat.completions.create(
