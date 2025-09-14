@@ -597,46 +597,28 @@ Please try rephrasing your question or contact support if the issue persists."""
                 documents = await self._search_specific_folder(question, folder_type)
                 retrieved_content = self._format_documents_content(documents) if documents else ""
             
-            # Create prompt for comprehensive information extraction
-            prompt = f"""MANDATORY REQUIREMENT: YOU MUST END YOUR RESPONSE WITH SUITEFILES LINKS IN THIS EXACT FORMAT:
-
-**Sources:**
-- **Document Name** - [SuiteFiles Link]
-- **Document Name** - [SuiteFiles Link]
-
-You are an intelligent AI assistant with access to DTCE's document database. Answer the user's question EXACTLY as asked with specific, targeted information.
+            # Create prompt for direct, conversational responses
+            prompt = f"""You are DTCE's AI assistant. Answer the user's question directly and conversationally, just like a helpful colleague would.
 
 USER QUESTION: "{question}"
 
 DTCE DOCUMENTS:
 {retrieved_content if retrieved_content else "No specific documents found for this query."}
 
-CRITICAL INSTRUCTIONS:
+INSTRUCTIONS:
+- Answer the question directly and naturally
+- If they ask "does anyone work with Aaron from TGCS?" → Look through the documents and answer "Yes, I found that..." or "No, I don't see any mentions of..."
+- If they ask about policies → Give them the key points they need to know
+- If they ask about projects → Tell them what you found about those projects
+- If they ask about technical requirements → Give them the specific standards and requirements
+- Be conversational but accurate
+- Extract specific details like names, project numbers, requirements, contact details
+- If you can't find what they're looking for, say so clearly
 
-1. **UNDERSTAND THE EXACT QUESTION**: Analyze what the user is specifically asking for:
-   - If they ask for "projects where clients don't like" → Find projects with client complaints, issues, rework, or problems
-   - If they ask for "wellness policy" → Extract the actual policy content and requirements
-   - If they ask for "project 225" → Give specific details about that project
-   - If they ask for NZ standards → Extract the exact technical requirements and clause numbers
+After your answer, include the source documents with SuiteFiles links:
 
-2. **ANSWER THE ACTUAL QUESTION**: Don't give generic information. Answer specifically what was asked:
-   - For problem projects → Identify which projects had issues and what went wrong
-   - For policies → Extract the actual policy text and requirements
-   - For technical questions → Give exact specifications, calculations, and standards
-   - For project references → List relevant project numbers and scope details
-
-3. **BE SPECIFIC AND TARGETED**: Extract exactly what the user needs:
-   - Project numbers and job details
-   - Specific technical requirements and standards
-   - Exact policy text and procedures
-   - Names, contacts, and company details
-   - Problem areas and lessons learned
-
-4. **NO OFF-TOPIC RESPONSES**: Stay focused on answering the exact question asked. Don't provide general information if they asked for something specific.
-
-5. **EXTRACT ACTIONABLE DETAILS**: Give information the user can immediately use for their work.
-
-MANDATORY: After providing your answer, you MUST include a "Sources:" section with SuiteFiles links for every document you referenced. Format as clickable markdown links like this: [Document Name](url). This is required for every response that uses DTCE documents.
+**Sources:**
+- **Document Name** - [SuiteFiles Link]
 
 Now answer the user's question with specific, targeted information from the documents:"""
 
@@ -1556,21 +1538,19 @@ Extract the actual project information from these documents. Provide:
 Give them comprehensive project insights they can apply to their current work, not just project names or file references."""
                 
             elif category == 'client_reference':
-                system_prompt = """You are an intelligent AI assistant with access to DTCE's client information. Extract and provide the actual client details and interaction history."""
+                system_prompt = """You are DTCE's AI assistant. Answer the specific question directly based on the documents. If asking about a person or company, look for their mentions and provide a direct answer."""
                 
                 user_prompt = f"""Question: {question}
 
-Client Information:
+DTCE Documents:
 {retrieved_content[:3500]}
 
-Extract the actual client information from these documents. Provide:
-1. Specific client details and contact information
-2. Project history and collaboration details
-3. Communication records and feedback
-4. Technical requirements and preferences
-5. Relationship insights and recommendations
+Answer this specific question directly. If the question is about whether someone works with a particular person or company:
+- Look for mentions of that person/company in the documents
+- Provide a direct yes/no answer with specific details from the documents  
+- Include relevant project numbers, emails, or other specific information found
 
-Give them complete client information they can use immediately, not just document names or references."""
+Be direct and specific in your answer, not a generic client information template."""
             else:
                 system_prompt = "You are an intelligent AI assistant with access to DTCE documents. Extract and explain the actual information to answer questions thoroughly, not just document references."
                 user_prompt = f"""Question: {question}
