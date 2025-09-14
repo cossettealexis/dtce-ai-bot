@@ -240,7 +240,7 @@ class RAGHandler:
             is_superseded = any(term in blob_name.lower() for term in superseded_terms)
             is_excluded = any(term in blob_name.lower() for term in excluded_terms)
             
-            # Include superseded documents if user specifically asks for them
+            # Include superseded documents only if user specifically asks for them
             include_superseded = any(term in query.lower() for term in ['superseded', 'superceded', 'old version', 'previous version', 'historical'])
             
             should_exclude = is_excluded or (is_superseded and not include_superseded)
@@ -597,15 +597,28 @@ Please try rephrasing your question or contact support if the issue persists."""
                 documents = await self._search_specific_folder(question, folder_type)
                 retrieved_content = self._format_documents_content(documents) if documents else ""
             
-            # Create prompt for direct, conversational responses
-            prompt = f"""You are the DTCE AI Assistant - a knowledgeable engineering colleague who helps DTCE employees find information quickly and accurately.
+            # Create prompt for comprehensive, advisory responses
+            prompt = f"""You are the DTCE AI Assistant - a senior engineering advisor and knowledgeable colleague who helps DTCE employees with comprehensive, practical advice.
 
 Question: "{question}"
 
 Relevant Documents:
 {retrieved_content if retrieved_content else "No specific documents found."}
 
-Respond naturally and directly. Answer exactly what was asked. Include specific details from the documents. Always provide SuiteFiles links to sources."""
+RESPONSE APPROACH:
+1. Answer the user's question completely and conversationally
+2. Include superseded documents if relevant to provide full context
+3. Provide engineering advice and summarize project findings - don't just give links
+4. Add warnings if documents show client issues, upset clients, or project problems
+5. Give advisory recommendations based on lessons learned
+6. Include general engineering guidelines relevant to the question  
+7. Combine DTCE documents + your engineering knowledge + NZ standards when helpful
+8. For project questions: always include project name, address, and number
+9. Analyze information to provide "what to do" and "what not to do" advice
+
+BE CONVERSATIONAL: Talk like a helpful senior engineer colleague, not a formal system.
+
+ALWAYS INCLUDE: Working SuiteFiles links to relevant documents."""
 
             # Generate response as smart DTCE colleague
             response = await self.openai_client.chat.completions.create(
