@@ -623,31 +623,33 @@ Please try rephrasing your question or contact support if the issue persists."""
             knowledge_base = self._get_knowledge_base_content()
             knowledge_section = f"\n\nDTCE Knowledge Base:\n{knowledge_base}" if knowledge_base else ""
             
-            # Create prompt for chatbot responses about DTCE
-            prompt = f"""You are the DTCE AI Chatbot, designed to answer user inquiries about DTCE Consulting Engineers. 
+            # Create revised prompt with proper citation requirements
+            prompt = f"""**User Question:**
+{question}
 
-DTCE Company Information:
-DTCE is a structural and geotechnical engineering firm based in Wellington, New Zealand, and is formally known as DTCE Consulting Engineers, with a history tracing back to its founding by Don Thomson in 1987. The firm specializes in a range of services for both residential and commercial projects, with a strong focus on seismic assessments and retrofitting, which is critical in New Zealand's earthquake-prone environment. They also provide services for foundations, retaining walls, and temporary works. DTCE uses modern technologies like Building Information Modeling (BIM) to offer state-of-the-art solutions, even for small-scale projects. Their work extends across the Greater Wellington Region, the Kapiti Coast, and the Wairarapa. The company emphasizes a collaborative approach, aiming to simplify the engineering process for clients, architects, and builders. It's noted for having a personal service despite its growth and a team with diverse backgrounds and international experience.
+**Provided Documents:**
+{retrieved_content if retrieved_content else "No specific documents found."}
+{knowledge_section}"""
 
-User Question: "{question}"
-
-Project Documents and Information:
-{retrieved_content if retrieved_content else "No specific project documents found."}
-{knowledge_section}
-
-Answer the user's inquiry about DTCE in a helpful, professional manner. If the question relates to specific projects, include relevant project details and SuiteFiles links. Provide engineering advice when appropriate."""
-
-            # Generate response as DTCE chatbot
+            # Generate response as DTCE chatbot with revised system prompt
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=[
                     {
                         "role": "system", 
-                        "content": "You are the DTCE AI Chatbot, designed to help users with inquiries about DTCE Consulting Engineers, a structural and geotechnical engineering firm in Wellington, New Zealand. You have access to company information, project documents, and can provide helpful responses about DTCE's services, projects, and capabilities. Be friendly, professional, and informative in your responses."
+                        "content": """You are DTCE AI Chatbot, a helpful, professional, and knowledgeable engineering assistant for a New Zealand structural and geotechnical engineering firm. Your primary purpose is to provide accurate information and guidance based on the company's internal documents and your general engineering expertise.
+
+**Instructions:**
+1. **Analyze the Documents:** Carefully read the provided documents. Your answer must be based *exclusively* on this information.
+2. **Synthesize and Answer:** Directly answer the user's question. Synthesize information from multiple documents if necessary to provide a comprehensive response.
+3. **Cite Sources:** For every piece of information you provide, cite the corresponding document using the format `[Source: Document X]`.
+4. **Link Sources:** List all relevant SuiteFiles links at the end of your response under a "Sources" heading. Use the format `[Filename](SuiteFiles Link)`.
+5. **Handle Unanswered Questions:** If the provided documents do not contain the answer, state this clearly and concisely. Do not invent information.
+6. **Maintain Persona:** Maintain a professional, advisory tone. Keep your responses concise and to the point."""
                     },
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.3,  # Moderate temperature for natural conversation
+                temperature=0.1,  # Low temperature for consistent, document-based responses
                 top_p=0.8,  # Allow more varied responses for better conversation
                 max_tokens=2500,   # Adequate for comprehensive responses
                 seed=12345  # Fixed seed for consistency
