@@ -95,11 +95,11 @@ CATEGORIES:
 3. **nz_standards** - Questions about NZ engineering standards, codes, specifications
    Examples: "What are the minimum cover requirements per NZS?", "NZS 3101 requirements"
    
-4. **project_reference** - Questions about specific projects, lessons learned
-   Examples: "Tell me about project 225", "What went wrong with the bridge project?"
+4. **project_reference** - Questions about specific projects' technical details, lessons learned, project insights
+   Examples: "Tell me about project 225 approach", "What went wrong with the bridge project?", "Project insights for tunneling"
    
-5. **client_reference** - Questions about clients, contacts, who works with whom
-   Examples: "Who works with Aaron?", "Contact details for NZTA", "Client information"
+5. **client_reference** - Questions about clients, contacts, who works with whom, contact information
+   Examples: "Who works with Aaron?", "Contact details for NZTA", "Client information", "Who is the contact for project 224?", "Who handles project X?"
    
 6. **general** - Other engineering questions not fitting above categories
 
@@ -871,7 +871,24 @@ FULL CONTENT:
         """Handle cases where no documents are found - provide intelligent fallback."""
         logger.info("No documents found, providing general response", question=question)
         
-        # Use GPT knowledge fallback with advisory engineering guidance
+        # Check if this is a contact/client info question
+        question_lower = question.lower()
+        if any(pattern in question_lower for pattern in [
+            "who is the contact", "contact for project", "who is contact", 
+            "contact for", "who works with", "client contact"
+        ]):
+            # For contact questions, give a direct "not found" answer
+            direct_answer = f"I couldn't find contact information for this query in our document database. You may want to check with the project manager or office administrator for the most current contact details."
+            
+            return {
+                'answer': direct_answer,
+                'rag_type': 'contact_not_found',
+                'search_method': 'no_documents_found_contact',
+                'retrieved_documents': [],
+                'formatted_documents': ""
+            }
+        
+        # Use GPT knowledge fallback with advisory engineering guidance for other questions
         try:
             fallback_prompt = f"""You are DTCE AI Assistant, a senior engineering advisor. A user asked: "{question}"
 
@@ -1985,21 +2002,20 @@ Extract the specific technical information from these standards documents. Provi
 Give them the complete technical details they need, not just standard numbers or document names."""
                 
             elif category == 'project_reference':
-                system_prompt = """You are an intelligent AI assistant with access to DTCE's project history. Extract and explain the actual project information and insights to help with current work."""
+                system_prompt = """You are DTCE's AI assistant. Answer the specific question directly based on the project documents. If asking for specific information like contacts, costs, or details, provide a direct answer. Only give comprehensive project analysis if specifically requested."""
                 
                 user_prompt = f"""Question: {question}
 
 DTCE Projects:
 {retrieved_content[:3500]}
 
-Extract the actual project information from these documents. Provide:
-1. Specific project details, scope, and outcomes
-2. Design approaches and solutions used
-3. Lessons learned and insights
-4. Technical specifications and methods
-5. Client feedback and project results
+Answer the specific question directly. If they're asking for:
+- Contact information: Provide the person's name and role
+- Project details: Give the specific information requested
+- Costs or timelines: Provide the exact figures
+- Technical specs: Give the precise requirements
 
-Give them comprehensive project insights they can apply to their current work, not just project names or file references."""
+Only provide comprehensive analysis if they specifically ask for "insights", "lessons learned", or "project analysis"."""
                 
             elif category == 'client_reference':
                 system_prompt = """You are DTCE's AI assistant. Answer the specific question directly based on the documents. If asking about a person or company, look for their mentions and provide a direct answer."""
