@@ -1,6 +1,6 @@
 """
 RAG (Retrieval-Augmented Generation) Handler for DTCE AI Bot
-ENHANCED SEMANTIC SEARCH with Intent Recognition
+ENHANCED SEMANTIC SEARCH with Intent Recognition - Refactored with SOLID principles
 """
 
 import re
@@ -12,6 +12,11 @@ from .semantic_search import SemanticSearchService
 from .folder_structure_service import FolderStructureService
 from .query_normalizer import QueryNormalizer
 from .google_docs_service import GoogleDocsService
+from .intent_classifier import IntentClassifier
+from .project_context_service import ProjectContextService
+from .prompt_builder import PromptBuilder
+from .document_formatter import DocumentFormatter
+from .specialized_search_service import SpecializedSearchService
 from ..utils.suitefiles_urls import suitefiles_converter
 
 logger = structlog.get_logger(__name__)
@@ -26,6 +31,14 @@ class RAGHandler:
         self.search_client = search_client
         self.openai_client = openai_client
         self.model_name = model_name
+        
+        # Initialize new service-oriented architecture following SOLID principles
+        self.intent_classifier = IntentClassifier(openai_client, model_name)
+        self.project_context_service = ProjectContextService()
+        self.prompt_builder = PromptBuilder()
+        self.document_formatter = DocumentFormatter()
+        self.specialized_search_service = SpecializedSearchService(search_client, openai_client, model_name)
+        
         # Initialize the new universal AI handler  
         self.ai_handler = UniversalAIHandler(search_client, openai_client, model_name)
         # Keep existing services for backward compatibility
@@ -322,8 +335,8 @@ Respond with JSON:
     async def _process_rag_with_intent_routing(self, question: str, retrieved_content: str, documents: List[Dict], intent_classification: Dict) -> Dict[str, Any]:
         """Process RAG query using intent-based prompt routing with project context."""
         try:
-            # Analyze project distribution in results
-            project_stats = self._analyze_project_distribution(documents)
+            # Use the new project context service
+            project_stats = self.project_context_service.analyze_project_distribution(documents)
             
             # Get knowledge base content
             knowledge_content = self._get_knowledge_base_content()
@@ -342,46 +355,19 @@ Respond with JSON:
                     most_common = project_stats['projects_found'][project_stats['most_common_project']]
                     project_context_section += f"\n- Primary project: {project_stats['most_common_project']} ({most_common['year']}) - {most_common['count']} documents"
             
+            # Build system prompt using the new prompt builder service with user override detection
+            system_prompt = self.prompt_builder.build_simple_system_prompt(intent_classification['category'], question)
+
             # Generate response with intent-based system prompt
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {
-                        "role": "system", 
-                        "content": f"""You are DTCE AI Chatbot, a helpful, professional, and knowledgeable engineering assistant for a New Zealand structural and geotechnical engineering firm. Your primary purpose is to provide accurate, comprehensive, and advisory-level guidance based on the provided documents and your professional engineering expertise.
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": f"""**USER REQUEST (HIGHEST PRIORITY):** {question}
 
-**Core Instructions:**
-1. **Analyze and Synthesize:** Carefully read all provided documents. Your answer must be based on this information. Synthesize details from all sources to create a comprehensive response.
-2. **Understand the Question:** Before generating an answer, fully understand the user's question and what they are trying to achieve. Do not just summarize the documents.
-3. **Cite Sources:** For every specific detail, cite the corresponding document using the format `[Source: Document X]`.
-4. **Provide Links:** At the end of your response, list all relevant SuiteFiles links under a "Sources" heading. Use the format `[Filename](SuiteFiles Link)`.
-5. **Handle Unanswered Questions:** If the documents do not contain the answer, state this clearly and concisely. Do not invent information.
-6. **Use Project Context:** When documents are from specific projects, reference the project numbers and years to provide context.
+**Context Information:** Based on the provided documents and context, please respond to the user's request above. Remember: if the user has made any explicit requests about format, citations, links, or approach, those take absolute priority over standard instructions.
 
----
-
-### **Context-Specific Instructions:**
-
-{self._get_intent_specific_instructions(intent_classification['category'])}
-
----
-
-### **Provided Information for Your Analysis:**
-
-**Retrieved Documents from Azure Search Index:**
-{retrieved_content if retrieved_content else "No specific documents found."}
-
-{knowledge_section}
-
-{project_context_section}
-
----
-
-### **User's Request:**
-
-**User Question:** {question}"""
-                    },
-                    {"role": "user", "content": f"Please answer this question based on the provided documents: {question}"}
+**Documents and Context Available:** See system prompt for detailed information."""}
                 ],
                 temperature=0.1,
                 max_tokens=2500,
@@ -505,23 +491,23 @@ Respond with JSON:
                 return await self._handle_conversational_query(question, conversation_history)
             
             # STEP 1: INTENT CLASSIFICATION - Understand what the user is asking for
-            intent_classification = await self._classify_user_intent(question)
+            intent_classification = await self.intent_classifier.classify_intent(question)
             logger.info(f"Intent classified as: {intent_classification['category']}", 
                        confidence=intent_classification.get('confidence', 0),
                        reasoning=intent_classification.get('reasoning', 'No reasoning provided'))
             
-            # STEP 2: Search documents using intent-guided approach
-            normalized_query = self._create_consistent_search_query(question)
-            documents = await self.semantic_search.search_documents(normalized_query, project_filter)
+            # STEP 2: Search documents using intent-specific search strategies
+            documents, search_strategy = await self._execute_intent_based_search(question, intent_classification)
             
-            logger.info("Intent-guided search results", 
+            logger.info("Intent-guided search completed", 
                        total_documents=len(documents),
-                       intent_category=intent_classification['category'])
+                       intent_category=intent_classification['category'],
+                       search_strategy=search_strategy)
             
             # STEP 3: Generate response with intent-based prompt routing
             if documents:
-                # Format documents with intent context
-                retrieved_content = self._format_documents_for_intent(documents, intent_classification)
+                # Format documents with intent context using new service
+                retrieved_content = self.document_formatter.format_documents_for_intent(documents, intent_classification)
                 
                 # Use intent-based prompt routing instead of generic prompts
                 result = await self._process_rag_with_intent_routing(question, retrieved_content, documents, intent_classification)
@@ -549,6 +535,60 @@ Respond with JSON:
                 'documents_searched': 0,
                 'rag_type': 'error'
             }
+    
+    async def _execute_intent_based_search(self, question: str, intent_classification: Dict[str, Any]) -> tuple:
+        """
+        Execute search based on the classified intent using specialized search strategies.
+        
+        Args:
+            question: The user's question
+            intent_classification: The classified intent information
+            
+        Returns:
+            Tuple of (documents, search_strategy_used)
+        """
+        category = intent_classification.get('category', 'general')
+        
+        try:
+            # Route to specialized search based on intent
+            if category == 'project_search':
+                return await self.specialized_search_service.execute_project_search(question)
+            
+            elif category == 'keyword_project_search':
+                return await self.specialized_search_service.execute_keyword_project_search(question)
+            
+            elif category == 'template_search':
+                return await self.specialized_search_service.execute_template_search(question)
+            
+            elif category == 'email_search':
+                return await self.specialized_search_service.execute_email_search(question)
+            
+            elif category == 'client_info':
+                return await self.specialized_search_service.execute_client_info_search(question)
+            
+            elif category == 'client_project_history':
+                # For client project history, we use keyword search with client focus
+                return await self.specialized_search_service.execute_keyword_project_search(question)
+            
+            elif category == 'scope_based_search':
+                return await self.specialized_search_service.execute_scope_based_search(question)
+            
+            else:
+                # For general, policy, technical_procedures, nz_standards - use existing semantic search
+                normalized_query = self._create_consistent_search_query(question)
+                documents = await self.semantic_search.search_documents(normalized_query, None)
+                return documents, f"semantic_search_{category}"
+                
+        except Exception as e:
+            logger.error("Intent-based search failed", error=str(e), intent=category)
+            # Fallback to general semantic search
+            try:
+                normalized_query = self._create_consistent_search_query(question)
+                documents = await self.semantic_search.search_documents(normalized_query, None)
+                return documents, "fallback_semantic_search"
+            except Exception as fallback_error:
+                logger.error("Fallback search also failed", error=str(fallback_error))
+                return [], "search_failed"
     
     def _determine_response_context(self, documents: List[Dict], question: str) -> Dict[str, Any]:
         """Determine the response context based on found documents and question."""
@@ -1008,12 +1048,6 @@ Please try rephrasing your question or contact support if the issue persists."""
 3. **Cite Sources:** For every specific detail, cite the corresponding document using the format `[Source: Document X]`.
 4. **Provide Links:** At the end of your response, list all relevant SuiteFiles links under a "Sources" heading. Use the format `[Filename](SuiteFiles Link)`.
 5. **Handle Unanswered Questions:** If the documents do not contain the answer, state this clearly and concisely. Do not invent information.
-
----
-
-### **Context-Specific Instructions:**
-
-{self._get_intent_specific_instructions(intent_classification['category'])}
 
 ---
 
