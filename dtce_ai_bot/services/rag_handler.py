@@ -494,6 +494,26 @@ Respond with JSON:
             # STEP 2: Search documents using intent-specific search strategies
             documents, search_strategy = await self._execute_intent_based_search(question, intent_classification)
             
+            # Update intent classification if it was corrected in the search routing
+            corrected_category = intent_classification['category']
+            if corrected_category == 'general' and intent_classification.get('confidence', 0) < 0.7:
+                question_lower = question.lower()
+                if any(pattern in question_lower for pattern in [
+                    "who is the contact", "contact for project", "who is contact", 
+                    "contact for", "who works with"
+                ]):
+                    corrected_category = 'client_info'
+                    intent_classification['category'] = 'client_info'
+                    intent_classification['confidence'] = 0.8
+                    intent_classification['reasoning'] = 'Corrected from failed classification - detected client info question'
+                elif any(pattern in question_lower for pattern in [
+                    "what is project", "what is the project", "project number"
+                ]):
+                    corrected_category = 'project_search'
+                    intent_classification['category'] = 'project_search'
+                    intent_classification['confidence'] = 0.8
+                    intent_classification['reasoning'] = 'Corrected from failed classification - detected project search question'
+            
             logger.info("Intent-guided search completed", 
                        total_documents=len(documents),
                        intent_category=intent_classification['category'],
@@ -543,6 +563,21 @@ Respond with JSON:
             Tuple of (documents, search_strategy_used)
         """
         category = intent_classification.get('category', 'general')
+        
+        # FALLBACK: If intent classification failed but this is clearly a direct question, override category
+        if category == 'general' and intent_classification.get('confidence', 0) < 0.7:
+            question_lower = question.lower()
+            if any(pattern in question_lower for pattern in [
+                "who is the contact", "contact for project", "who is contact", 
+                "contact for", "who works with"
+            ]):
+                logger.info("Overriding failed intent classification - detected client_info question")
+                category = 'client_info'
+            elif any(pattern in question_lower for pattern in [
+                "what is project", "what is the project", "project number"
+            ]):
+                logger.info("Overriding failed intent classification - detected project_search question")
+                category = 'project_search'
         
         try:
             # Route to specialized search based on intent
