@@ -152,21 +152,20 @@ class PromptBuilder:
 * **Advisory Tone:** Use a conversational and advisory tone. Provide "lessons learned" or "what to do/not to do" based on the project information.
 * **Warning System:** If the documents mention a client being upset or a project having issues, explicitly state this in a clear, brief warning before the main answer."""
     
-    def _get_client_reference_instructions(self) -> str:
-        """Instructions for client reference queries."""
-        return """**Client Contact and Reference Guidance:**
-* **Contact Details:** Find and extract all available contact details (email, phone, address) and list them clearly under a "Contact Information" section.
-* **Client History:** Summarize any relevant project history or relationship notes with this client.
-* **Warning System:** If there are any negative notes about the client (complaints, payment issues, etc.), include a clear warning section."""
-    
     def _get_project_search_instructions(self) -> str:
         """Instructions for direct project search queries."""
-        return """**Project Summary Guidance:**
-* **CONCISE SUMMARY:** Provide a brief, direct summary of the project including client, address, and scope.
-* **FOLDER STRUCTURE:** If asked about folders, list all project subfolders clearly and simply.
-* **KEY DETAILS:** Present essential information: project number, client, timeline, value, engineering approach.
-* **NO VERBOSE ANALYSIS:** Keep responses focused and to-the-point. Avoid lengthy "lessons learned" sections unless specifically requested.
-* **PROJECT CONTEXT:** Include project year and relationships to other projects only if relevant."""
+        return """**Project Information - DIRECT RESPONSE:**
+* **BE DIRECT:** Answer the specific question asked. If asked "What is project X?", provide key project details concisely.
+* **KEY INFORMATION:** Include: Project number, client name, location, scope, status, key personnel.
+* **CONTACT INFORMATION:** If the question asks about contacts, extract and present contact details directly.
+* **CONCISE FORMAT:** Present information clearly without unnecessary advisory content:
+  - Project: [Number/Name]
+  - Client: [Client name]
+  - Location: [Address/Location]
+  - Scope: [Brief description]
+  - Contact: [Contact person if available]
+* **NO VERBOSE ANALYSIS:** Avoid lengthy project summaries, lessons learned, or design methodology unless specifically requested.
+* **FOLDER STRUCTURE:** If asked about folders, list project subfolders clearly and simply."""
     
     def _get_keyword_project_search_instructions(self) -> str:
         """Instructions for keyword-based project searches."""
@@ -202,11 +201,18 @@ class PromptBuilder:
     
     def _get_client_info_instructions(self) -> str:
         """Instructions for client information queries."""
-        return """**Client Information Guidance:**
-* **Contact Details:** Extract and present all available contact information clearly.
-* **Client Profile:** Provide background information about the client organization.
-* **Project Relationship:** Show the client's project history and current engagement.
-* **Special Notes:** Include any important notes about working with this client."""
+        return """**Client Contact Information - DIRECT RETRIEVAL:**
+* **PRIORITY:** Answer the user's specific question directly. If they ask "Who is the contact?", provide just the contact name/details.
+* **FORMAT:** Present contact information clearly:
+  - Contact Person: [Name]
+  - Role/Position: [Title] 
+  - Email: [Email if available]
+  - Phone: [Phone if available]
+  - Company: [Company name]
+* **BE CONCISE:** For direct contact queries, provide only the requested information. Do not add lengthy analysis or advisory content.
+* **SOURCE CITATION:** Always cite the document source where the contact information was found.
+* **NOT FOUND:** If contact information is not in the documents, state clearly: "Contact information for [project/client] was not found in the available documents."
+* **NO VERBOSE ANALYSIS:** Avoid lengthy explanations about project methodology or design approaches unless specifically requested."""
     
     def _get_client_project_history_instructions(self) -> str:
         """Instructions for client project history queries."""
@@ -297,11 +303,11 @@ class PromptBuilder:
         instructions = []
         
         # Always include basic understanding instruction
-        instructions.append("1. **Understand the Question:** Fully understand the user's question and what they are trying to achieve. Prioritize the user's explicit requests above all else.")
+        instructions.append("1. **Understand the Question:** Fully understand the user's question and what they are trying to achieve. ANSWER THE SPECIFIC QUESTION ASKED - do not provide generic summaries if they asked for specific information.")
         
-        # Conditional analysis instruction
+        # Conditional analysis instruction based on query type
         if not user_overrides.get('skip_analysis', False):
-            instructions.append("2. **Analyze and Synthesize:** Carefully read all provided documents. Base your answer on this information and synthesize details from all sources.")
+            instructions.append("2. **Be Appropriately Direct:** For direct information requests (contact info, project details, specific facts), provide concise, focused answers. For complex queries requiring analysis, provide comprehensive responses.")
         else:
             instructions.append("2. **Provide Direct Content:** Present the requested information directly as specified by the user.")
         

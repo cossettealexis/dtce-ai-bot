@@ -180,21 +180,50 @@ class SpecializedSearchService:
             client_context = await self._extract_client_context(question)
             logger.info(f"Searching client info: {client_context}")
             
-            search_terms = ["contact", "client"]
-            if client_context.get('client_name'):
-                search_terms.append(client_context['client_name'])
+            # Build comprehensive search for contact information
+            search_terms = []
+            
+            # Add contact-related terms
+            search_terms.extend(["contact", "client", "email", "phone", "address"])
+            
+            # Add specific project or client information
             if client_context.get('project'):
                 search_terms.append(client_context['project'])
+                # Also search with project in blob path
+                project_filter = f"search.ismatch('*{client_context['project']}*', 'blob_name')"
+            else:
+                project_filter = None
                 
-            search_query = " AND ".join(search_terms)
+            if client_context.get('client_name'):
+                search_terms.append(client_context['client_name'])
+                
+            # Create semantic search query for contact information
+            search_query = " ".join(search_terms)
             
-            results = self.search_client.search(
-                search_text=search_query,
-                top=8,
-                search_mode="all"
-            )
+            # Execute search with both semantic and keyword approaches
+            search_params = {
+                "search_text": search_query,
+                "top": 12,
+                "search_mode": "any",
+                "query_type": "semantic"
+            }
             
+            if project_filter:
+                search_params["filter"] = project_filter
+            
+            results = self.search_client.search(**search_params)
             documents = list(results)
+            
+            # If no results with semantic search, try keyword approach
+            if not documents and client_context.get('project'):
+                keyword_query = f"contact AND {client_context['project']}"
+                results = self.search_client.search(
+                    search_text=keyword_query,
+                    top=8,
+                    search_mode="all"
+                )
+                documents = list(results)
+            
             return documents, f"client_info_search_{client_context.get('client_name', 'unknown')}"
             
         except Exception as e:

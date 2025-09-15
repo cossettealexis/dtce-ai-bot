@@ -93,8 +93,8 @@ CATEGORIES:
 5. **email_search** - Search for email correspondence
    Examples: "Find emails with client for project 225001", "Show email history with contractor"
    
-6. **client_info** - Request for client contact information
-   Examples: "Who is the contact for project 225001?", "Client details for ABC Construction"
+6. **client_info** - Request for client contact information or relationship queries
+   Examples: "Who is the contact for project 225001?", "Client details for ABC Construction", "Does anyone work with Aaron from TGCS?", "Who works with XYZ Company?", "Contact person for Smith & Associates"
    
 7. **client_project_history** - All projects for a specific client
    Examples: "Show me all projects for ABC Construction", "What work have we done for NZTA?"
