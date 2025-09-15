@@ -55,6 +55,198 @@ class RAGHandler:
         
         return self._knowledge_base_content if self._knowledge_base_content else None
 
+    async def _classify_user_intent(self, question: str) -> Dict[str, Any]:
+        """
+        INTENT CLASSIFICATION: Determine the category of the user's question BEFORE searching.
+        
+        Categories:
+        - policy: H&S policies, HR policies, mandatory company rules
+        - technical_procedures: H2H handbooks, how-to guides, best practices
+        - nz_standards: NZS codes, engineering standards, specifications
+        - project_reference: Questions about specific projects, lessons learned
+        - client_reference: Questions about clients, contact information
+        - general: Other engineering questions
+        """
+        try:
+            intent_prompt = f"""Classify this engineering question into one of these categories:
+
+QUESTION: "{question}"
+
+CATEGORIES:
+1. **policy** - Questions about company policies (H&S, HR, wellness, mandatory rules)
+   Examples: "What is our wellness policy?", "What are the H&S requirements?"
+   
+2. **technical_procedures** - Questions about how-to guides, procedures, best practices  
+   Examples: "How do I use the wind speed spreadsheet?", "What's the process for..."
+   
+3. **nz_standards** - Questions about NZ engineering standards, codes, specifications
+   Examples: "What are the minimum cover requirements per NZS?", "NZS 3101 requirements"
+   
+4. **project_reference** - Questions about specific projects, lessons learned
+   Examples: "Tell me about project 225", "What went wrong with the bridge project?"
+   
+5. **client_reference** - Questions about clients, contacts, who works with whom
+   Examples: "Who works with Aaron?", "Contact details for NZTA", "Client information"
+   
+6. **general** - Other engineering questions not fitting above categories
+
+Respond with JSON:
+{{
+    "category": "policy|technical_procedures|nz_standards|project_reference|client_reference|general",
+    "confidence": 0.0-1.0,
+    "reasoning": "Brief explanation of why this category was chosen",
+    "search_keywords": ["relevant", "search", "terms"]
+}}"""
+
+            response = await self.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": "You are an expert at classifying engineering questions. Always respond with valid JSON."
+                    },
+                    {"role": "user", "content": intent_prompt}
+                ],
+                temperature=0.1,
+                max_tokens=300
+            )
+            
+            import json
+            classification = json.loads(response.choices[0].message.content)
+            return classification
+            
+        except Exception as e:
+            logger.error("Intent classification failed", error=str(e))
+            # Fallback classification
+            return {
+                "category": "general",
+                "confidence": 0.5,
+                "reasoning": "Classification failed, defaulting to general",
+                "search_keywords": [question.split()[:3]]
+            }
+
+    def _get_intent_specific_instructions(self, category: str) -> str:
+        """Return category-specific instructions for the AI prompt."""
+        instructions = {
+            "policy": """**Policy and Procedure Guidance:**
+* **Direct Answers:** Directly quote or paraphrase the exact policy from the documents.
+* **Clarification:** Explain the purpose and intent of the policy and how it applies to an employee's role.
+* **Distinguish:** Clearly state that these are mandatory documents that employees must follow.""",
+            
+            "technical_procedures": """**Technical & Admin Guidance:**
+* **Best Practice:** Explain that these documents are "how-to" guides and "best practice," not mandatory policies.
+* **Practical Steps:** Provide a clear, step-by-step guide based on the documents.
+* **Context:** Explain the purpose of the procedure and when it should be used.""",
+            
+            "nz_standards": """**NZ Engineering Standards Guidance:**
+* **Specific References:** Quote or reference the exact clause and section number from the standard that are relevant to the user's query.
+* **Application:** Explain the practical application of the standard to the user's query.
+* **Context:** Briefly explain the purpose of the standard and its importance.""",
+            
+            "project_reference": """**Project and Client Guidance:**
+* **Comprehensive Summary:** Provide a high-level summary of the project's key aspects (e.g., design approach, materials, challenges).
+* **Advisory Tone:** Use a conversational and advisory tone. Provide "lessons learned" or "what to do/not to do" based on the project information.
+* **Warning System:** If the documents mention a client being upset or a project having issues, explicitly state this in a clear, brief warning before the main answer.""",
+            
+            "client_reference": """**Client Contact and Reference Guidance:**
+* **Contact Details:** Find and extract all available contact details (email, phone, address) and list them clearly under a "Contact Information" section.
+* **Client History:** Summarize any relevant project history or relationship notes with this client.
+* **Warning System:** If there are any negative notes about the client (complaints, payment issues, etc.), include a clear warning section.""",
+            
+            "general": """**General Engineering Guidance:**
+* **Comprehensive Answer:** Provide a thorough answer using the documents and general engineering knowledge.
+* **Best Practices:** Include relevant best practices and advisory guidance beyond just the document content.
+* **Context:** Explain how the information fits into broader engineering practice."""
+        }
+        
+        return instructions.get(category, instructions["general"])
+
+    def _format_documents_for_intent(self, documents: List[Dict], intent_classification: Dict) -> str:
+        """Format documents with intent-specific context."""
+        if not documents:
+            return "No documents found."
+        
+        formatted_docs = []
+        for i, doc in enumerate(documents[:5], 1):
+            filename = doc.get('filename', 'Unknown Document')
+            content = doc.get('content', '')
+            
+            formatted_docs.append(f"=== DOCUMENT {i}: {filename} ===\n{content}\n=== END DOCUMENT {i} ===")
+        
+        return "\n\n".join(formatted_docs)
+
+    async def _process_rag_with_intent_routing(self, question: str, retrieved_content: str, documents: List[Dict], intent_classification: Dict) -> Dict[str, Any]:
+        """Process RAG query using intent-based prompt routing."""
+        try:
+            # Get knowledge base content
+            knowledge_content = self._get_knowledge_base_content()
+            knowledge_section = f"\n\n**DTCE Knowledge Base from Google Docs:**\n{knowledge_content}" if knowledge_content else ""
+            
+            # Generate response with intent-based system prompt
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {
+                        "role": "system", 
+                        "content": f"""You are DTCE AI Chatbot, a helpful, professional, and knowledgeable engineering assistant for a New Zealand structural and geotechnical engineering firm. Your primary purpose is to provide accurate, comprehensive, and advisory-level guidance based on the provided documents and your professional engineering expertise.
+
+**Core Instructions:**
+1. **Analyze and Synthesize:** Carefully read all provided documents. Your answer must be based on this information. Synthesize details from all sources to create a comprehensive response.
+2. **Understand the Question:** Before generating an answer, fully understand the user's question and what they are trying to achieve. Do not just summarize the documents.
+3. **Cite Sources:** For every specific detail, cite the corresponding document using the format `[Source: Document X]`.
+4. **Provide Links:** At the end of your response, list all relevant SuiteFiles links under a "Sources" heading. Use the format `[Filename](SuiteFiles Link)`.
+5. **Handle Unanswered Questions:** If the documents do not contain the answer, state this clearly and concisely. Do not invent information.
+
+---
+
+### **Context-Specific Instructions:**
+
+{self._get_intent_specific_instructions(intent_classification['category'])}
+
+---
+
+### **Provided Information for Your Analysis:**
+
+**Retrieved Documents from Azure Search Index:**
+{retrieved_content if retrieved_content else "No specific documents found."}
+
+{knowledge_section}
+
+---
+
+### **User's Request:**
+
+**User Question:** {question}"""
+                    },
+                    {"role": "user", "content": f"Please answer this question based on the provided documents: {question}"}
+                ],
+                temperature=0.1,
+                max_tokens=2500,
+                seed=12345
+            )
+            
+            answer = response.choices[0].message.content
+            
+            # Force SuiteFiles links if not included
+            answer = self._force_suitefiles_links(answer, documents)
+            
+            return {
+                'answer': answer,
+                'documents_searched': len(documents),
+                'folder_searched': 'multiple',
+                'intent_category': intent_classification['category'],
+                'intent_confidence': intent_classification.get('confidence', 0)
+            }
+            
+        except Exception as e:
+            logger.error("Intent-based RAG processing failed", error=str(e))
+            return {
+                'answer': f'I encountered an error while processing your question: {str(e)}',
+                'documents_searched': 0,
+                'folder_searched': 'none',
+                'intent_category': intent_classification.get('category', 'unknown')
+            }
+
     def _force_suitefiles_links(self, answer: str, documents: list) -> str:
         """Force SuiteFiles links to be included in the response if documents are available."""
         if not documents:
@@ -108,15 +300,15 @@ class RAGHandler:
     
     async def process_rag_query(self, question: str, project_filter: Optional[str] = None, conversation_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
         """
-        CONSISTENT INTELLIGENT SEARCH WITH NORMALIZED QUERIES:
+        SMART RAG SYSTEM WITH INTENT CLASSIFICATION:
         
-        1. Normalize similar questions to search for same documents consistently
-        2. Use consistent document ranking and selection 
-        3. Generate comprehensive responses from same source documents
-        4. Ensure same questions always get same foundational documents
+        1. Classify user's intent FIRST (Policy, Technical, Standards, Projects, etc.)
+        2. Route to specialized prompt template based on classification
+        3. Search documents with intent-guided approach
+        4. Generate response using intent-specific instructions
         """
         try:
-            logger.info("Processing question with consistent search approach", question=question)
+            logger.info("Processing question with intent-based approach", question=question)
             
             # STEP 0: Check if this is a conversational query that doesn't need document search
             is_conversational = await self._is_conversational_query(question, conversation_history)
@@ -125,65 +317,44 @@ class RAGHandler:
                 logger.info("Detected conversational query - using context instead of search")
                 return await self._handle_conversational_query(question, conversation_history)
             
-            # STEP 1: Normalize query for CONSISTENT search results - similar questions should find same documents
-            logger.info("Detected informational query - proceeding with consistent document search")
+            # STEP 1: INTENT CLASSIFICATION - Understand what the user is asking for
+            intent_classification = await self._classify_user_intent(question)
+            logger.info(f"Intent classified as: {intent_classification['category']}", 
+                       confidence=intent_classification.get('confidence', 0),
+                       reasoning=intent_classification.get('reasoning', 'No reasoning provided'))
             
-            # STEP 1.5: Auto-detect project number from question if not provided
-            if not project_filter:
-                detected_project = self._extract_project_from_question(question)
-                if detected_project:
-                    project_filter = detected_project
-                    logger.info("Auto-detected project filter from question", 
-                               question=question, 
-                               detected_project=detected_project)
-            
-            # Create consistent search terms for similar questions
+            # STEP 2: Search documents using intent-guided approach
             normalized_query = self._create_consistent_search_query(question)
-            
-            logger.info("Query normalized for consistency", 
-                       original=question,
-                       normalized=normalized_query)
-            
-            # STEP 2: Use intelligent semantic search with consistent query
             documents = await self.semantic_search.search_documents(normalized_query, project_filter)
             
-            logger.info("Consistent search results", 
+            logger.info("Intent-guided search results", 
                        total_documents=len(documents),
-                       sample_filenames=[doc.get('filename', 'Unknown') for doc in documents[:3]])
+                       intent_category=intent_classification['category'])
             
-            # STEP 3: Generate response with retrieved documents and category context
+            # STEP 3: Generate response with intent-based prompt routing
             if documents:
-                # Get category information from search service
-                category_context = self._determine_response_context(documents, question)
-                retrieved_content = self._format_documents_with_folder_context(documents, category_context)
+                # Format documents with intent context
+                retrieved_content = self._format_documents_for_intent(documents, intent_classification)
                 
-                # Use the complete intelligent prompt system
-                result = await self._process_rag_with_full_prompt(question, retrieved_content, documents)
+                # Use intent-based prompt routing instead of generic prompts
+                result = await self._process_rag_with_intent_routing(question, retrieved_content, documents, intent_classification)
                 
                 result.update({
-                    'rag_type': 'comprehensive_conversational_rag',
-                    'search_method': 'consistent_semantic_search',
-                    'response_style': 'chatgpt_like_conversation',
-                    'query_normalization': {
-                        'original_query': question,
-                        'normalized_query': normalized_query,
-                        'method': 'consistent_search_terms'
-                    }
+                    'rag_type': 'intent_based_rag',
+                    'intent_category': intent_classification['category'],
+                    'intent_confidence': intent_classification.get('confidence', 0),
+                    'search_method': 'intent_guided_semantic_search'
                 })
                 
                 return result
             else:
                 # No documents found - provide general response
                 result = await self._handle_no_documents_found(question)
-                result['query_normalization'] = {
-                    'original_query': question,
-                    'normalized_query': normalized_query,
-                    'method': 'consistent_search_terms'
-                }
+                result['intent_classification'] = intent_classification
                 return result
                 
         except Exception as e:
-            logger.error("Folder-aware RAG processing failed", error=str(e), question=question)
+            logger.error("Intent-based RAG processing failed", error=str(e), question=question)
             return {
                 'answer': f'I encountered an error while processing your question: {str(e)}',
                 'sources': [],
@@ -642,15 +813,35 @@ Please try rephrasing your question or contact support if the issue persists."""
                 messages=[
                     {
                         "role": "system", 
-                        "content": """You are DTCE AI Chatbot, a helpful, professional, and knowledgeable engineering assistant for a New Zealand structural and geotechnical engineering firm. Your primary purpose is to provide accurate and helpful information based on the documents provided to you.
+                        "content": f"""You are DTCE AI Chatbot, a helpful, professional, and knowledgeable engineering assistant for a New Zealand structural and geotechnical engineering firm. Your primary purpose is to provide accurate, comprehensive, and advisory-level guidance based on the provided documents and your professional engineering expertise.
 
-**Instructions:**
-1.  **Analyze and Answer:** Your answer **must** be based **exclusively** on the content of the provided documents and knowledge bases.
-2.  **Synthesize:** Combine information from all provided sources (documents and knowledge bases) as needed to create a comprehensive answer.
-3.  **Cite Sources:** For every specific detail, cite the corresponding document using the format `[Source: Document X]`.
-4.  **Provide Links:** At the end of your response, list all relevant SuiteFiles and Google Docs links under a "Sources" heading. Use the format `[Title](Link)`.
-5.  **Handle Unanswered Questions:** If the provided information does not contain the answer, state this clearly and concisely. Do not invent information.
-6.  **Maintain Tone:** Maintain a professional and advisory tone."""
+**Core Instructions:**
+1. **Analyze and Synthesize:** Carefully read all provided documents. Your answer must be based on this information. Synthesize details from all sources to create a comprehensive response.
+2. **Understand the Question:** Before generating an answer, fully understand the user's question and what they are trying to achieve. Do not just summarize the documents.
+3. **Cite Sources:** For every specific detail, cite the corresponding document using the format `[Source: Document X]`.
+4. **Provide Links:** At the end of your response, list all relevant SuiteFiles links under a "Sources" heading. Use the format `[Filename](SuiteFiles Link)`.
+5. **Handle Unanswered Questions:** If the documents do not contain the answer, state this clearly and concisely. Do not invent information.
+
+---
+
+### **Context-Specific Instructions:**
+
+{self._get_intent_specific_instructions(intent_classification['category'])}
+
+---
+
+### **Provided Information for Your Analysis:**
+
+**Retrieved Documents from Azure Search Index:**
+{retrieved_content if retrieved_content else "No specific documents found."}
+
+{knowledge_section}
+
+---
+
+### **User's Request:**
+
+**User Question:** {question}"""
                     },
                     {"role": "user", "content": prompt}
                 ],
