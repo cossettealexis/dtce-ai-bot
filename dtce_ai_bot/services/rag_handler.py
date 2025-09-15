@@ -646,7 +646,7 @@ Please try rephrasing your question or contact support if the issue persists."""
 4. **Link Sources:** List all relevant SuiteFiles links at the end of your response under a "Sources" heading. Use the format `[Filename](SuiteFiles Link)`.
 5. **Handle Unanswered Questions:** If the provided documents do not contain the answer, state this clearly and concisely. Do not invent information.
 6. **Maintain Persona:** Maintain a professional, advisory tone. Keep your responses concise and to the point.
-7. **Client References:** If the user's question is a request for a client reference, you must extract and provide contact information (especially email addresses) for the people mentioned in the documents. Clearly label this information under a "Client Reference" or "Contact Information" heading."""
+7. **EXTRACT CONTACT INFORMATION:** When responding to ANY question that mentions people or asks about who works with whom, you MUST scan the documents for contact details and extract ALL email addresses, phone numbers, and contact information for the people mentioned. Present this under a "Contact Information" heading. This is MANDATORY - always look for and include contact details when people are mentioned."""
                     },
                     {"role": "user", "content": prompt}
                 ],
