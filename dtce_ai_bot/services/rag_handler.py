@@ -11,6 +11,7 @@ from openai import AsyncAzureOpenAI
 from .semantic_search import SemanticSearchService
 from .folder_structure_service import FolderStructureService
 from .query_normalizer import QueryNormalizer
+from .google_docs_service import GoogleDocsService
 from ..utils.suitefiles_urls import suitefiles_converter
 
 logger = structlog.get_logger(__name__)
@@ -32,6 +33,27 @@ class RAGHandler:
         self.folder_structure = FolderStructureService()
         # Initialize query normalizer for better semantic search consistency
         self.query_normalizer = QueryNormalizer(openai_client, model_name)
+        # Initialize Google Docs service for knowledge base integration
+        self.google_docs = GoogleDocsService()
+        # Cache for Google Docs content
+        self._knowledge_base_content = None
+        self._knowledge_base_url = "https://docs.google.com/document/d/1Lknql33hOdBZAMmEU7AjaxgwGinoPZePY-tKTVNcqMU/edit?usp=sharing"
+
+    def _get_knowledge_base_content(self) -> Optional[str]:
+        """Fetch and cache Google Docs knowledge base content."""
+        if self._knowledge_base_content is None:
+            logger.info("Fetching DTCE knowledge base from Google Docs")
+            result = self.google_docs.get_knowledge_base_content(self._knowledge_base_url)
+            
+            if result["success"]:
+                self._knowledge_base_content = result["content"]
+                logger.info("Successfully loaded DTCE knowledge base", 
+                           content_length=result["content_length"])
+            else:
+                logger.error("Failed to load DTCE knowledge base", error=result["error"])
+                self._knowledge_base_content = ""
+        
+        return self._knowledge_base_content if self._knowledge_base_content else None
 
     def _force_suitefiles_links(self, answer: str, documents: list) -> str:
         """Force SuiteFiles links to be included in the response if documents are available."""
@@ -597,28 +619,20 @@ Please try rephrasing your question or contact support if the issue persists."""
                 documents = await self._search_specific_folder(question, folder_type)
                 retrieved_content = self._format_documents_content(documents) if documents else ""
             
-            # Create prompt for comprehensive, advisory responses
-            prompt = f"""You are the DTCE AI Assistant - a senior engineering advisor and knowledgeable colleague who helps DTCE employees with comprehensive, practical advice.
+            # Get knowledge base content from Google Docs
+            knowledge_base = self._get_knowledge_base_content()
+            knowledge_section = f"\n\nDTCE Knowledge Base:\n{knowledge_base}" if knowledge_base else ""
+            
+            # Create prompt for direct, professional responses
+            prompt = f"""You are the DTCE AI Assistant for Dunning Thornton Consulting Engineers. Act as a concise, expert assistant. Respond to all queries directly and professionally, without any unnecessary conversational filler, intros, or multiple-choice formats. Provide a single, well-structured answer in a direct and easy-to-read manner. Avoid excessive lists, bullet points, or sections unless they are crucial for clarity. The tone should be informative, not conversational or overly formal.
 
 Question: "{question}"
 
 Relevant Documents:
 {retrieved_content if retrieved_content else "No specific documents found."}
+{knowledge_section}
 
-RESPONSE APPROACH:
-1. Answer the user's question completely and conversationally
-2. Include superseded documents if relevant to provide full context
-3. Provide engineering advice and summarize project findings - don't just give links
-4. Add warnings if documents show client issues, upset clients, or project problems
-5. Give advisory recommendations based on lessons learned
-6. Include general engineering guidelines relevant to the question  
-7. Combine DTCE documents + your engineering knowledge + NZ standards when helpful
-8. For project questions: always include project name, address, and number
-9. Analyze information to provide "what to do" and "what not to do" advice
-
-BE CONVERSATIONAL: Talk like a helpful senior engineer colleague, not a formal system.
-
-ALWAYS INCLUDE: Working SuiteFiles links to relevant documents."""
+Provide engineering advice when relevant. Include project details (name/address/number) for project questions. Include warnings about client issues if found. Always provide SuiteFiles links to relevant documents."""
 
             # Generate response as smart DTCE colleague
             response = await self.openai_client.chat.completions.create(
