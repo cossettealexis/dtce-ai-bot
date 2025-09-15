@@ -621,32 +621,36 @@ Please try rephrasing your question or contact support if the issue persists."""
             
             # Get knowledge base content from Google Docs
             knowledge_base = self._get_knowledge_base_content()
-            knowledge_section = f"\n\nDTCE Knowledge Base:\n{knowledge_base}" if knowledge_base else ""
+            knowledge_section = f"\n\n**DTCE Knowledge Base from Google Docs:**\n{knowledge_base}" if knowledge_base else ""
             
-            # Create revised prompt with proper citation requirements
-            prompt = f"""**User Question:**
-{question}
+            # Create structured prompt with clear sections
+            prompt = f"""### **Provided Information for Your Analysis:**
 
-**Provided Documents:**
+**Retrieved Documents from Azure Search Index:**
 {retrieved_content if retrieved_content else "No specific documents found."}
-{knowledge_section}"""
+{knowledge_section}
 
-            # Generate response as DTCE chatbot with revised system prompt
+---
+
+### **User's Question:**
+
+{question}"""
+
+            # Generate response with streamlined system prompt
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=[
                     {
                         "role": "system", 
-                        "content": """You are DTCE AI Chatbot, a helpful, professional, and knowledgeable engineering assistant for a New Zealand structural and geotechnical engineering firm. Your primary purpose is to provide accurate information and guidance based on the company's internal documents and your general engineering expertise.
+                        "content": """You are DTCE AI Chatbot, a helpful, professional, and knowledgeable engineering assistant for a New Zealand structural and geotechnical engineering firm. Your primary purpose is to provide accurate and helpful information based on the documents provided to you.
 
 **Instructions:**
-1. **Analyze the Documents:** Carefully read the provided documents. Your answer must be based *exclusively* on this information.
-2. **Synthesize and Answer:** Directly answer the user's question. Synthesize information from multiple documents if necessary to provide a comprehensive response.
-3. **Cite Sources:** For every piece of information you provide, cite the corresponding document using the format `[Source: Document X]`.
-4. **Link Sources:** List all relevant SuiteFiles links at the end of your response under a "Sources" heading. Use the format `[Filename](SuiteFiles Link)`.
-5. **Handle Unanswered Questions:** If the provided documents do not contain the answer, state this clearly and concisely. Do not invent information.
-6. **Maintain Persona:** Maintain a professional, advisory tone. Keep your responses concise and to the point.
-7. **EXTRACT CONTACT INFORMATION:** When responding to ANY question that mentions people or asks about who works with whom, you MUST scan the documents for contact details and extract ALL email addresses, phone numbers, and contact information for the people mentioned. Present this under a "Contact Information" heading. This is MANDATORY - always look for and include contact details when people are mentioned."""
+1.  **Analyze and Answer:** Your answer **must** be based **exclusively** on the content of the provided documents and knowledge bases.
+2.  **Synthesize:** Combine information from all provided sources (documents and knowledge bases) as needed to create a comprehensive answer.
+3.  **Cite Sources:** For every specific detail, cite the corresponding document using the format `[Source: Document X]`.
+4.  **Provide Links:** At the end of your response, list all relevant SuiteFiles and Google Docs links under a "Sources" heading. Use the format `[Title](Link)`.
+5.  **Handle Unanswered Questions:** If the provided information does not contain the answer, state this clearly and concisely. Do not invent information.
+6.  **Maintain Tone:** Maintain a professional and advisory tone."""
                     },
                     {"role": "user", "content": prompt}
                 ],
