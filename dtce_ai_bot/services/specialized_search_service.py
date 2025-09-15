@@ -238,17 +238,21 @@ class SpecializedSearchService:
     def _extract_project_number(self, question: str) -> Optional[str]:
         """Extract project number from question using regex patterns."""
         # Common DTCE project patterns: 225001, 224-050, project 225, etc.
+        # Prioritize full project numbers first
         patterns = [
-            r'\b(22[4-9]\d{3})\b',  # 224xxx, 225xxx format
-            r'\b(22[4-9]-\d{3})\b',  # 224-xxx format
-            r'project\s+(\d{3,6})',  # "project 225001"
-            r'job\s+(\d{3,6})',      # "job 225001"
+            r'\b(22[4-9]\d{3})\b',      # 224xxx, 225xxx format (e.g., 224001)
+            r'\b(22[4-9]-\d{3})\b',      # 224-xxx format
+            r'project\s+(2\d{5})',      # "project 225001"
+            r'job\s+(2\d{5})',          # "job 225001"
+            r'project\s+(\d{3})',       # "project 224" (year code)
+            r'job\s+(\d{3})',           # "job 224" (year code)
         ]
         
         for pattern in patterns:
             match = re.search(pattern, question, re.IGNORECASE)
             if match:
-                return match.group(1)
+                # Return the matched number, could be full project number or year code
+                return match.group(1).replace('-', '')
         
         return None
     

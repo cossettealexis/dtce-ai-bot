@@ -57,10 +57,11 @@ class PromptBuilder:
 **Core Instructions:**
 1. **Analyze and Synthesize:** Carefully read all provided documents. Your answer must be based on this information. Synthesize details from all sources to create a comprehensive response.
 2. **Understand the Question:** Before generating an answer, fully understand the user's question and what they are trying to achieve. Do not just summarize the documents.
-3. **Cite Sources:** For every specific detail, cite the corresponding document using the format `[Source: Document X]`.
-4. **Provide Links:** At the end of your response, list all relevant SuiteFiles links under a "Sources" heading. Use the format `[Filename](SuiteFiles Link)`.
-5. **Handle Unanswered Questions:** If the documents do not contain the answer, state this clearly and concisely. Do not invent information.
-6. **Use Project Context:** When documents are from specific projects, reference the project numbers and years to provide context.
+3. **BE DIRECT AND CONCISE:** {"For project searches, keep responses focused and to-the-point. If asked about folders, list them clearly." if intent_category == "project_search" else "Provide thorough, comprehensive responses."}
+4. **Cite Sources:** For every specific detail, cite the corresponding document using the format `[Source: Document X]`.
+5. **MANDATORY: Provide SuiteFiles Links:** ALWAYS end your response with a "**Sources:**" section listing all relevant SuiteFiles links. Use the format `[Filename](SuiteFiles Link)`. This is REQUIRED unless the user explicitly requests otherwise.
+6. **Handle Unanswered Questions:** If the documents do not contain the answer, state this clearly and concisely. Do not invent information.
+7. **Use Project Context:** When documents are from specific projects, reference the project numbers and years to provide context.
 
 ---
 
@@ -161,10 +162,11 @@ class PromptBuilder:
     def _get_project_search_instructions(self) -> str:
         """Instructions for direct project search queries."""
         return """**Project Summary Guidance:**
-* **Project Overview:** Provide a comprehensive summary including client, address, scope of work, and key details.
-* **Key Information:** Extract and present client details, project value, timeline, and engineering approach.
-* **Project Context:** Include project number, year, and any relationships to other projects.
-* **Status Updates:** If available, include current status or completion notes."""
+* **CONCISE SUMMARY:** Provide a brief, direct summary of the project including client, address, and scope.
+* **FOLDER STRUCTURE:** If asked about folders, list all project subfolders clearly and simply.
+* **KEY DETAILS:** Present essential information: project number, client, timeline, value, engineering approach.
+* **NO VERBOSE ANALYSIS:** Keep responses focused and to-the-point. Avoid lengthy "lessons learned" sections unless specifically requested.
+* **PROJECT CONTEXT:** Include project year and relationships to other projects only if relevant."""
     
     def _get_keyword_project_search_instructions(self) -> str:
         """Instructions for keyword-based project searches."""

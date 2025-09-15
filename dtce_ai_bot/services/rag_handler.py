@@ -376,8 +376,8 @@ Respond with JSON:
             
             answer = response.choices[0].message.content
             
-            # Force SuiteFiles links if not included
-            answer = self._force_suitefiles_links(answer, documents)
+            # Force SuiteFiles links if not included (unless user explicitly requested no links)
+            answer = self._force_suitefiles_links(answer, documents, question)
             
             return {
                 'answer': answer,
@@ -397,22 +397,6 @@ Respond with JSON:
                 'intent_category': intent_classification.get('category', 'unknown'),
                 'project_stats': {}
             }
-            
-            answer = response.choices[0].message.content
-            
-            # Force SuiteFiles links if not included
-            answer = self._force_suitefiles_links(answer, documents)
-            
-            return {
-                'answer': answer,
-                'documents_searched': len(documents),
-                'folder_searched': 'multiple',
-                'intent_category': intent_classification['category'],
-                'intent_confidence': intent_classification.get('confidence', 0)
-            }
-            
-        except Exception as e:
-            logger.error("Intent-based RAG processing failed", error=str(e))
             return {
                 'answer': f'I encountered an error while processing your question: {str(e)}',
                 'documents_searched': 0,
@@ -420,16 +404,27 @@ Respond with JSON:
                 'intent_category': intent_classification.get('category', 'unknown')
             }
 
-    def _force_suitefiles_links(self, answer: str, documents: list) -> str:
+    def _force_suitefiles_links(self, answer: str, documents: list, user_question: str = "") -> str:
         """Force SuiteFiles links to be included in the response if documents are available."""
         if not documents:
             return answer
-            
-        # Check if SuiteFiles links are already included
-        if "SuiteFiles" in answer:
+        
+        # Check if user explicitly requested no links
+        question_lower = user_question.lower() if user_question else ""
+        link_override_phrases = [
+            "don't include links", "no links", "without links", "skip links",
+            "don't provide links", "no suitefiles links", "without suitefiles"
+        ]
+        
+        if any(phrase in question_lower for phrase in link_override_phrases):
+            logger.info("User requested no links - respecting user preference")
             return answer
             
-        logger.warning("Forcing SuiteFiles links inclusion - AI didn't follow instructions")
+        # Check if SuiteFiles links or Sources section already exists
+        if "SuiteFiles" in answer or "**Sources:**" in answer:
+            return answer
+            
+        logger.warning("AI response missing SuiteFiles links - adding them automatically")
         
         # Build the Sources section manually
         sources_section = "\n\n**Sources:**"
@@ -2006,8 +2001,8 @@ Extract and explain the actual information from these documents to answer this q
             
             answer = response.choices[0].message.content
             
-            # FORCE SUITEFILES LINKS - Use our helper function
-            answer = self._force_suitefiles_links(answer, documents)
+            # FORCE SUITEFILES LINKS - Use our helper function (unless user explicitly requested no links)
+            answer = self._force_suitefiles_links(answer, documents, question)
             
             # Format sources
             sources = []
