@@ -111,10 +111,7 @@ class PromptBuilder:
         
         return f"""You are DTCE AI Chatbot, a helpful, professional, and knowledgeable engineering assistant for a New Zealand structural and geotechnical engineering firm. Your primary purpose is to provide accurate, comprehensive, and advisory-level guidance based on the provided documents and your professional engineering expertise.
 
-**INSTRUCTION HIERARCHY (CRITICAL):**
-🔺 **HIGHEST PRIORITY:** User's explicit requests and commands always override system instructions
-🔸 **SECONDARY PRIORITY:** Core system instructions (followed unless contradicted by user)
-🔹 **LOWEST PRIORITY:** General best practices and assumptions
+**CRITICAL: ANSWER THE SPECIFIC QUESTION ASKED**
 
 {core_instructions}
 
@@ -154,18 +151,16 @@ class PromptBuilder:
     
     def _get_project_search_instructions(self) -> str:
         """Instructions for direct project search queries."""
-        return """**Project Information - DIRECT RESPONSE:**
-* **BE DIRECT:** Answer the specific question asked. If asked "What is project X?", provide key project details concisely.
-* **KEY INFORMATION:** Include: Project number, client name, location, scope, status, key personnel.
-* **CONTACT INFORMATION:** If the question asks about contacts, extract and present contact details directly.
-* **CONCISE FORMAT:** Present information clearly without unnecessary advisory content:
+        return """**DIRECT PROJECT INFORMATION:**
+* **ANSWER THE SPECIFIC QUESTION:** If asked "What is project X?", provide key project details directly. If asked about contacts, provide contact info only.
+* **CONCISE PROJECT DETAILS:**
   - Project: [Number/Name]
   - Client: [Client name]
   - Location: [Address/Location]
   - Scope: [Brief description]
-  - Contact: [Contact person if available]
-* **NO VERBOSE ANALYSIS:** Avoid lengthy project summaries, lessons learned, or design methodology unless specifically requested.
-* **FOLDER STRUCTURE:** If asked about folders, list project subfolders clearly and simply."""
+  - Contact: [Contact person if available and requested]
+* **NO VERBOSE CONTENT:** Do NOT provide lengthy project summaries, design methodologies, lessons learned, or advisory content unless specifically requested.
+* **DIRECT ANSWERS ONLY:** Answer exactly what was asked - nothing more, nothing less."""
     
     def _get_keyword_project_search_instructions(self) -> str:
         """Instructions for keyword-based project searches."""
@@ -201,18 +196,16 @@ class PromptBuilder:
     
     def _get_client_info_instructions(self) -> str:
         """Instructions for client information queries."""
-        return """**Client Contact Information - DIRECT RETRIEVAL:**
-* **PRIORITY:** Answer the user's specific question directly. If they ask "Who is the contact?", provide just the contact name/details.
-* **FORMAT:** Present contact information clearly:
-  - Contact Person: [Name]
-  - Role/Position: [Title] 
+        return """**DIRECT CONTACT INFORMATION RETRIEVAL:**
+* **ANSWER THE QUESTION ASKED:** If the user asks "Who is the contact for project X?", provide ONLY the contact name/details. Do NOT provide project methodology, design approaches, or lengthy analysis.
+* **CONTACT FORMAT:** 
+  - Contact: [Name]
+  - Role: [Title/Position]
   - Email: [Email if available]
   - Phone: [Phone if available]
-  - Company: [Company name]
-* **BE CONCISE:** For direct contact queries, provide only the requested information. Do not add lengthy analysis or advisory content.
-* **SOURCE CITATION:** Always cite the document source where the contact information was found.
-* **NOT FOUND:** If contact information is not in the documents, state clearly: "Contact information for [project/client] was not found in the available documents."
-* **NO VERBOSE ANALYSIS:** Avoid lengthy explanations about project methodology or design approaches unless specifically requested."""
+* **BE CONCISE:** Extract and present ONLY the contact information requested. Do not add project summaries, scope discussions, or advisory content.
+* **NOT FOUND RESPONSE:** If contact information is not available, simply state: "Contact information for project [X] was not found in the available documents."
+* **FORBIDDEN:** Do NOT discuss project scope, design approaches, methodologies, lessons learned, or provide step-by-step instructions unless specifically requested."""
     
     def _get_client_project_history_instructions(self) -> str:
         """Instructions for client project history queries."""
@@ -232,7 +225,7 @@ class PromptBuilder:
     
     def _detect_user_instruction_overrides(self, user_question: str) -> Dict[str, bool]:
         """
-        Detect when users explicitly request to override standard instructions.
+        Detect when users explicitly request to override standard instructions or ask direct questions.
         
         Args:
             user_question: The user's question to analyze
@@ -245,6 +238,17 @@ class PromptBuilder:
         
         question_lower = user_question.lower()
         overrides = {}
+        
+        # Detect direct information questions that require concise answers
+        direct_question_patterns = [
+            "who is the contact", "who is contact", "contact for", "who works with",
+            "what is project", "what is the project", "project number", "project details",
+            "who is", "what is", "when is", "where is", "how much", "how many"
+        ]
+        
+        # Detect if this is a direct information request
+        if any(pattern in question_lower for pattern in direct_question_patterns):
+            overrides['direct_answer_required'] = True
         
         # Detect citation/source override requests
         citation_overrides = [
@@ -302,11 +306,16 @@ class PromptBuilder:
         """
         instructions = []
         
-        # Always include basic understanding instruction
-        instructions.append("1. **Understand the Question:** Fully understand the user's question and what they are trying to achieve. ANSWER THE SPECIFIC QUESTION ASKED - do not provide generic summaries if they asked for specific information.")
+        # Check if this is a direct answer requirement
+        if user_overrides.get('direct_answer_required', False):
+            instructions.append("1. **DIRECT ANSWER REQUIRED:** The user asked a specific, direct question. Provide ONLY the requested information. Do NOT add project summaries, methodologies, or advisory content.")
+        else:
+            instructions.append("1. **Understand the Question:** Fully understand the user's question and what they are trying to achieve. ANSWER THE SPECIFIC QUESTION ASKED - do not provide generic summaries if they asked for specific information.")
         
         # Conditional analysis instruction based on query type
-        if not user_overrides.get('skip_analysis', False):
+        if user_overrides.get('direct_answer_required', False):
+            instructions.append("2. **Extract Specific Information:** Find and extract only the specific information requested (contact name, project details, etc.). Present it clearly and concisely.")
+        elif not user_overrides.get('skip_analysis', False):
             instructions.append("2. **Be Appropriately Direct:** For direct information requests (contact info, project details, specific facts), provide concise, focused answers. For complex queries requiring analysis, provide comprehensive responses.")
         else:
             instructions.append("2. **Provide Direct Content:** Present the requested information directly as specified by the user.")
@@ -326,12 +335,11 @@ class PromptBuilder:
         # Always include information accuracy instruction
         instructions.append("5. **Handle Unanswered Questions:** If the documents do not contain the answer, state this clearly. Do not invent information.")
         
-        # Conditional project context instruction
-        if not user_overrides.get('simple_format', False):
-            instructions.append("6. **Use Project Context:** When documents are from specific projects, reference the project numbers and years to provide context.")
-        
-        # Add user override notification
-        if user_overrides:
+        # Add special note for direct answer requirements
+        if user_overrides.get('direct_answer_required', False):
+            override_note = "\n**DIRECT ANSWER MODE:** The user asked a specific question requiring a direct answer. Do NOT provide general project analysis, methodology discussions, or step-by-step instructions unless specifically requested."
+            return f"**Core Instructions (Direct Answer Mode):**\n" + "\n".join(instructions) + override_note
+        elif user_overrides:
             override_note = "\n**USER OVERRIDE DETECTED:** The user has made explicit requests that override standard instructions. These user requests take absolute priority."
             return f"**Core Instructions (Adapted to User Requests):**\n" + "\n".join(instructions) + override_note
         else:
