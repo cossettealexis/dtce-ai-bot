@@ -623,31 +623,34 @@ Please try rephrasing your question or contact support if the issue persists."""
             knowledge_base = self._get_knowledge_base_content()
             knowledge_section = f"\n\nDTCE Knowledge Base:\n{knowledge_base}" if knowledge_base else ""
             
-            # Create prompt for direct, professional responses
-            prompt = f"""You are the DTCE AI Assistant for Dunning Thornton Consulting Engineers. Act as a concise, expert assistant. Respond to all queries directly and professionally, without any unnecessary conversational filler, intros, or multiple-choice formats. Provide a single, well-structured answer in a direct and easy-to-read manner. Avoid excessive lists, bullet points, or sections unless they are crucial for clarity. The tone should be informative, not conversational or overly formal.
+            # Create prompt for chatbot responses about DTCE
+            prompt = f"""You are the DTCE AI Chatbot, designed to answer user inquiries about DTCE Consulting Engineers. 
 
-Question: "{question}"
+DTCE Company Information:
+DTCE is a structural and geotechnical engineering firm based in Wellington, New Zealand, and is formally known as DTCE Consulting Engineers, with a history tracing back to its founding by Don Thomson in 1987. The firm specializes in a range of services for both residential and commercial projects, with a strong focus on seismic assessments and retrofitting, which is critical in New Zealand's earthquake-prone environment. They also provide services for foundations, retaining walls, and temporary works. DTCE uses modern technologies like Building Information Modeling (BIM) to offer state-of-the-art solutions, even for small-scale projects. Their work extends across the Greater Wellington Region, the Kapiti Coast, and the Wairarapa. The company emphasizes a collaborative approach, aiming to simplify the engineering process for clients, architects, and builders. It's noted for having a personal service despite its growth and a team with diverse backgrounds and international experience.
 
-Relevant Documents:
-{retrieved_content if retrieved_content else "No specific documents found."}
+User Question: "{question}"
+
+Project Documents and Information:
+{retrieved_content if retrieved_content else "No specific project documents found."}
 {knowledge_section}
 
-Provide engineering advice when relevant. Include project details (name/address/number) for project questions. Include warnings about client issues if found. Always provide SuiteFiles links to relevant documents."""
+Answer the user's inquiry about DTCE in a helpful, professional manner. If the question relates to specific projects, include relevant project details and SuiteFiles links. Provide engineering advice when appropriate."""
 
-            # Generate response as smart DTCE colleague
+            # Generate response as DTCE chatbot
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=[
                     {
                         "role": "system", 
-                        "content": "You are a senior engineer at DTCE with comprehensive knowledge of all company documents, procedures, and past projects in SuiteFiles. You also have expert general engineering knowledge. Answer questions naturally like a helpful, experienced colleague would. Be practical, knowledgeable, and provide actionable advice."
+                        "content": "You are the DTCE AI Chatbot, designed to help users with inquiries about DTCE Consulting Engineers, a structural and geotechnical engineering firm in Wellington, New Zealand. You have access to company information, project documents, and can provide helpful responses about DTCE's services, projects, and capabilities. Be friendly, professional, and informative in your responses."
                     },
                     {"role": "user", "content": prompt}
                 ],
-                temperature=0.1,  # Very low for maximum consistency
-                top_p=0.1,  # Limit token sampling for deterministic responses
-                max_tokens=2500,   # Adequate for comprehensive engineering advice
-                seed=12345  # Fixed seed for deterministic responses
+                temperature=0.3,  # Moderate temperature for natural conversation
+                top_p=0.8,  # Allow more varied responses for better conversation
+                max_tokens=2500,   # Adequate for comprehensive responses
+                seed=12345  # Fixed seed for consistency
             )
             
             answer = response.choices[0].message.content
