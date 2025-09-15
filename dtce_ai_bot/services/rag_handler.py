@@ -645,7 +645,8 @@ Please try rephrasing your question or contact support if the issue persists."""
 3. **Cite Sources:** For every piece of information you provide, cite the corresponding document using the format `[Source: Document X]`.
 4. **Link Sources:** List all relevant SuiteFiles links at the end of your response under a "Sources" heading. Use the format `[Filename](SuiteFiles Link)`.
 5. **Handle Unanswered Questions:** If the provided documents do not contain the answer, state this clearly and concisely. Do not invent information.
-6. **Maintain Persona:** Maintain a professional, advisory tone. Keep your responses concise and to the point."""
+6. **Maintain Persona:** Maintain a professional, advisory tone. Keep your responses concise and to the point.
+7. **Client References:** If the user's question is a request for a client reference, you must extract and provide contact information (especially email addresses) for the people mentioned in the documents. Clearly label this information under a "Client Reference" or "Contact Information" heading."""
                     },
                     {"role": "user", "content": prompt}
                 ],
