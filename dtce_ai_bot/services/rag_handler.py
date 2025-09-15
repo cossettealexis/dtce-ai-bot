@@ -161,26 +161,186 @@ Respond with JSON:
         
         return instructions.get(category, instructions["general"])
 
+    def _extract_project_info_from_blob_name(self, blob_name: str) -> Dict[str, Any]:
+        """
+        Extract project information from DTCE folder structure.
+        
+        Folder pattern: Projects/{ProjectYear_Code}/{ProjectNumber}/{...}
+        - ProjectYear_Code: 3-digit code (22X where X is year digit)
+          - 225 = 2025, 224 = 2024, 223 = 2023, etc.
+        - ProjectNumber: 6-digit number starting with ProjectYear_Code
+          - e.g., 225001, 224015, 223045
+        
+        Args:
+            blob_name: Full path like "Projects/225/225001/Documents/Report.pdf"
+            
+        Returns:
+            Dict with project_year, project_number, full_project_path, is_project_document
+        """
+        import re
+        
+        project_info = {
+            'is_project_document': False,
+            'project_year': None,
+            'project_year_code': None,
+            'project_number': None,
+            'full_project_path': None,
+            'project_subfolder': None
+        }
+        
+        # Pattern to match DTCE project structure
+        # Projects/{year_code}/{project_number}/{optional_subfolders}/{filename}
+        project_pattern = r'Projects/(\d{3})/(\d{6})(?:/(.+?))?/[^/]+$'
+        
+        match = re.search(project_pattern, blob_name, re.IGNORECASE)
+        
+        if match:
+            year_code = match.group(1)
+            project_number = match.group(2)
+            subfolder_path = match.group(3) if match.group(3) else ""
+            
+            # Convert year code to actual year (22X -> 20XX)
+            if year_code.startswith('22'):
+                actual_year = 2000 + int(year_code)
+            else:
+                actual_year = None
+            
+            # Validate that project number starts with year code
+            if project_number.startswith(year_code):
+                project_info.update({
+                    'is_project_document': True,
+                    'project_year': actual_year,
+                    'project_year_code': year_code,
+                    'project_number': project_number,
+                    'full_project_path': f"Projects/{year_code}/{project_number}",
+                    'project_subfolder': subfolder_path
+                })
+        
+        return project_info
+
+    def _enrich_document_with_project_context(self, doc: Dict[str, Any]) -> Dict[str, Any]:
+        """Enrich document with extracted project context."""
+        enriched_doc = doc.copy()
+        
+        # Extract project info from blob_name or filename
+        blob_name = doc.get('blob_name', '') or doc.get('filename', '')
+        project_info = self._extract_project_info_from_blob_name(blob_name)
+        
+        # Add project context to document
+        enriched_doc['project_context'] = project_info
+        
+        # Add human-readable project description
+        if project_info['is_project_document']:
+            enriched_doc['project_description'] = (
+                f"Project {project_info['project_number']} ({project_info['project_year']})"
+            )
+            if project_info['project_subfolder']:
+                enriched_doc['project_description'] += f" - {project_info['project_subfolder']}"
+        
+        return enriched_doc
+
     def _format_documents_for_intent(self, documents: List[Dict], intent_classification: Dict) -> str:
-        """Format documents with intent-specific context."""
+        """Format documents with intent-specific context and project information."""
         if not documents:
             return "No documents found."
         
         formatted_docs = []
         for i, doc in enumerate(documents[:5], 1):
-            filename = doc.get('filename', 'Unknown Document')
-            content = doc.get('content', '')
+            # Enrich document with project context
+            enriched_doc = self._enrich_document_with_project_context(doc)
             
-            formatted_docs.append(f"=== DOCUMENT {i}: {filename} ===\n{content}\n=== END DOCUMENT {i} ===")
+            filename = enriched_doc.get('filename', 'Unknown Document')
+            content = enriched_doc.get('content', '')
+            project_context = enriched_doc.get('project_context', {})
+            
+            # Build document header with project context
+            doc_header = f"=== DOCUMENT {i}: {filename} ==="
+            
+            # Add project information if available
+            if project_context.get('is_project_document'):
+                project_desc = enriched_doc.get('project_description', '')
+                doc_header += f"\n**PROJECT CONTEXT:** {project_desc}"
+                doc_header += f"\n**PROJECT PATH:** {project_context['full_project_path']}"
+                if project_context.get('project_subfolder'):
+                    doc_header += f"\n**SUBFOLDER:** {project_context['project_subfolder']}"
+            
+            # Add content
+            formatted_doc = f"{doc_header}\n**CONTENT:**\n{content}\n=== END DOCUMENT {i} ==="
+            formatted_docs.append(formatted_doc)
         
         return "\n\n".join(formatted_docs)
 
+    def _analyze_project_distribution(self, documents: List[Dict]) -> Dict[str, Any]:
+        """Analyze the project distribution in search results to provide context."""
+        project_stats = {
+            'total_documents': len(documents),
+            'project_documents': 0,
+            'non_project_documents': 0,
+            'projects_found': {},
+            'years_represented': set(),
+            'most_common_project': None
+        }
+        
+        for doc in documents:
+            project_info = self._extract_project_info_from_blob_name(
+                doc.get('blob_name', '') or doc.get('filename', '')
+            )
+            
+            if project_info['is_project_document']:
+                project_stats['project_documents'] += 1
+                project_num = project_info['project_number']
+                year = project_info['project_year']
+                
+                if project_num not in project_stats['projects_found']:
+                    project_stats['projects_found'][project_num] = {
+                        'count': 0,
+                        'year': year,
+                        'subfolders': set()
+                    }
+                
+                project_stats['projects_found'][project_num]['count'] += 1
+                project_stats['years_represented'].add(year)
+                
+                if project_info.get('project_subfolder'):
+                    project_stats['projects_found'][project_num]['subfolders'].add(
+                        project_info['project_subfolder']
+                    )
+            else:
+                project_stats['non_project_documents'] += 1
+        
+        # Find most common project
+        if project_stats['projects_found']:
+            project_stats['most_common_project'] = max(
+                project_stats['projects_found'].items(),
+                key=lambda x: x[1]['count']
+            )[0]
+        
+        project_stats['years_represented'] = sorted(list(project_stats['years_represented']))
+        
+        return project_stats
+
     async def _process_rag_with_intent_routing(self, question: str, retrieved_content: str, documents: List[Dict], intent_classification: Dict) -> Dict[str, Any]:
-        """Process RAG query using intent-based prompt routing."""
+        """Process RAG query using intent-based prompt routing with project context."""
         try:
+            # Analyze project distribution in results
+            project_stats = self._analyze_project_distribution(documents)
+            
             # Get knowledge base content
             knowledge_content = self._get_knowledge_base_content()
             knowledge_section = f"\n\n**DTCE Knowledge Base from Google Docs:**\n{knowledge_content}" if knowledge_content else ""
+            
+            # Build project context section
+            project_context_section = ""
+            if project_stats['project_documents'] > 0:
+                project_context_section = f"\n\n**PROJECT ANALYSIS:**"
+                project_context_section += f"\n- Total documents: {project_stats['total_documents']}"
+                project_context_section += f"\n- Project documents: {project_stats['project_documents']}"
+                project_context_section += f"\n- Projects represented: {len(project_stats['projects_found'])}"
+                project_context_section += f"\n- Years: {', '.join(map(str, project_stats['years_represented']))}"
+                
+                if project_stats['most_common_project']:
+                    most_common = project_stats['projects_found'][project_stats['most_common_project']]
+                    project_context_section += f"\n- Primary project: {project_stats['most_common_project']} ({most_common['year']}) - {most_common['count']} documents"
             
             # Generate response with intent-based system prompt
             response = await self.openai_client.chat.completions.create(
@@ -196,6 +356,7 @@ Respond with JSON:
 3. **Cite Sources:** For every specific detail, cite the corresponding document using the format `[Source: Document X]`.
 4. **Provide Links:** At the end of your response, list all relevant SuiteFiles links under a "Sources" heading. Use the format `[Filename](SuiteFiles Link)`.
 5. **Handle Unanswered Questions:** If the documents do not contain the answer, state this clearly and concisely. Do not invent information.
+6. **Use Project Context:** When documents are from specific projects, reference the project numbers and years to provide context.
 
 ---
 
@@ -212,6 +373,8 @@ Respond with JSON:
 
 {knowledge_section}
 
+{project_context_section}
+
 ---
 
 ### **User's Request:**
@@ -224,6 +387,30 @@ Respond with JSON:
                 max_tokens=2500,
                 seed=12345
             )
+            
+            answer = response.choices[0].message.content
+            
+            # Force SuiteFiles links if not included
+            answer = self._force_suitefiles_links(answer, documents)
+            
+            return {
+                'answer': answer,
+                'documents_searched': len(documents),
+                'folder_searched': 'multiple',
+                'intent_category': intent_classification['category'],
+                'intent_confidence': intent_classification.get('confidence', 0),
+                'project_stats': project_stats
+            }
+            
+        except Exception as e:
+            logger.error("Intent-based RAG processing failed", error=str(e))
+            return {
+                'answer': f'I encountered an error while processing your question: {str(e)}',
+                'documents_searched': 0,
+                'folder_searched': 'none',
+                'intent_category': intent_classification.get('category', 'unknown'),
+                'project_stats': {}
+            }
             
             answer = response.choices[0].message.content
             
