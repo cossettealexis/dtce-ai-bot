@@ -197,7 +197,39 @@ def create_app() -> FastAPI:
         if request.method == "GET":
             return {"status": "ready", "bot": "dtceai-bot", "timestamp": "2025-08-17T22:25:00Z"}
             
-        # POST - handle Bot Framework messages using proper adapter
+        # MAINTENANCE MODE - Handle all messages with maintenance response
+        try:
+            body_json = await request.json()
+            auth_header = request.headers.get("authorization", "")
+            
+            # Check if this is a user message
+            if body_json.get("type") == "message" and body_json.get("text"):
+                logger.info("🔧 MAINTENANCE MODE: Blocking message", text=body_json.get("text"))
+                
+                # Create activity from JSON
+                activity = Activity().deserialize(body_json)
+                
+                # Create maintenance bot handler
+                async def maintenance_bot_handler(turn_context: TurnContext):
+                    maintenance_text = "🔧 **DTCE AI Assistant - Maintenance Mode**\n\nI'm currently undergoing scheduled maintenance and improvements to provide you with better service.\n\n**Status:** Temporarily unavailable\n**Expected Return:** Scheduled testing next week\n\nThank you for your patience. I'll be back soon with enhanced capabilities!\n\nFor urgent assistance, please contact the DTCE team directly."
+                    
+                    from botbuilder.core import MessageFactory
+                    message = MessageFactory.text(maintenance_text)
+                    message.text_format = "markdown"
+                    await turn_context.send_activity(message)
+                
+                # Process with maintenance handler
+                await adapter.process_activity(
+                    activity,
+                    auth_header,
+                    maintenance_bot_handler
+                )
+                
+                return Response(status_code=200)
+        except Exception as e:
+            logger.error("Maintenance mode error", error=str(e))
+        
+        # POST - handle Bot Framework messages using proper adapter (this code will not be reached in maintenance mode)
         try:
             # Track Bot Framework calls
             from datetime import datetime

@@ -479,17 +479,6 @@ Respond with JSON:
     async def process_question(self, question: str) -> Dict[str, Any]:
         """Universal AI assistant that can answer anything like ChatGPT + smart DTCE routing."""
         try:
-            # MAINTENANCE MODE - Return maintenance message for all queries
-            return {
-                'answer': "🔧 **DTCE AI Assistant - Maintenance Mode**\n\nI'm currently undergoing scheduled maintenance and improvements to provide you with better service.\n\n**Status:** Temporarily unavailable\n**Expected Return:** Scheduled testing next week\n\nThank you for your patience. I'll be back soon with enhanced capabilities!\n\nFor urgent assistance, please contact the DTCE team directly.",
-                'sources': [],
-                'documents_found': 0,
-                'intent': 'maintenance',
-                'search_strategy': 'maintenance_mode',
-                'confidence': 'high',
-                'rag_type': 'maintenance'
-            }
-            
             logger.info(f"Universal AI processing: {question}")
             
             # Use the new universal AI assistant
