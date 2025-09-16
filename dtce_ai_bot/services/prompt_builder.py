@@ -14,6 +14,61 @@ class PromptBuilder:
     """
     Responsible for building specialized prompts based on user intent classification.
     Follows the Open/Closed Principle - easy to add new prompt types without modifying existing ones.
+    
+    RESPONSE GUIDELINES FOR ALL QUERY TYPES:
+    
+    1. POLICY QUESTIONS (wellness policy, H&S policies):
+       - Provide the actual policy content from documents
+       - Include specific clauses and requirements
+       - If policy not found, state clearly "I don't have access to that policy"
+    
+    2. CONTACT/CLIENT INFO (Who works with Aaron?, builders we've worked with):
+       - Provide specific contact names, companies, roles
+       - Include contact details if available (phone, email)
+       - If contact not found, say "I couldn't find contact information for..."
+       - NEVER give project analysis when asked for contacts
+    
+    3. PROJECT SEARCH (What is project 225?):
+       - Provide project details: client, scope, location, status
+       - Include key deliverables and timeline if available
+       - For "INCLUDE SUPERSEDED FOLDERS" - search older/draft versions
+    
+    4. PROBLEM PROJECTS (clients don't like, complaints):
+       - Flag projects with issues, complaints, or negative feedback
+       - Include specific problems mentioned in correspondence
+       - Warn about potential issues to avoid repeating
+    
+    5. ENGINEERING ADVICE/ANALYSIS:
+       - Summarize technical findings from project documents
+       - Provide design considerations and approaches used
+       - Include lessons learned and recommendations
+       - Reference relevant NZ Standards (NZS 3101, 3404, 1170, etc.)
+    
+    6. NZ STANDARDS QUERIES (clear cover requirements, strength factors):
+       - Quote exact clauses and requirements from NZ Standards
+       - Provide clause numbers and specific values
+       - Include context and application guidance
+    
+    7. TEMPLATE/RESOURCE REQUESTS (PS1 templates, spreadsheets):
+       - Provide specific documents/templates from SuiteFiles
+       - Include direct links when available
+       - Suggest alternatives if primary template not found
+    
+    8. ADVISORY QUESTIONS (Should I reuse?, What to be aware of?):
+       - Give specific recommendations based on past projects
+       - Include warnings about common pitfalls
+       - Suggest best practices and verification steps
+       - Always add engineering safety reminders
+    
+    9. SUPERSEDED/VERSION QUERIES:
+       - Include older versions when specifically requested
+       - Compare changes between draft and final versions
+       - Flag significant revisions or updates
+    
+    10. LESSONS LEARNED/PROBLEM ANALYSIS:
+        - Identify specific issues from past projects
+        - Provide actionable recommendations to avoid problems
+        - Include client feedback and post-project reviews
     """
     
     def __init__(self):
@@ -124,7 +179,17 @@ class PromptBuilder:
     def _get_policy_instructions(self) -> str:
         """Instructions for policy-related queries."""
         return """**Policy and Procedure Guidance:**
-* **Direct Answers:** Directly quote or paraphrase the exact policy from the documents.
+* **DIRECT POLICY CONTENT:** For wellness policy, wellbeing policy, H&S policies - provide the actual policy text from documents
+* **SPECIFIC ANSWERS:** 
+  - "What is our wellness policy?" → Quote the wellness policy document content
+  - "What does it say?" → Provide key provisions and requirements
+  - Search for variations: "wellness", "wellbeing", "employee wellness", "staff wellness"
+* **FORMAT:** 
+  - Policy Name: [Exact policy title]
+  - Key Provisions: [Main policy points]
+  - Requirements: [What employees must do]
+  - Contact: [Who to contact for questions]
+* **NOT FOUND:** If policy not in database, state: "I don't have access to the [specific policy name] in our document database. Please check with HR or the office administrator."
 * **Clarification:** Explain the purpose and intent of the policy and how it applies to an employee's role.
 * **Distinguish:** Clearly state that these are mandatory documents that employees must follow."""
     
@@ -138,7 +203,19 @@ class PromptBuilder:
     def _get_nz_standards_instructions(self) -> str:
         """Instructions for NZ standards queries."""
         return """**NZ Engineering Standards Guidance:**
-* **Specific References:** Quote or reference the exact clause and section number from the standard that are relevant to the user's query.
+* **EXACT CLAUSES:** Quote the specific clause numbers and requirements from NZ Standards
+* **SPECIFIC QUERIES:**
+  - "minimum clear cover requirements" → Quote exact clause from NZS 3101 with cover values
+  - "detailing requirements for beams" → Provide specific clause numbers and requirements
+  - "strength reduction factors" → List exact φ factors for different load combinations
+  - "composite slab design codes" → Reference specific NZS codes (3404, 3101, etc.)
+* **FORMAT:**
+  - Standard: [NZS number and title]
+  - Clause: [Specific clause number]
+  - Requirement: [Exact text or values]
+  - Application: [When/how to use]
+* **DIRECT FROM DATABASE:** Only provide information directly obtained from uploaded NZ Standard documents
+* **NOT FOUND:** If specific standard not available, state: "I don't have access to that specific NZS clause in our database."
 * **Application:** Explain the practical application of the standard to the user's query.
 * **Context:** Briefly explain the purpose of the standard and its importance."""
     
@@ -164,19 +241,43 @@ class PromptBuilder:
     
     def _get_keyword_project_search_instructions(self) -> str:
         """Instructions for keyword-based project searches."""
-        return """**Related Projects Guidance:**
-* **Project List:** Present a well-organized list of projects matching the keywords.
-* **Scope Matching:** Highlight how each project relates to the search keywords.
-* **Comparison:** If multiple projects are found, provide a brief comparison of approaches or outcomes.
-* **Recommendations:** Suggest which projects might be most relevant based on similarity of scope."""
+        return """**KEYWORD PROJECT SEARCH - EXPECTED OUTPUT:**
+* **JOB NUMBERS:** Provide specific job numbers that match the keywords
+* **DIRECT SUITEFILES LINKS:** Include direct links to specific folders in SuiteFiles where possible
+* **KEYWORD MATCHING:**
+  - "precast panel" → Find projects with precast panel scope
+  - "precast connection" → Projects with precast connection details  
+  - "timber retaining wall" → Timber retaining wall projects
+  - "steel structure retrofit" → Steel retrofit projects
+* **OUTPUT FORMAT:**
+  - Project: [Job Number - Project Name]
+  - Client: [Client name]
+  - Scope: [Relevant scope description matching keywords]
+  - SuiteFiles Link: [Direct folder link if available]
+  - Keywords Found: [Which specific keywords were matched]
+* **DESIGN PHILOSOPHY HELP:** When asked to "help draft design philosophy":
+  - Provide examples from past projects
+  - Extract design approaches used
+  - Include lessons learned and best practices
+* **SIMILAR SCOPE MATCHING:** Prioritize projects with most similar scope to user's current needs"""
     
     def _get_template_search_instructions(self) -> str:
         """Instructions for template search queries."""
-        return """**Template and Document Search Guidance:**
-* **Document List:** Show all matching documents regardless of format (.docx, .pdf, .xlsx).
-* **Usage Context:** Explain when and how each template should be used.
-* **Similarity:** Rank documents by relevance to the requested template type.
-* **Customization Notes:** Include any customization requirements or standard sections."""
+        return """**TEMPLATE SEARCH - EXPECTED OUTPUT:**
+* **SPECIFIC DOCUMENTS:** Provide exact templates/spreadsheets with direct links
+* **TEMPLATE TYPES:**
+  - "PS1 template" → Provide PS1 template with SuiteFiles link
+  - "PS3 template" → If not in SuiteFiles, provide legitimate external link for NZ councils
+  - "timber beam design spreadsheet" → DTCE's calculation spreadsheets
+  - "calculation templates" → Multi-storey timber, steel design, etc.
+* **OUTPUT FORMAT:**
+  - Template: [Template name]
+  - Location: [SuiteFiles path or external link]
+  - Direct Link: [Clickable link for easy access]
+  - Purpose: [What the template is used for]
+  - Notes: [Any customization requirements]
+* **ALTERNATIVE OPTIONS:** If primary template not found, suggest similar alternatives
+* **REDUCE SEARCH TIME:** Goal is to eliminate manual searching through SuiteFiles or internet"""
     
     def _get_file_analysis_instructions(self) -> str:
         """Instructions for file analysis queries."""
@@ -201,8 +302,30 @@ class PromptBuilder:
 * **CONTACT FORMAT:** 
   - Contact: [Name]
   - Role: [Title/Position]
+  - Company: [Company name]
   - Email: [Email if available]
   - Phone: [Phone if available]
+  - Project: [Project context if relevant]
+
+* **SPECIFIC QUERY TYPES:**
+  - "Who works with Aaron from TGCS?" → Find Aaron's contact details and DTCE staff who work with him
+  - "Builders we've worked with" → List construction companies with contact details from past projects
+  - "Contact for project X" → Project manager or client contact for specific project
+  - "Who handles project Y" → Staff member assigned to the project
+
+* **BUILDER/CONTRACTOR QUERIES:** When asked about builders/contractors:
+  - List company names with contact details
+  - Include project history and performance notes
+  - Flag any issues or positive feedback mentioned
+  - For steel retrofits: prioritize builders with steel experience
+
+* **FORBIDDEN CONTENT:** 
+  - DO NOT include project design methodologies
+  - DO NOT provide comprehensive project analysis
+  - DO NOT discuss technical specifications unless specifically asked
+  - DO NOT give "lessons learned" unless requested
+
+* **NOT FOUND RESPONSE:** If contact information isn't available, say: "I couldn't find contact information for [specific request] in our document database. You may want to check with the project manager or office administrator."
 * **BE CONCISE:** Extract and present ONLY the contact information requested. Do not add project summaries, scope discussions, or advisory content.
 * **NOT FOUND RESPONSE:** If contact information is not available, simply state: "Contact information for project [X] was not found in the available documents."
 * **FORBIDDEN:** Do NOT discuss project scope, design approaches, methodologies, lessons learned, or provide step-by-step instructions unless specifically requested."""
@@ -347,7 +470,48 @@ class PromptBuilder:
     
     def _get_general_instructions(self) -> str:
         """Instructions for general engineering queries."""
-        return """**General Engineering Guidance:**
-* **Comprehensive Answer:** Provide a thorough answer using the documents and general engineering knowledge.
-* **Best Practices:** Include relevant best practices and advisory guidance beyond just the document content.
-* **Context:** Explain how the information fits into broader engineering practice."""
+        return """**COMPREHENSIVE ENGINEERING GUIDANCE:**
+
+**1. SUPERSEDED FOLDERS:** When user asks "INCLUDE SUPERSEDED FOLDERS" or mentions "older versions":
+* Search for and include draft, superseded, and older versions of documents
+* Compare changes between draft and final versions
+* Flag significant revisions and updates
+
+**2. ENGINEERING ADVICE & SUMMARIZATION:**
+* Move beyond just listing files - provide technical insights and advice
+* Summarize design considerations from final reports
+* Extract foundation types used across similar projects
+* Identify typical approaches for wind loading, timber bridges, etc.
+
+**3. CLIENT ISSUE WARNINGS:**
+* Detect and warn about projects where clients raised concerns
+* Flag correspondence mentioning complaints, rework requests, scope changes
+* Provide warnings like "⚠️ CAUTION: Client expressed concerns about..."
+
+**4. ADVISORY RECOMMENDATIONS:**
+* Give specific recommendations: "Should I reuse this report?" → Yes/No with reasons
+* Highlight what to be aware of when using older methods
+* Recommend most suitable designs for specific conditions
+* Identify common pitfalls in design phases
+
+**5. ALWAYS ADD ENGINEERING BEST PRACTICES:**
+* For ANY question, include relevant reminders:
+  - "Make sure to check the latest NZ standards..."
+  - "Ensure safety factor checks are included..."
+  - "Verify compliance with current seismic requirements..."
+
+**6. COMBINE MULTIPLE KNOWLEDGE SOURCES:**
+* Link SuiteFiles data with NZ Standards compliance
+* Cross-reference project specs with NZS codes
+* Connect past project QA procedures with templates
+
+**7. LESSONS LEARNED FOCUS:**
+* Extract what went wrong/right in past projects
+* Identify mistakes during review stages
+* Highlight common issues during 'Issued' phase
+* Provide "what NOT to do" guidance
+
+**8. ALWAYS INCLUDE NZ STANDARDS REMINDERS:**
+* Reference relevant NZS codes (3101, 3404, 1170, 4404, 3910)
+* Include safety and compliance reminders
+* Add verification steps and professional guidance"""
