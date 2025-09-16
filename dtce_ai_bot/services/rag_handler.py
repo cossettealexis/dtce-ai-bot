@@ -228,6 +228,30 @@ Respond with JSON:
                     'full_project_path': f"Projects/{year_code}/{project_number}",
                     'project_subfolder': subfolder_path
                 })
+        else:
+            # Fallback: Use suitefiles converter to extract project info from URL
+            try:
+                url_project_info = suitefiles_converter.extract_project_info_from_url(blob_name)
+                if url_project_info.get('year_folder') and url_project_info.get('project_folder'):
+                    year_code = url_project_info['year_folder']
+                    project_number = url_project_info['project_folder']
+                    
+                    # Convert year code to actual year
+                    if year_code.startswith('22'):
+                        actual_year = 2000 + int(year_code)
+                    else:
+                        actual_year = None
+                    
+                    project_info.update({
+                        'is_project_document': True,
+                        'project_year': actual_year,
+                        'project_year_code': year_code,
+                        'project_number': project_number,
+                        'full_project_path': f"Projects/{year_code}/{project_number}",
+                        'project_subfolder': None  # Will be populated if available
+                    })
+            except Exception as e:
+                logger.debug("Failed to extract project info from URL using fallback", error=str(e))
         
         return project_info
 
@@ -242,10 +266,10 @@ Respond with JSON:
         # Add project context to document
         enriched_doc['project_context'] = project_info
         
-        # Add human-readable project description
+        # Add human-readable project description with year and number format
         if project_info['is_project_document']:
             enriched_doc['project_description'] = (
-                f"Project {project_info['project_number']} ({project_info['project_year']})"
+                f"Project Year {project_info['project_year_code']} - Project Number {project_info['project_number']}"
             )
             if project_info['project_subfolder']:
                 enriched_doc['project_description'] += f" - {project_info['project_subfolder']}"
@@ -353,7 +377,10 @@ Respond with JSON:
                 
                 if project_stats['most_common_project']:
                     most_common = project_stats['projects_found'][project_stats['most_common_project']]
-                    project_context_section += f"\n- Primary project: {project_stats['most_common_project']} ({most_common['year']}) - {most_common['count']} documents"
+                    project_number = project_stats['most_common_project']
+                    # Extract year code from project number (first 3 digits)
+                    year_code = project_number[:3] if len(project_number) >= 6 else project_number
+                    project_context_section += f"\n- Primary project: Year {year_code} - Project Number {project_number} - {most_common['count']} documents"
             
             # Build system prompt using the new prompt builder service with user override detection
             system_prompt = self.prompt_builder.build_simple_system_prompt(intent_classification['category'], question)
@@ -476,6 +503,17 @@ Respond with JSON:
         4. Generate response using intent-specific instructions
         """
         try:
+            # MAINTENANCE MODE - Return maintenance message for all queries
+            return {
+                'answer': "🔧 **DTCE AI Assistant - Maintenance Mode**\n\nI'm currently undergoing scheduled maintenance and improvements to provide you with better service.\n\n**Status:** Temporarily unavailable\n**Expected Return:** Scheduled testing next week\n\nThank you for your patience. I'll be back soon with enhanced capabilities!\n\nFor urgent assistance, please contact the DTCE team directly.",
+                'sources': [],
+                'documents_found': 0,
+                'intent': 'maintenance',
+                'search_strategy': 'maintenance_mode',
+                'confidence': 'high',
+                'rag_type': 'maintenance'
+            }
+            
             logger.info("Processing question with intent-based approach", question=question)
             
             # STEP 0: Check if this is a conversational query that doesn't need document search
