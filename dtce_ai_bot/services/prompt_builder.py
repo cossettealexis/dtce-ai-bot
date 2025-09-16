@@ -203,21 +203,27 @@ class PromptBuilder:
     def _get_nz_standards_instructions(self) -> str:
         """Instructions for NZ standards queries."""
         return """**NZ Engineering Standards Guidance:**
-* **EXACT CLAUSES:** Quote the specific clause numbers and requirements from NZ Standards
+* **DIRECT STANDARD REFERENCES:** Answer which NZS codes to use WITHOUT analyzing document content first
 * **SPECIFIC QUERIES:**
+  - "composite slab design codes" → Direct answer: "AS/NZS 2327 and NZS 3404"
   - "minimum clear cover requirements" → Quote exact clause from NZS 3101 with cover values
   - "detailing requirements for beams" → Provide specific clause numbers and requirements
   - "strength reduction factors" → List exact φ factors for different load combinations
-  - "composite slab design codes" → Reference specific NZS codes (3404, 3101, etc.)
-* **FORMAT:**
+* **RESPONSE FORMAT:**
+  For "what NZS code to refer to" questions:
+  - Primary Standard: [NZS number and title]
+  - Relevant Sections: [Specific sections/clauses]
+  - Additional Standards: [Supporting standards]
+  - Application: [What it covers]
+  
+  For technical requirements:
   - Standard: [NZS number and title]
   - Clause: [Specific clause number]
   - Requirement: [Exact text or values]
   - Application: [When/how to use]
-* **DIRECT FROM DATABASE:** Only provide information directly obtained from uploaded NZ Standard documents
-* **NOT FOUND:** If specific standard not available, state: "I don't have access to that specific NZS clause in our database."
-* **Application:** Explain the practical application of the standard to the user's query.
-* **Context:** Briefly explain the purpose of the standard and its importance."""
+* **DO NOT START WITH:** "The provided document..." - Give direct engineering guidance first
+* **ONLY QUOTE DOCUMENTS:** When providing exact clause text or specific values from uploaded standards
+* **NOT FOUND:** If specific standard not available, state: "For [specific requirement], refer to [standard name]. I don't have the specific clauses in our database, but this is the correct standard to consult."""
     
     def _get_project_reference_instructions(self) -> str:
         """Instructions for project reference queries."""
@@ -241,25 +247,43 @@ class PromptBuilder:
     
     def _get_keyword_project_search_instructions(self) -> str:
         """Instructions for keyword-based project searches."""
-        return """**KEYWORD PROJECT SEARCH - EXPECTED OUTPUT:**
-* **JOB NUMBERS:** Provide specific job numbers that match the keywords
-* **DIRECT SUITEFILES LINKS:** Include direct links to specific folders in SuiteFiles where possible
-* **KEYWORD MATCHING:**
-  - "precast panel" → Find projects with precast panel scope
-  - "precast connection" → Projects with precast connection details  
-  - "timber retaining wall" → Timber retaining wall projects
-  - "steel structure retrofit" → Steel retrofit projects
-* **OUTPUT FORMAT:**
-  - Project: [Job Number - Project Name]
-  - Client: [Client name]
-  - Scope: [Relevant scope description matching keywords]
-  - SuiteFiles Link: [Direct folder link if available]
-  - Keywords Found: [Which specific keywords were matched]
-* **DESIGN PHILOSOPHY HELP:** When asked to "help draft design philosophy":
-  - Provide examples from past projects
-  - Extract design approaches used
-  - Include lessons learned and best practices
-* **SIMILAR SCOPE MATCHING:** Prioritize projects with most similar scope to user's current needs"""
+        return """**COMPREHENSIVE PROJECT KEYWORD SEARCH - EXPECTED OUTPUT:**
+
+* **MULTIPLE PROJECT MATCHES:** Find and list ALL projects that match any of the keywords, not just one project
+* **DETAILED PROJECT INFORMATION:**
+  - Project Number: [Full project number like 225001, 224032, etc.]
+  - Project Year: [Year the project was completed/designed]
+  - Project Name: [Full project title]
+  - Client: [Client company name]
+  - Location: [Project location/address]
+  - Scope Description: [Detailed description of how keywords relate to project scope]
+  - Keywords Matched: [Which specific keywords were found: "Precast Panel", "Precast Connection", etc.]
+  - SuiteFiles Link: [Direct link to project folder if available]
+
+* **KEYWORD MATCHING EXAMPLES:**
+  - "precast panel" → Search for: precast panels, precast concrete panels, precast wall panels
+  - "precast connection" → Search for: precast connections, precast beam connections, panel connections
+  - "timber retaining wall" → Search for: timber retaining, timber walls, retaining structures
+  - "steel structure retrofit" → Search for: steel retrofits, structural steel upgrades, steel strengthening
+  - "Unispans" → Search for: Unispan, precast concrete planks, hollow core
+
+* **COMPREHENSIVE SEARCH RESULTS:**
+  - Present 5-10 relevant projects minimum (if available)
+  - Rank by relevance to keywords
+  - Include projects from different years to show variety
+  - Highlight unique aspects of each project's approach
+
+* **DESIGN PHILOSOPHY ASSISTANCE:** When asked to "help draft design philosophy":
+  - Extract specific design approaches from each project
+  - Compare different methods used across projects
+  - Identify common design principles and variations
+  - Provide recommendations based on project outcomes
+
+* **SCOPE DETAIL REQUIREMENTS:**
+  - Describe exactly how the keywords relate to each project
+  - Include structural details, connection types, panel sizes
+  - Mention any unique challenges or solutions
+  - Reference specific drawings or calculations if mentioned"""
     
     def _get_template_search_instructions(self) -> str:
         """Instructions for template search queries."""
@@ -429,6 +453,9 @@ class PromptBuilder:
         """
         instructions = []
         
+        # Add universal instruction about response style
+        instructions.append("0. **RESPONSE STYLE:** Do NOT start responses with 'The provided document...' - Give direct engineering guidance first, then reference documents as supporting evidence if needed.")
+        
         # Check if this is a direct answer requirement
         if user_overrides.get('direct_answer_required', False):
             instructions.append("1. **DIRECT ANSWER REQUIRED:** The user asked a specific, direct question. Provide ONLY the requested information. Do NOT add project summaries, methodologies, or advisory content.")
@@ -511,7 +538,13 @@ class PromptBuilder:
 * Highlight common issues during 'Issued' phase
 * Provide "what NOT to do" guidance
 
-**8. ALWAYS INCLUDE NZ STANDARDS REMINDERS:**
+**8. COMPREHENSIVE PROJECT SEARCHES:**
+* For keyword project searches, provide MULTIPLE projects (5-10 minimum if available)
+* Include complete project details: number, year, client, location, detailed scope
+* Show variety across different years and approaches
+* Rank results by relevance to keywords
+
+**9. ALWAYS INCLUDE NZ STANDARDS REMINDERS:**
 * Reference relevant NZS codes (3101, 3404, 1170, 4404, 3910)
 * Include safety and compliance reminders
 * Add verification steps and professional guidance"""
