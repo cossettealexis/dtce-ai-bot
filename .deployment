@@ -1,0 +1,2 @@
+[SCM]
+command = bash deploy.sh
