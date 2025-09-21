@@ -125,7 +125,7 @@ async def bot_messages(request: Request):
             rag_pipeline = RAGPipeline(config)
             
             # Process the question using your modular RAG system
-            result = await rag_pipeline.process_question(message_text)
+            result = rag_pipeline.answer_question(message_text)
             
             response_text = result.get("answer", "I couldn't process your question. Please try again.")
             

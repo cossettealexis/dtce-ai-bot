@@ -1,0 +1,41 @@
+[project]
+name = "dtce-ai-bot"
+version = "2.0.0"
+description = "DTCE AI Assistant - Clean Architecture"
+authors = [
+    {name = "DTCE Team", email = "support@dtce.co.nz"},
+]
+dependencies = [
+    "fastapi>=0.104.1",
+    "uvicorn>=0.24.0",
+    "python-multipart>=0.0.6",
+    "botbuilder-core>=4.15.0",
+    "azure-storage-blob>=12.19.0",
+    "azure-search-documents>=11.4.0",
+    "azure-identity>=1.15.0",
+    "openai>=1.3.7",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.5.0",
+    "structlog>=23.2.0",
+]
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "MIT"}
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+
+[tool.isort]
+profile = "black"
+multi_line_output = 3
