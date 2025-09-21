@@ -17,9 +17,41 @@ from .project_context_service import ProjectContextService
 from .prompt_builder import PromptBuilder
 from .document_formatter import DocumentFormatter
 from .specialized_search_service import SpecializedSearchService
-from ..utils.suitefiles_urls import suitefiles_converter
+# from ..utils.suitefiles_urls import suitefiles_converter
 
 logger = structlog.get_logger(__name__)
+
+
+# Simple SuiteFiles converter placeholder
+class SuiteFilesConverter:
+    def get_safe_suitefiles_url(self, blob_url: str) -> str:
+        """Convert blob URL to SuiteFiles URL or return original URL."""
+        if not blob_url:
+            return ""
+        
+        try:
+            if '/dtce-documents/' in blob_url:
+                path_part = blob_url.split('/dtce-documents/')[1]
+                from urllib.parse import quote
+                encoded_path = quote(path_part, safe='/')
+                return f"https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#{encoded_path}"
+            else:
+                return blob_url
+        except Exception:
+            return blob_url
+    
+    def extract_project_info_from_url(self, blob_url: str) -> dict:
+        """Extract project info from URL."""
+        try:
+            import re
+            project_match = re.search(r'/Projects/\d{3}/(\d{6})/', blob_url, re.IGNORECASE)
+            if project_match:
+                return {'project_number': project_match.group(1)}
+            return {}
+        except Exception:
+            return {}
+
+suitefiles_converter = SuiteFilesConverter()
 
 
 from .universal_ai_handler import UniversalAIHandler
@@ -477,24 +509,84 @@ Respond with JSON:
             return answer
 
     async def process_question(self, question: str) -> Dict[str, Any]:
-        """Universal AI assistant that can answer anything like ChatGPT + smart DTCE routing."""
+        """
+        Main entry point for question processing.
+        
+        Now uses the comprehensive RAG system by default.
+        Falls back to universal AI assistant if needed.
+        """
         try:
-            logger.info(f"Universal AI processing: {question}")
+            logger.info(f"Processing question with comprehensive RAG: {question}")
             
-            # Use the new universal AI assistant
-            result = await self.universal_ai_assistant(question)
+            # Use the new comprehensive RAG system as primary method
+            result = await self.process_comprehensive_rag(question)
             
-            logger.info(f"Response type: {result.get('rag_type')}, Folder: {result.get('folder_searched', 'none')}, Docs: {result.get('documents_searched', 0)}")
+            logger.info(f"Comprehensive RAG result - Type: {result.get('rag_type')}, Category: {result.get('category', 'unknown')}, Docs: {result.get('documents_searched', 0)}, Confidence: {result.get('confidence')}")
             
             return result
             
         except Exception as e:
-            logger.error(f"Universal AI processing failed: {str(e)}")
-            # Even error handling uses AI instead of static messages
-            return await self._handle_ai_error(question, str(e))
+            logger.error(f"Comprehensive RAG processing failed: {str(e)}")
+            logger.info("Falling back to universal AI assistant")
+            
+            # Fallback to universal AI assistant 
+            try:
+                fallback_result = await self.universal_ai_assistant(question)
+                fallback_result['fallback_used'] = True
+                return fallback_result
+            except Exception as fallback_error:
+                logger.error(f"Fallback also failed: {str(fallback_error)}")
+                return await self._handle_ai_error(question, str(e))
     
     async def process_rag_query(self, question: str, project_filter: Optional[str] = None, conversation_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
         """
+        Enhanced RAG query processing.
+        
+        This method now uses the comprehensive RAG system for improved:
+        - Intent classification and routing
+        - Query normalization and enhancement
+        - Multi-source document retrieval
+        - Category-specific response generation
+        """
+        try:
+            logger.info("Processing RAG query with comprehensive system", question=question, project_filter=project_filter)
+            
+            # Check if this is a conversational query first
+            is_conversational = await self._is_conversational_query(question, conversation_history)
+            
+            if is_conversational:
+                logger.info("Detected conversational query - using context instead of search")
+                return await self._handle_conversational_query(question, conversation_history)
+            
+            # Use the comprehensive RAG system
+            result = await self.process_comprehensive_rag(question, conversation_history)
+            
+            # Add project filter information if it was provided
+            if project_filter:
+                result['project_filter_applied'] = project_filter
+                
+            logger.info("RAG query processed successfully", 
+                       category=result.get('category'),
+                       confidence=result.get('confidence'),
+                       documents_found=result.get('documents_searched', 0))
+            
+            return result
+            
+        except Exception as e:
+            logger.error("RAG query processing failed", error=str(e), question=question)
+            
+            # Fallback to legacy intent-based processing if comprehensive fails
+            try:
+                logger.info("Falling back to legacy intent-based processing")
+                return await self._legacy_process_rag_query(question, project_filter, conversation_history)
+            except Exception as fallback_error:
+                logger.error("Legacy fallback also failed", error=str(fallback_error))
+                return await self._handle_ai_error(question, str(e))
+    
+    async def _legacy_process_rag_query(self, question: str, project_filter: Optional[str] = None, conversation_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
+        """
+        Legacy RAG processing for fallback scenarios.
+        
         SMART RAG SYSTEM WITH INTENT CLASSIFICATION:
         
         1. Classify user's intent FIRST (Policy, Technical, Standards, Projects, etc.)
@@ -503,7 +595,7 @@ Respond with JSON:
         4. Generate response using intent-specific instructions
         """
         try:
-            logger.info("Processing question with intent-based approach", question=question)
+            logger.info("Processing question with legacy intent-based approach", question=question)
             
             # STEP 0: Check if this is a conversational query that doesn't need document search
             is_conversational = await self._is_conversational_query(question, conversation_history)
@@ -1850,6 +1942,46 @@ Respond naturally as DTCE AI Assistant would in conversation."""
                 'confidence': 'fallback',
                 'documents_searched': 0,
                 'rag_type': 'conversational_fallback'
+            }
+
+    async def process_comprehensive_rag(self, question: str, conversation_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
+        """
+        Process queries using the new comprehensive RAG system.
+        
+        This method uses the UniversalAIHandler which implements:
+        - Intent classification and query analysis
+        - Query normalization and enhancement  
+        - Project context extraction
+        - Multi-source retrieval (Azure Search + Google Docs)
+        - Document formatting and optimization
+        - Category-specific prompt engineering
+        - Comprehensive response generation
+        
+        This is the main entry point for the new RAG architecture.
+        """
+        try:
+            logger.info("Processing query with comprehensive RAG system", question=question)
+            
+            # Use the Universal AI Handler for complete RAG processing
+            result = await self.ai_handler.process_comprehensive_query(question, conversation_history)
+            
+            logger.info("Comprehensive RAG processing completed", 
+                       category=result.get('category'),
+                       confidence=result.get('confidence'),
+                       documents_found=result.get('documents_searched', 0))
+            
+            return result
+            
+        except Exception as e:
+            logger.error("Comprehensive RAG processing failed", error=str(e), question=question)
+            # Fallback to basic error handling
+            return {
+                'answer': f"I encountered an error processing your question: {str(e)}. Please try rephrasing your question or contact support if the issue persists.",
+                'sources': [],
+                'confidence': 'error',
+                'documents_searched': 0,
+                'rag_type': 'comprehensive_rag_error',
+                'error_details': str(e)
             }
 
     async def universal_ai_assistant(self, question: str) -> Dict[str, Any]:

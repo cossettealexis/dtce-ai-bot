@@ -115,14 +115,14 @@ async def bot_messages(request: Request):
         
         logger.info("Processing message", message=message_text)
         
-        # Use the existing working RAG handler instead of the modular pipeline
+        # Use the simple working RAG handler without external dependencies
         try:
-            from .services.rag_handler import RAGHandler
+            from .services.simple_rag_handler import SimpleRAGHandler
             
-            # Initialize RAG handler with existing working configuration
-            rag_handler = RAGHandler()
+            # Initialize simple RAG handler 
+            rag_handler = SimpleRAGHandler()
             
-            # Process the question using the proven working system
+            # Process the question using the simple working system
             result = await rag_handler.process_question(message_text)
             
             response_text = result.get("answer", "I couldn't process your question. Please try again.")
