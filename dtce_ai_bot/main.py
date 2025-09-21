@@ -128,9 +128,30 @@ async def bot_messages(request: Request):
             
             if not search_endpoint:
                 logger.error("Missing AZURE_SEARCH_ENDPOINT environment variable")
+                
+                # Provide helpful error message with configuration instructions
+                config_help = """🔧 **Configuration Required**
+
+Your DTCE AI Bot needs Azure service configuration. Please add these environment variables in Azure App Service:
+
+**Required Settings:**
+- `AZURE_SEARCH_ENDPOINT` = https://your-search-service.search.windows.net
+- `AZURE_SEARCH_INDEX` = dtce-documents  
+- `AZURE_OPENAI_ENDPOINT` = https://your-openai.openai.azure.com
+- `AZURE_OPENAI_API_KEY` = your-api-key-here
+- `AZURE_OPENAI_MODEL_NAME` = gpt-4
+
+**Steps to fix:**
+1. Go to Azure Portal → Your App Service
+2. Settings → Configuration → Application Settings  
+3. Add the variables above
+4. Save and Restart
+
+Once configured, your comprehensive RAG system will be fully operational! 🚀"""
+                
                 return JSONResponse({
                     "type": "message",
-                    "text": "Configuration error: Missing search endpoint. Please contact support."
+                    "text": config_help
                 })
             
             # Use managed identity for Azure Search
@@ -148,9 +169,27 @@ async def bot_messages(request: Request):
             
             if not openai_endpoint or not openai_key:
                 logger.error("Missing OpenAI configuration")
+                
+                missing_vars = []
+                if not openai_endpoint:
+                    missing_vars.append("AZURE_OPENAI_ENDPOINT")
+                if not openai_key:
+                    missing_vars.append("AZURE_OPENAI_API_KEY")
+                
+                config_help = f"""🔧 **OpenAI Configuration Missing**
+
+Missing environment variables: {', '.join(missing_vars)}
+
+Please configure these in Azure App Service:
+- `AZURE_OPENAI_ENDPOINT` = https://your-openai.openai.azure.com  
+- `AZURE_OPENAI_API_KEY` = your-api-key-here
+- `AZURE_OPENAI_MODEL_NAME` = gpt-4
+
+After adding these, your AI responses will work! 🤖"""
+                
                 return JSONResponse({
                     "type": "message", 
-                    "text": "Configuration error: Missing AI configuration. Please contact support."
+                    "text": config_help
                 })
             
             openai_client = AsyncAzureOpenAI(
