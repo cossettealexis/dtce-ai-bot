@@ -123,11 +123,16 @@ async def bot_messages(request: Request):
             from .services.rag_handler import RAGHandler
             
             # Initialize Azure Search client
-            search_endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
-            search_index = os.environ.get("AZURE_SEARCH_INDEX", "dtce-documents")
+            search_service_name = os.environ.get("AZURE_SEARCH_SERVICE_NAME")
+            search_index = os.environ.get("AZURE_SEARCH_INDEX_NAME", "dtce-documents")
+            
+            if search_service_name:
+                search_endpoint = f"https://{search_service_name}.search.windows.net"
+            else:
+                search_endpoint = os.environ.get("AZURE_SEARCH_ENDPOINT")
             
             if not search_endpoint:
-                logger.error("Missing AZURE_SEARCH_ENDPOINT environment variable")
+                logger.error("Missing AZURE_SEARCH_SERVICE_NAME or AZURE_SEARCH_ENDPOINT environment variable")
                 
                 # Provide helpful error message with configuration instructions
                 config_help = """🔧 **Configuration Required**
@@ -135,11 +140,11 @@ async def bot_messages(request: Request):
 Your DTCE AI Bot needs Azure service configuration. Please add these environment variables in Azure App Service:
 
 **Required Settings:**
-- `AZURE_SEARCH_ENDPOINT` = https://your-search-service.search.windows.net
-- `AZURE_SEARCH_INDEX` = dtce-documents  
+- `AZURE_SEARCH_SERVICE_NAME` = your-search-service-name (OR `AZURE_SEARCH_ENDPOINT`)
+- `AZURE_SEARCH_INDEX_NAME` = dtce-documents-index  
 - `AZURE_OPENAI_ENDPOINT` = https://your-openai.openai.azure.com
 - `AZURE_OPENAI_API_KEY` = your-api-key-here
-- `AZURE_OPENAI_MODEL_NAME` = gpt-4
+- `AZURE_OPENAI_DEPLOYMENT_NAME` = gpt-4 (OR `AZURE_OPENAI_MODEL_NAME`)
 
 **Steps to fix:**
 1. Go to Azure Portal → Your App Service
@@ -165,7 +170,7 @@ Once configured, your comprehensive RAG system will be fully operational! 🚀""
             # Initialize OpenAI client  
             openai_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
             openai_key = os.environ.get("AZURE_OPENAI_API_KEY")
-            model_name = os.environ.get("AZURE_OPENAI_MODEL_NAME", "gpt-4")
+            model_name = os.environ.get("AZURE_OPENAI_MODEL_NAME") or os.environ.get("AZURE_OPENAI_DEPLOYMENT_NAME", "gpt-4")
             
             if not openai_endpoint or not openai_key:
                 logger.error("Missing OpenAI configuration")
