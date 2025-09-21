@@ -97,13 +97,59 @@ async def bot_messages(request: Request):
         body = await request.json()
         logger.info("Received bot message", body=body)
         
-        # For now, just return success
-        # TODO: Implement bot logic
-        return Response(status_code=200)
+        # Extract message text from Teams bot framework payload
+        message_text = None
+        if body.get("type") == "message" and "text" in body:
+            message_text = body["text"].strip()
+        elif "activity" in body and body["activity"].get("type") == "message":
+            message_text = body["activity"].get("text", "").strip()
+        elif "text" in body:
+            message_text = body["text"].strip()
+        
+        if not message_text:
+            logger.warning("No message text found in request", body=body)
+            return JSONResponse({
+                "type": "message",
+                "text": "I didn't receive any message text. Please try again."
+            })
+        
+        logger.info("Processing message", message=message_text)
+        
+        # Import and use the RAG system
+        try:
+            from .rag.pipeline import RAGPipeline
+            from .rag.config import RAGConfig
+            
+            # Initialize RAG system
+            config = RAGConfig()
+            rag_pipeline = RAGPipeline(config)
+            
+            # Process the question using your modular RAG system
+            result = await rag_pipeline.process_question(message_text)
+            
+            response_text = result.get("answer", "I couldn't process your question. Please try again.")
+            
+            logger.info("RAG response generated", response_length=len(response_text))
+            
+            # Return response in Teams bot format
+            return JSONResponse({
+                "type": "message",
+                "text": response_text
+            })
+            
+        except Exception as rag_error:
+            logger.error("RAG system error", error=str(rag_error))
+            return JSONResponse({
+                "type": "message", 
+                "text": f"I'm experiencing technical difficulties. Error: {str(rag_error)}"
+            })
         
     except Exception as e:
         logger.error("Error processing bot message", error=str(e))
-        return Response(status_code=500)
+        return JSONResponse({
+            "type": "message",
+            "text": "I encountered an error processing your message. Please try again."
+        }, status_code=500)
 
 def main():
     """Main entry point for the application."""
