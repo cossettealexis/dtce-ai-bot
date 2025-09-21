@@ -1,5 +1,6 @@
 """
 Azure App Service startup file for DTCE AI Bot
+Updated to force container restart
 """
 import sys
 import os
