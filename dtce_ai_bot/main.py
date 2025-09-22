@@ -265,17 +265,37 @@ After adding these, your AI responses will work! 🤖"""
             # Initialize comprehensive RAG handler
             rag_handler = RAGHandler(search_client, openai_client, model_name)
             
-            # Process the question using the comprehensive RAG system
-            result = await rag_handler.process_comprehensive_rag(message_text)
-            
-            response_text = result.get("answer", "I couldn't process your question. Please try again.")
-            
-            logger.info("Comprehensive RAG response generated", 
-                       response_length=len(response_text),
-                       category=result.get("category", "unknown"),
-                       confidence=result.get("confidence", "unknown"),
-                       documents_searched=result.get("documents_searched", 0))
-            
+            # Process the question using the comprehensive RAG system with timeout
+            import asyncio
+            try:
+                # Set a 25-second timeout to prevent gateway timeouts (gateway timeout is usually 30s)
+                result = await asyncio.wait_for(
+                    rag_handler.process_comprehensive_rag(message_text),
+                    timeout=25.0
+                )
+                
+                response_text = result.get("answer", "I couldn't process your question. Please try again.")
+                
+                logger.info("Comprehensive RAG response generated", 
+                           response_length=len(response_text),
+                           category=result.get("category", "unknown"),
+                           confidence=result.get("confidence", "unknown"),
+                           documents_searched=result.get("documents_searched", 0))
+                
+            except asyncio.TimeoutError:
+                logger.warning("RAG processing timeout", message=message_text)
+                response_text = f"""⏱️ Your question is taking longer to process than usual: "{message_text}"
+
+I'm working on finding the most comprehensive answer for you. This might happen when:
+- Searching through extensive technical documents
+- Processing complex engineering queries
+- Analyzing multiple standards and specifications
+
+Please try a more specific question, or try again in a moment. For immediate help, you can ask about:
+- Specific NZ Standards (e.g., "NZS 3101 concrete requirements")
+- Building code sections (e.g., "foundation design requirements") 
+- Particular construction materials (e.g., "steel beam specifications")"""
+                
             # Return response in Teams bot format
             return JSONResponse({
                 "type": "message",
