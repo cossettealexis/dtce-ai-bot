@@ -118,13 +118,14 @@ async def bot_messages(request: Request):
         # Use the comprehensive RAG system
         try:
             from azure.search.documents import SearchClient
-            from azure.identity import DefaultAzureCredential
+            from azure.core.credentials import AzureKeyCredential
             from openai import AsyncAzureOpenAI
             from .services.rag_handler import RAGHandler
             
             # Initialize Azure Search client
             search_service_name = os.environ.get("AZURE_SEARCH_SERVICE_NAME")
             search_index = os.environ.get("AZURE_SEARCH_INDEX_NAME", "dtce-documents")
+            search_api_key = os.environ.get("AZURE_SEARCH_API_KEY")
             
             if search_service_name:
                 search_endpoint = f"https://{search_service_name}.search.windows.net"
@@ -142,6 +143,7 @@ Your DTCE AI Bot needs Azure service configuration. Please add these environment
 **Required Settings:**
 - `AZURE_SEARCH_SERVICE_NAME` = your-search-service-name (OR `AZURE_SEARCH_ENDPOINT`)
 - `AZURE_SEARCH_INDEX_NAME` = dtce-documents-index  
+- `AZURE_SEARCH_API_KEY` = your-search-admin-key
 - `AZURE_OPENAI_ENDPOINT` = https://your-openai.openai.azure.com
 - `AZURE_OPENAI_API_KEY` = your-api-key-here
 - `AZURE_OPENAI_DEPLOYMENT_NAME` = gpt-4 (OR `AZURE_OPENAI_MODEL_NAME`)
@@ -159,8 +161,26 @@ Once configured, your comprehensive RAG system will be fully operational! 🚀""
                     "text": config_help
                 })
             
-            # Use managed identity for Azure Search
-            credential = DefaultAzureCredential()
+            if not search_api_key:
+                logger.error("Missing AZURE_SEARCH_API_KEY environment variable")
+                
+                config_help = """🔧 **Azure Search API Key Missing**
+
+Please add this environment variable in Azure App Service:
+- `AZURE_SEARCH_API_KEY` = your-search-admin-key
+
+You can find your Azure Search API key in:
+Azure Portal → Your Search Service → Settings → Keys → Admin Keys
+
+After adding this key, your search functionality will work! 🔍"""
+                
+                return JSONResponse({
+                    "type": "message",
+                    "text": config_help
+                })
+            
+            # Use API key for Azure Search authentication
+            credential = AzureKeyCredential(search_api_key)
             search_client = SearchClient(
                 endpoint=search_endpoint,
                 index_name=search_index,
