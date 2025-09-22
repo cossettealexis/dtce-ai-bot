@@ -125,7 +125,7 @@ async def bot_messages(request: Request):
             # Initialize Azure Search client
             search_service_name = os.environ.get("AZURE_SEARCH_SERVICE_NAME")
             search_index = os.environ.get("AZURE_SEARCH_INDEX_NAME", "dtce-documents")
-            search_api_key = os.environ.get("AZURE_SEARCH_API_KEY")
+            search_api_key = os.environ.get("AZURE_SEARCH_API_KEY") or os.environ.get("AZURE_SEARCH_ADMIN_KEY")
             
             if search_service_name:
                 search_endpoint = f"https://{search_service_name}.search.windows.net"
@@ -162,12 +162,13 @@ Once configured, your comprehensive RAG system will be fully operational! 🚀""
                 })
             
             if not search_api_key:
-                logger.error("Missing AZURE_SEARCH_API_KEY environment variable")
+                logger.error("Missing AZURE_SEARCH_API_KEY or AZURE_SEARCH_ADMIN_KEY environment variable")
                 
                 config_help = """🔧 **Azure Search API Key Missing**
 
 Please add this environment variable in Azure App Service:
 - `AZURE_SEARCH_API_KEY` = your-search-admin-key
+(or `AZURE_SEARCH_ADMIN_KEY` = your-search-admin-key)
 
 You can find your Azure Search API key in:
 Azure Portal → Your Search Service → Settings → Keys → Admin Keys
