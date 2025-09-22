@@ -71,6 +71,39 @@ async def health_check():
         "version": "2.0.0"
     })
 
+@app.get("/debug/env")
+async def debug_environment():
+    """Debug endpoint to check environment variables."""
+    env_vars = {}
+    
+    # Check specific environment variables we need
+    vars_to_check = [
+        "AZURE_SEARCH_SERVICE_NAME",
+        "AZURE_SEARCH_INDEX_NAME", 
+        "AZURE_SEARCH_API_KEY",
+        "AZURE_SEARCH_ADMIN_KEY",
+        "AZURE_OPENAI_ENDPOINT",
+        "AZURE_OPENAI_API_KEY",
+        "AZURE_OPENAI_DEPLOYMENT_NAME",
+        "AZURE_OPENAI_MODEL_NAME"
+    ]
+    
+    for var in vars_to_check:
+        value = os.environ.get(var)
+        if value:
+            # Mask sensitive values
+            if "KEY" in var or "SECRET" in var:
+                env_vars[var] = f"{value[:8]}...{value[-4:]}" if len(value) > 12 else "***"
+            else:
+                env_vars[var] = value
+        else:
+            env_vars[var] = "NOT_SET"
+    
+    return JSONResponse({
+        "environment_variables": env_vars,
+        "timestamp": datetime.now().isoformat()
+    })
+
 @app.api_route("/api/messages", methods=["GET", "POST", "OPTIONS"])
 async def bot_messages(request: Request):
     """Bot Framework endpoint for Teams integration."""
@@ -106,11 +139,16 @@ async def bot_messages(request: Request):
         elif "text" in body:
             message_text = body["text"].strip()
         
+        # Skip non-message types (like typing indicators, conversation updates)
+        if body.get("type") in ["typing", "conversationUpdate"]:
+            logger.info("Skipping non-message type", message_type=body.get("type"))
+            return JSONResponse({"type": "message", "text": ""})
+        
         if not message_text:
             logger.warning("No message text found in request", body=body)
             return JSONResponse({
                 "type": "message",
-                "text": "I didn't receive any message text. Please try again."
+                "text": "I didn't receive any message text. Please try sending a question about construction standards or building codes."
             })
         
         logger.info("Processing message", message=message_text)
