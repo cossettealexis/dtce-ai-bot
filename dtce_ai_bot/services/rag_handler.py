@@ -477,10 +477,10 @@ Respond with JSON:
         
         # Only append if we actually have valid links
         if links_added > 0:
-            return answer + sources_section
+            return (answer or "") + (sources_section or "")
         else:
             logger.warning("No valid SuiteFiles links found in documents")
-            return answer
+            return answer or ""
 
     async def process_question(self, question: str, conversation_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
         """
@@ -1104,7 +1104,7 @@ Your responses should be thorough and educational, providing real value even whe
                 temperature=0.1  # Consistent low temperature for deterministic responses
             )
             
-            fallback_answer = response.choices[0].message.content.strip()
+            fallback_answer = (response.choices[0].message.content or "").strip()
             
             # Add disclaimer to make it clear this is general knowledge
             disclaimer = "\n\n---\n**Note:** This response is based on general engineering knowledge and industry best practices. For DTCE-specific procedures, policies, or project information, please check SuiteFiles or consult with your colleagues and supervisors."
@@ -1260,7 +1260,7 @@ Please try rephrasing your question or contact support if the issue persists."""
                         sources_section += f"\n- [{display_name}]({suitefiles_link})"
                 
                 # Append the sources section to the answer
-                answer += sources_section
+                answer = (answer or "") + (sources_section or "")
             
             # Format sources for display
             sources = []
