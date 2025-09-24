@@ -432,9 +432,11 @@ class AdvancedRAGHandler:
                 question, sub_queries
             )
             
-            # Ensure retrieved_documents is never None
+            # Ensure retrieved_documents is never None and is a proper list
             if retrieved_documents is None:
                 retrieved_documents = []
+            elif not isinstance(retrieved_documents, list):
+                retrieved_documents = list(retrieved_documents) if retrieved_documents else []
             
             # Step 3: Context Preparation and Chunking
             processed_context = await self._prepare_enhanced_context(
