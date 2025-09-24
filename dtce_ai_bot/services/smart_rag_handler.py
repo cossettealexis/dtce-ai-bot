@@ -120,14 +120,14 @@ Keep your answer clear, direct, and useful. Don't be vague or generic."""
                 temperature=0.1
             )
             
-            ai_answer = response.choices[0].message.content.strip()
+            ai_answer = (response.choices[0].message.content or "").strip()
             
             # Add source links
             if source_links:
                 sources_section = "\n\n**Sources:**\n" + "\n".join(source_links)
-                final_answer = ai_answer + sources_section
+                final_answer = (ai_answer or "") + sources_section
             else:
-                final_answer = ai_answer
+                final_answer = ai_answer or ""
             
             return final_answer
             
