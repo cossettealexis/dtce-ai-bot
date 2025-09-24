@@ -278,8 +278,8 @@ class HybridSearcher:
         
         # Sort by combined score (search score + relevance score)
         scored_results.sort(key=lambda x: (
-            x.get('relevance_score', 0) * 0.7 + 
-            x.get('search_score', 0) * 0.3
+            (x.get('relevance_score', 0) or 0) * 0.7 + 
+            (x.get('search_score', 0) or 0) * 0.3
         ), reverse=True)
         
         return scored_results[:top_k]
@@ -682,9 +682,9 @@ Provide a comprehensive, accurate, and professionally structured response."""
         # Factors affecting confidence
         factors = {
             'num_sources': len(documents) if documents else 0,
-            'avg_relevance': (sum(doc.get('relevance_score', 0) for doc in documents) / len(documents)) if documents else 0,
+            'avg_relevance': (sum((doc.get('relevance_score', 0) or 0) for doc in documents) / len(documents)) if documents else 0,
             'response_length': len(response) if response else 0,
-            'specific_references': (response.count('Project') + response.count('Document')) if response else 0
+            'specific_references': ((response or '').count('Project') + (response or '').count('Document'))
         }
         
         # Simple scoring logic
