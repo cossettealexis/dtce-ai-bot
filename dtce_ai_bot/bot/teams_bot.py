@@ -15,6 +15,8 @@ from typing import List, Optional, Dict
 
 from ..services.document_qa import DocumentQAService
 from ..services.project_scoping import get_project_scoping_service
+from ..services.conversation_context import conversation_manager
+from ..services.advanced_rag_handler import AdvancedRAGHandler
 
 logger = structlog.get_logger(__name__)
 
@@ -29,6 +31,7 @@ class DTCETeamsBot(ActivityHandler):
         self.search_client = search_client
         self.qa_service = qa_service
         self.project_scoping_service = get_project_scoping_service()
+        self.advanced_rag_handler = None  # Will be initialized when needed
 
     def _format_teams_text(self, text: str) -> str:
         """Format text for Teams to ensure proper line breaks and readability."""
@@ -97,6 +100,14 @@ class DTCETeamsBot(ActivityHandler):
             chunks.append('\n'.join(current_chunk))
             
         return chunks
+
+    def _get_session_id(self, turn_context: TurnContext) -> str:
+        """Get a unique session ID for this conversation."""
+        # Use conversation ID as session identifier
+        if hasattr(turn_context.activity, 'conversation') and turn_context.activity.conversation:
+            return turn_context.activity.conversation.id
+        # Fallback to channel + from user
+        return f"{turn_context.activity.channel_id}_{turn_context.activity.from_property.id}"
 
     def _create_teams_message(self, text: str) -> MessageFactory:
         """Create a properly formatted Teams message that handles line breaks correctly."""
@@ -268,32 +279,59 @@ class DTCETeamsBot(ActivityHandler):
         return False
     
     async def _handle_conversational_query(self, turn_context: TurnContext, user_message: str):
-        """Handle conversational queries using the new context-aware system."""
+        """Handle conversational queries using context-aware system."""
         
         try:
-            if not self.qa_service:
-                await turn_context.send_activity("I understand. Is there anything else I can help you with?")
-                return
+            session_id = self._get_session_id(turn_context)
             
-            # Send typing indicator
-            await turn_context.send_activity(Activity(type=ActivityTypes.typing))
+            # Add user message to conversation history
+            conversation_manager.add_turn(session_id, 'user', user_message)
             
-            # Get conversation history from turn context
-            conversation_history = await self._get_conversation_history(turn_context)
+            # Get conversation context
+            context = conversation_manager.get_context_for_query(session_id, user_message)
             
-            # Use the new universal AI assistant
-            result = await self.qa_service.rag_handler.process_question(user_message)
+            if context['has_context']:
+                # Generate contextual response based on conversation history
+                response = self._generate_contextual_response(user_message, context)
+            else:
+                # Standard conversational response
+                response = "I understand. Is there anything else I can help you with?"
             
-            # Send the conversational response
-            answer = result.get('answer', "I understand. Is there anything else I can help you with?")
-            await self._send_teams_message(turn_context, answer)
+            await self._send_teams_message(turn_context, response)
             
-            # Store this interaction in conversation history
-            await self._store_conversation_turn(turn_context, user_message, answer)
+            # Store bot response
+            conversation_manager.add_turn(session_id, 'assistant', response)
             
         except Exception as e:
             logger.error("Conversational query handling failed", error=str(e), query=user_message)
             await turn_context.send_activity("I understand. Is there anything else I can help you with?")
+    
+    def _generate_contextual_response(self, message: str, context: Dict) -> str:
+        """Generate contextually appropriate response for conversational messages."""
+        
+        message_lower = message.lower().strip()
+        
+        # Positive acknowledgments
+        if message_lower in ['thanks', 'thank you', 'great', 'perfect', 'excellent', 'good']:
+            if context['topics']:
+                return f"You're welcome! Let me know if you need more information about {context['topics'][0]} or anything else."
+            return "You're welcome! Feel free to ask if you need anything else."
+        
+        # Agreement responses
+        if message_lower in ['ok', 'okay', 'yes', 'yeah', 'right', 'correct']:
+            return "Great! Is there anything specific you'd like to explore further?"
+        
+        # Casual responses with topic awareness
+        if message_lower in ['cool', 'nice', 'interesting', 'wow']:
+            if context['topics']:
+                return f"I'm glad you found that helpful! There's quite a bit more information available about {context['topics'][0]} if you're interested."
+            return "Glad I could help! Let me know if you have any questions."
+        
+        # Default contextual response
+        if context['topics']:
+            return f"I'm here to help with any questions about {', '.join(context['topics'][:2])} or other engineering topics."
+        
+        return "Is there anything specific you'd like to know more about?"
     
     async def _get_conversation_history(self, turn_context: TurnContext) -> List[Dict]:
         """Get recent conversation history for context."""
@@ -583,7 +621,7 @@ Please analyze the uploaded documents in context of the user's question. If the 
             await turn_context.send_activity(f"Search failed: {str(e)}")
 
     async def _handle_question(self, turn_context: TurnContext, question: str):
-        """Handle Q&A requests with conversational context."""
+        """Handle Q&A requests with advanced RAG and conversational context."""
         
         try:
             if not self.qa_service:
@@ -593,33 +631,127 @@ Please analyze the uploaded documents in context of the user's question. If the 
             # Send typing indicator
             await turn_context.send_activity(Activity(type=ActivityTypes.typing))
             
-            # Get conversation history for context
-            conversation_history = await self._get_conversation_history(turn_context)
+            # Get session ID and conversation context
+            session_id = self._get_session_id(turn_context)
             
-            # Use the new universal AI assistant  
-            result = await self.qa_service.rag_handler.process_question(question)
+            # Add user question to conversation history
+            conversation_manager.add_turn(session_id, 'user', question)
             
-            # Format response - natural and conversational
+            # Get conversation context for enhanced understanding
+            context = conversation_manager.get_context_for_query(session_id, question)
+            
+            # Determine if we should use advanced RAG for complex queries
+            use_advanced_rag = await self._should_use_advanced_rag(question, context)
+            
+            if use_advanced_rag:
+                # Initialize advanced RAG handler if needed
+                if not self.advanced_rag_handler:
+                    self.advanced_rag_handler = AdvancedRAGHandler(
+                        self.search_client, 
+                        self.qa_service.openai_client
+                    )
+                
+                # Use advanced RAG with conversation context
+                result = await self.advanced_rag_handler.process_complex_query(
+                    question, 
+                    conversation_context=context
+                )
+            else:
+                # Use standard RAG with context enhancement
+                enhanced_query = self._enhance_query_with_context(question, context)
+                result = await self.qa_service.rag_handler.process_question(enhanced_query)
+            
+            # Handle response
             if result.get('confidence') == 'error':
                 await turn_context.send_activity(f"Sorry, I encountered an error: {result['answer']}")
                 return
             
-            # Clean the answer to remove any sources information that might be embedded
+            # Get the answer and prepare metadata
             answer = result['answer']
+            metadata = {
+                'sources': result.get('sources', []),
+                'confidence': result.get('confidence', 'medium'),
+                'query_type': 'advanced' if use_advanced_rag else 'standard',
+                'context_used': context['has_context']
+            }
             
-            # Remove sources section if it exists in the answer
+            # Clean answer formatting for Teams
             import re
             answer = re.sub(r'📄\s*Sources:.*?(?=\n\n|\Z)', '', answer, flags=re.DOTALL | re.IGNORECASE)
             
-            # Use the new Teams message sending method
+            # Send response
             await self._send_teams_message(turn_context, answer)
             
-            # Store this interaction in conversation history
-            await self._store_conversation_turn(turn_context, question, answer)
+            # Store interaction in conversation history
+            conversation_manager.add_turn(session_id, 'assistant', answer, metadata)
+            
+            logger.info("Question handled successfully", 
+                       session_id=session_id,
+                       question_length=len(question),
+                       answer_length=len(answer),
+                       advanced_rag_used=use_advanced_rag,
+                       context_available=context['has_context'])
             
         except Exception as e:
             logger.error("Q&A failed", error=str(e), question=question)
             await turn_context.send_activity(f"Failed to answer question: {str(e)}")
+    
+    async def _should_use_advanced_rag(self, question: str, context: Dict) -> bool:
+        """Determine if advanced RAG should be used for this query."""
+        
+        # Use advanced RAG for:
+        # 1. Complex multi-part questions
+        # 2. Questions with references to previous conversation
+        # 3. Questions requiring multi-source analysis
+        
+        question_lower = question.lower()
+        
+        # Multi-part question indicators
+        multi_part_indicators = ['and', 'also', 'additionally', 'furthermore', 'compare', 'vs', 'versus']
+        has_multi_parts = any(indicator in question_lower for indicator in multi_part_indicators)
+        
+        # Reference indicators (pronouns, "this", "that")
+        has_references = any(ref in question_lower for ref in ['it', 'this', 'that', 'these', 'those'])
+        
+        # Complex analysis indicators
+        complex_indicators = ['analyze', 'compare', 'evaluate', 'assess', 'relationship', 'impact', 'effect']
+        needs_analysis = any(indicator in question_lower for indicator in complex_indicators)
+        
+        # Long questions (likely complex)
+        is_long_question = len(question.split()) > 10
+        
+        # Has conversation context
+        has_context = context['has_context']
+        
+        # Use advanced RAG if any conditions are met
+        should_use_advanced = (has_multi_parts or 
+                              (has_references and has_context) or 
+                              needs_analysis or 
+                              is_long_question)
+        
+        return should_use_advanced
+    
+    def _enhance_query_with_context(self, question: str, context: Dict) -> str:
+        """Enhance query with conversation context for better understanding."""
+        
+        if not context['has_context']:
+            return question
+        
+        enhanced_parts = [question]
+        
+        # Add resolved references
+        if context['resolved_references']:
+            ref_info = []
+            for ref, resolution in context['resolved_references'].items():
+                ref_info.append(f"'{ref}' refers to '{resolution}'")
+            if ref_info:
+                enhanced_parts.append(f"Context: {', '.join(ref_info)}")
+        
+        # Add topic continuity
+        if context['topics']:
+            enhanced_parts.append(f"Related topics from conversation: {', '.join(context['topics'][:3])}")
+        
+        return " | ".join(enhanced_parts)
 
     async def _handle_project_scoping_analysis(self, turn_context: TurnContext, scoping_text: str):
         """Handle project scoping analysis requests."""

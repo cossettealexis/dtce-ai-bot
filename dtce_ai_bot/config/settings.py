@@ -99,6 +99,7 @@ class Settings(BaseSettings):
     
     # Azure Cognitive Search settings
     azure_search_service_name: str = ""
+    azure_search_endpoint: str = ""  # Added for compatibility
     azure_search_admin_key: str = ""
     azure_search_index_name: str = "dtce-documents-index"
     
@@ -106,6 +107,7 @@ class Settings(BaseSettings):
     azure_openai_endpoint: str = ""
     azure_openai_api_key: str = ""
     azure_openai_deployment_name: str = "gpt-4"
+    azure_openai_embedding_model: str = "text-embedding-3-small"  # Added for compatibility
     azure_openai_api_version: str = "2024-02-01"
     
     # OpenAI settings (alternative to Azure OpenAI)

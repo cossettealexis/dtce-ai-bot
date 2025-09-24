@@ -23,6 +23,7 @@ logger = structlog.get_logger(__name__)
 
 
 from .universal_ai_handler import UniversalAIHandler
+from .advanced_rag_handler import AdvancedRAGHandler
 
 class RAGHandler:
     """Handles RAG processing with enhanced semantic search and intent recognition."""
@@ -31,6 +32,9 @@ class RAGHandler:
         self.search_client = search_client
         self.openai_client = openai_client
         self.model_name = model_name
+        
+        # Initialize Advanced RAG Handler with comprehensive capabilities
+        self.advanced_rag = AdvancedRAGHandler(search_client, openai_client, model_name)
         
         # Initialize new service-oriented architecture following SOLID principles
         self.intent_classifier = IntentClassifier(openai_client, model_name)
@@ -51,6 +55,8 @@ class RAGHandler:
         # Cache for Google Docs content
         self._knowledge_base_content = None
         self._knowledge_base_url = "https://docs.google.com/document/d/1Lknql33hOdBZAMmEU7AjaxgwGinoPZePY-tKTVNcqMU/edit?usp=sharing"
+        
+        logger.info("RAG Handler initialized with Advanced RAG capabilities")
 
     def _get_knowledge_base_content(self) -> Optional[str]:
         """Fetch and cache Google Docs knowledge base content."""
@@ -476,22 +482,110 @@ Respond with JSON:
             logger.warning("No valid SuiteFiles links found in documents")
             return answer
 
-    async def process_question(self, question: str) -> Dict[str, Any]:
-        """Universal AI assistant that can answer anything like ChatGPT + smart DTCE routing."""
+    async def process_question(self, question: str, conversation_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
+        """
+        Enhanced Universal AI assistant with Advanced RAG capabilities.
+        
+        Routes between:
+        1. Advanced RAG for complex engineering queries requiring comprehensive retrieval
+        2. Standard Universal AI for conversational and general queries
+        3. Legacy RAG system for backward compatibility
+        """
         try:
-            logger.info(f"Universal AI processing: {question}")
+            logger.info(f"Processing question with Enhanced RAG system: {question}")
             
-            # Use the new universal AI assistant
-            result = await self.universal_ai_assistant(question)
+            # Determine if this query would benefit from Advanced RAG
+            use_advanced_rag = await self._should_use_advanced_rag(question, conversation_history)
             
-            logger.info(f"Response type: {result.get('rag_type')}, Folder: {result.get('folder_searched', 'none')}, Docs: {result.get('documents_searched', 0)}")
-            
-            return result
+            if use_advanced_rag:
+                logger.info("Using Advanced RAG for complex query processing")
+                result = await self.advanced_rag.process_question(
+                    question, 
+                    context_history=conversation_history
+                )
+                result['rag_type'] = 'advanced'
+                
+                # Enhance result with additional metadata
+                result.update({
+                    'processing_method': 'advanced_rag',
+                    'folder_searched': 'multi_source',
+                    'documents_searched': result.get('total_sources', 0)
+                })
+                
+                return result
+            else:
+                logger.info("Using Standard Universal AI assistant")
+                # Use the existing universal AI assistant
+                result = await self.universal_ai_assistant(question)
+                
+                # Add conversation history context if available
+                if conversation_history:
+                    result['conversation_context_used'] = True
+                
+                logger.info(f"Response type: {result.get('rag_type')}, Folder: {result.get('folder_searched', 'none')}, Docs: {result.get('documents_searched', 0)}")
+                
+                return result
             
         except Exception as e:
-            logger.error(f"Universal AI processing failed: {str(e)}")
+            logger.error(f"Enhanced RAG processing failed: {str(e)}")
             # Even error handling uses AI instead of static messages
             return await self._handle_ai_error(question, str(e))
+    
+    async def _should_use_advanced_rag(self, question: str, conversation_history: Optional[List[Dict]] = None) -> bool:
+        """
+        Determine if a query should use the Advanced RAG system.
+        
+        Advanced RAG is used for:
+        - Complex technical queries requiring multi-source retrieval
+        - Questions needing query decomposition
+        - Engineering analysis requiring comprehensive context
+        - Queries with specific technical terminology
+        """
+        
+        # Indicators for Advanced RAG usage
+        advanced_indicators = [
+            # Length and complexity
+            len(question.split()) > 12,
+            
+            # Multiple questions or conditions
+            ' and ' in question.lower() or ' or ' in question.lower(),
+            question.count('?') > 1,
+            
+            # Engineering analysis keywords
+            any(keyword in question.lower() for keyword in [
+                'analyze', 'analysis', 'compare', 'comparison', 'evaluate', 'assessment',
+                'design approach', 'methodology', 'comprehensive', 'detailed review',
+                'investigation', 'study', 'examination'
+            ]),
+            
+            # Technical complexity indicators
+            any(keyword in question.lower() for keyword in [
+                'structural design', 'seismic', 'load calculation', 'foundation design',
+                'wind load', 'earthquake', 'building code', 'engineering standards',
+                'geotechnical', 'concrete design', 'steel design'
+            ]),
+            
+            # Multi-source requirements
+            any(keyword in question.lower() for keyword in [
+                'similar projects', 'past projects', 'lessons learned', 'best practices',
+                'project history', 'what projects', 'previous work'
+            ]),
+            
+            # Conversation complexity (follow-up questions)
+            conversation_history and len(conversation_history) > 2
+        ]
+        
+        # Use Advanced RAG if multiple indicators are present
+        indicator_count = sum(advanced_indicators)
+        use_advanced = indicator_count >= 2
+        
+        logger.info("Advanced RAG usage decision", 
+                   question_length=len(question.split()),
+                   indicator_count=indicator_count,
+                   use_advanced_rag=use_advanced,
+                   indicators_found=[i for i, indicator in enumerate(advanced_indicators) if indicator])
+        
+        return use_advanced
     
     async def process_rag_query(self, question: str, project_filter: Optional[str] = None, conversation_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
         """
