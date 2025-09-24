@@ -432,6 +432,10 @@ class AdvancedRAGHandler:
                 question, sub_queries
             )
             
+            # Ensure retrieved_documents is never None
+            if retrieved_documents is None:
+                retrieved_documents = []
+            
             # Step 3: Context Preparation and Chunking
             processed_context = await self._prepare_enhanced_context(
                 retrieved_documents, question
@@ -675,10 +679,10 @@ Provide a comprehensive, accurate, and professionally structured response."""
         
         # Factors affecting confidence
         factors = {
-            'num_sources': len(documents),
-            'avg_relevance': sum(doc.get('relevance_score', 0) for doc in documents) / len(documents),
-            'response_length': len(response),
-            'specific_references': response.count('Project') + response.count('Document')
+            'num_sources': len(documents) if documents else 0,
+            'avg_relevance': (sum(doc.get('relevance_score', 0) for doc in documents) / len(documents)) if documents else 0,
+            'response_length': len(response) if response else 0,
+            'specific_references': (response.count('Project') + response.count('Document')) if response else 0
         }
         
         # Simple scoring logic
