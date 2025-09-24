@@ -509,7 +509,7 @@ Respond with JSON:
                 result.update({
                     'processing_method': 'advanced_rag',
                     'folder_searched': 'multi_source',
-                    'documents_searched': result.get('total_sources', 0)
+                    'documents_searched': result.get('total_sources', 0) or 0
                 })
                 
                 return result
