@@ -247,6 +247,10 @@ Example: PROCEDURES|0.95
         keyword_category, keyword_confidence = keyword_result
         ai_category, ai_confidence = ai_result
         
+        # Ensure confidence scores are not None
+        keyword_confidence = keyword_confidence or 0.0
+        ai_confidence = ai_confidence or 0.0
+        
         # If both agree and have decent confidence, boost the result
         if keyword_category == ai_category and keyword_confidence > 0.3 and ai_confidence > 0.3:
             combined_confidence = min((keyword_confidence + ai_confidence) / 2 + 0.2, 1.0)
