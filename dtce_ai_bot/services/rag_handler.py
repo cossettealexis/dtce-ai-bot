@@ -1,6 +1,6 @@
 """
 RAG (Retrieval-Augmented Generation) Handler for DTCE AI Bot
-ENHANCED SEMANTIC SEARCH with Intent Recognition - Refactored with SOLID principles
+ENHANCED SEMANTIC SEARCH with Intent Recognition - Enhanced with Advanced RAG Pipeline
 """
 
 import re
@@ -17,20 +17,27 @@ from .project_context_service import ProjectContextService
 from .prompt_builder import PromptBuilder
 from .document_formatter import DocumentFormatter
 from .specialized_search_service import SpecializedSearchService
+from .rag_integration_service import RAGIntegrationService
 from ..utils.suitefiles_urls import suitefiles_converter
+from ..config.settings import Settings
 
 logger = structlog.get_logger(__name__)
-
 
 from .universal_ai_handler import UniversalAIHandler
 
 class RAGHandler:
     """Handles RAG processing with enhanced semantic search and intent recognition."""
     
-    def __init__(self, search_client: SearchClient, openai_client: AsyncAzureOpenAI, model_name: str):
+    def __init__(self, search_client: SearchClient, openai_client: AsyncAzureOpenAI, 
+                 model_name: str, settings: Settings = None):
         self.search_client = search_client
         self.openai_client = openai_client
         self.model_name = model_name
+        
+        # Initialize Enhanced RAG Integration Service as primary handler
+        self.enhanced_rag = RAGIntegrationService(
+            search_client, openai_client, model_name, settings or Settings()
+        )
         
         # Initialize new service-oriented architecture following SOLID principles
         self.intent_classifier = IntentClassifier(openai_client, model_name)
@@ -51,6 +58,11 @@ class RAGHandler:
         # Cache for Google Docs content
         self._knowledge_base_content = None
         self._knowledge_base_url = "https://docs.google.com/document/d/1Lknql33hOdBZAMmEU7AjaxgwGinoPZePY-tKTVNcqMU/edit?usp=sharing"
+        
+        # Feature flag for enhanced RAG
+        self.use_enhanced_rag = True
+        
+        logger.info("RAG Handler initialized with Enhanced RAG Pipeline")
 
     def _get_knowledge_base_content(self) -> Optional[str]:
         """Fetch and cache Google Docs knowledge base content."""
@@ -450,11 +462,20 @@ Respond with JSON:
             return answer
 
     async def process_question(self, question: str) -> Dict[str, Any]:
-        """Universal AI assistant that can answer anything like ChatGPT + smart DTCE routing."""
+        """
+        Universal AI assistant that can answer anything like ChatGPT + smart DTCE routing.
+        Uses Enhanced RAG Pipeline when enabled.
+        """
         try:
-            logger.info(f"Universal AI processing: {question}")
+            logger.info(f"Processing question: {question}")
             
-            # Use the new universal AI assistant
+            # Use Enhanced RAG Pipeline if enabled
+            if self.use_enhanced_rag:
+                logger.info("Using Enhanced RAG Pipeline")
+                return await self._process_with_enhanced_rag(question)
+            
+            # Fallback to original universal AI assistant
+            logger.info("Using original Universal AI processing")
             result = await self.universal_ai_assistant(question)
             
             logger.info(f"Response type: {result.get('rag_type')}, Folder: {result.get('folder_searched', 'none')}, Docs: {result.get('documents_searched', 0)}")
@@ -462,9 +483,71 @@ Respond with JSON:
             return result
             
         except Exception as e:
-            logger.error(f"Universal AI processing failed: {str(e)}")
-            # Even error handling uses AI instead of static messages
+            logger.error(f"Question processing failed: {str(e)}")
             return await self._handle_ai_error(question, str(e))
+    
+    async def _process_with_enhanced_rag(self, question: str) -> Dict[str, Any]:
+        """Process question using the Enhanced RAG Pipeline"""
+        try:
+            # Process through enhanced RAG integration service
+            enhanced_result = await self.enhanced_rag.process_query(question)
+            
+            # Convert to expected format for compatibility
+            return {
+                'answer': enhanced_result['response'],
+                'sources': enhanced_result.get('sources', []),
+                'confidence': enhanced_result.get('confidence', 0.0),
+                'rag_type': 'enhanced_rag',
+                'response_type': enhanced_result.get('response_type', 'general_response'),
+                'query_analysis': enhanced_result.get('query_analysis', {}),
+                'retrieval_info': enhanced_result.get('retrieval_info', {}),
+                'follow_up_suggestions': enhanced_result.get('follow_up_suggestions', []),
+                'documents_searched': enhanced_result.get('retrieval_info', {}).get('sources_found', 0),
+                'search_method': 'enhanced_hybrid_semantic'
+            }
+            
+        except Exception as e:
+            logger.error("Enhanced RAG processing failed", error=str(e))
+            # Fallback to original system
+            self.use_enhanced_rag = False
+            logger.info("Falling back to original RAG system")
+            return await self.universal_ai_assistant(question)
+    
+    async def _process_with_enhanced_rag_context(self, question: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Process question using Enhanced RAG with additional context"""
+        try:
+            # Process through enhanced RAG with context
+            enhanced_result = await self.enhanced_rag.process_query(question, context)
+            
+            # Convert to expected format
+            return {
+                'answer': enhanced_result['response'],
+                'sources': enhanced_result.get('sources', []),
+                'confidence': enhanced_result.get('confidence', 0.0),
+                'rag_type': 'enhanced_rag_with_context',
+                'response_type': enhanced_result.get('response_type', 'general_response'),
+                'query_analysis': enhanced_result.get('query_analysis', {}),
+                'retrieval_info': enhanced_result.get('retrieval_info', {}),
+                'follow_up_suggestions': enhanced_result.get('follow_up_suggestions', []),
+                'documents_searched': enhanced_result.get('retrieval_info', {}).get('sources_found', 0),
+                'search_method': 'enhanced_hybrid_semantic_with_context',
+                'intent_category': enhanced_result.get('query_analysis', {}).get('intent', 'general'),
+                'intent_confidence': enhanced_result.get('confidence', 0.0)
+            }
+            
+        except Exception as e:
+            logger.error("Enhanced RAG with context failed", error=str(e))
+            # Fallback to original method
+            return await self._process_original_rag_query(question, context.get('project_filter'), context.get('conversation_history'))
+    
+    async def _process_original_rag_query(self, question: str, project_filter: Optional[str] = None, conversation_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
+        """Original RAG query processing for fallback"""
+        # STEP 0: Check if this is a conversational query that doesn't need document search
+        is_conversational = await self._is_conversational_query(question, conversation_history)
+        
+        if is_conversational:
+            logger.info("Detected conversational query - using context instead of search")
+            return await self._handle_conversational_query(question, conversation_history)
     
     async def process_rag_query(self, question: str, project_filter: Optional[str] = None, conversation_history: Optional[List[Dict]] = None) -> Dict[str, Any]:
         """
@@ -476,6 +559,17 @@ Respond with JSON:
         4. Generate response using intent-specific instructions
         """
         try:
+            logger.info("Processing RAG query", question=question, enhanced_rag=self.use_enhanced_rag)
+            
+            # Use Enhanced RAG Pipeline if enabled
+            if self.use_enhanced_rag:
+                context = {
+                    'conversation_history': conversation_history,
+                    'project_filter': project_filter
+                }
+                return await self._process_with_enhanced_rag_context(question, context)
+            
+            # Original RAG processing
             logger.info("Processing question with intent-based approach", question=question)
             
             # STEP 0: Check if this is a conversational query that doesn't need document search
