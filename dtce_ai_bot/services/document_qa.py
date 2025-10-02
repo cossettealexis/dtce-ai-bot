@@ -76,8 +76,9 @@ class DocumentQAService:
             if self._is_greeting(question):
                 return self._get_greeting_response()
             
-            # Use RAG handler with NEW universal AI system (Dependency Inversion)
-            result = await self.rag_handler.process_question(question)
+            # Use RAG handler with PROPER RAG system (Hybrid Search + Semantic Ranking)
+            session_id = project_filter or "default"  # Use project as session context
+            result = await self.rag_handler.process_question(question, session_id)
             
             # Add processing metadata
             result['processing_time'] = time.time() - start_time

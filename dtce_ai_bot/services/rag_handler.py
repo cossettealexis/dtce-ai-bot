@@ -23,10 +23,10 @@ from ..config.settings import Settings
 
 logger = structlog.get_logger(__name__)
 
-from .universal_ai_handler import UniversalAIHandler
+from .proper_rag_service import RAGOrchestrator
 
 class RAGHandler:
-    """Handles RAG processing with enhanced semantic search and intent recognition."""
+    """Handles RAG processing using proper Azure AI Search hybrid search and semantic ranking."""
     
     def __init__(self, search_client: SearchClient, openai_client: AsyncAzureOpenAI, 
                  model_name: str, settings: Settings = None):
@@ -34,40 +34,10 @@ class RAGHandler:
         self.openai_client = openai_client
         self.model_name = model_name
         
-        # Initialize Enhanced RAG Integration Service as primary handler (optional)
-        self.enhanced_rag = None
-        # try:
-        #     from .rag_integration_service import RAGIntegrationService
-        #     self.enhanced_rag = RAGIntegrationService(
-        #         search_client, openai_client, model_name, settings or Settings()
-        #     )
-        # except Exception as e:
-        #     logger.warning("Enhanced RAG initialization failed, falling back to standard RAG", error=str(e))
+        # Initialize PROPER RAG system instead of keyword-based nonsense
+        self.rag_orchestrator = RAGOrchestrator(search_client, openai_client, model_name)
         
-        # Initialize new service-oriented architecture following SOLID principles
-        self.intent_classifier = IntentClassifier(openai_client, model_name)
-        self.project_context_service = ProjectContextService()
-        self.prompt_builder = PromptBuilder()
-        self.document_formatter = DocumentFormatter()
-        self.specialized_search_service = SpecializedSearchService(search_client, openai_client, model_name)
-        
-        # Initialize the new universal AI handler  
-        self.ai_handler = UniversalAIHandler(search_client, openai_client, model_name)
-        # Keep existing services for backward compatibility
-        self.semantic_search = SemanticSearchService(search_client, openai_client, model_name)
-        self.folder_structure = FolderStructureService()
-        # Initialize query normalizer for better semantic search consistency
-        self.query_normalizer = QueryNormalizer(openai_client, model_name)
-        # Initialize Google Docs service for knowledge base integration
-        self.google_docs = GoogleDocsService()
-        # Cache for Google Docs content
-        self._knowledge_base_content = None
-        self._knowledge_base_url = "https://docs.google.com/document/d/1Lknql33hOdBZAMmEU7AjaxgwGinoPZePY-tKTVNcqMU/edit?usp=sharing"
-        
-        # Feature flag for enhanced RAG (temporarily disabled for startup)
-        self.use_enhanced_rag = False
-        
-        logger.info("RAG Handler initialized with Enhanced RAG Pipeline")
+        logger.info("RAG Handler initialized with PROPER RAG Pipeline (Hybrid Search + Semantic Ranking)")
 
     def _get_knowledge_base_content(self) -> Optional[str]:
         """Fetch and cache Google Docs knowledge base content."""
@@ -466,30 +436,45 @@ Respond with JSON:
             logger.warning("No valid SuiteFiles links found in documents")
             return answer
 
-    async def process_question(self, question: str) -> Dict[str, Any]:
+    async def process_question(self, question: str, session_id: str = "default") -> Dict[str, Any]:
         """
-        Universal AI assistant that can answer anything like ChatGPT + smart DTCE routing.
-        Uses Enhanced RAG Pipeline when enabled.
+        Process question using PROPER RAG implementation with:
+        1. Hybrid Search (Vector + Keyword)
+        2. Semantic Ranking
+        3. Query Enhancement
+        4. Context-aware Generation
         """
         try:
-            logger.info(f"Processing question: {question}")
+            logger.info("Processing question with PROPER RAG", question=question)
             
-            # Use Enhanced RAG Pipeline if enabled
-            if self.use_enhanced_rag:
-                logger.info("Using Enhanced RAG Pipeline")
-                return await self._process_with_enhanced_rag(question)
+            # Use the proper RAG orchestrator
+            result = await self.rag_orchestrator.process_question(question, session_id)
             
-            # Fallback to original universal AI assistant
-            logger.info("Using original Universal AI processing")
-            result = await self.universal_ai_assistant(question)
+            # Add compatibility fields for existing code
+            result.update({
+                'confidence': 'high' if result.get('final_documents_used', 0) > 0 else 'low',
+                'rag_type': 'proper_hybrid_rag',
+                'documents_searched': result.get('total_documents_searched', 0),
+                'search_type': result.get('search_type', 'hybrid_rag')
+            })
             
-            logger.info(f"Response type: {result.get('rag_type')}, Folder: {result.get('folder_searched', 'none')}, Docs: {result.get('documents_searched', 0)}")
+            logger.info("PROPER RAG processing completed", 
+                       enhanced_queries=len(result.get('enhanced_queries', [])),
+                       documents_found=result.get('total_documents_searched', 0),
+                       documents_used=result.get('final_documents_used', 0))
             
             return result
             
         except Exception as e:
-            logger.error(f"Question processing failed: {str(e)}")
-            return await self._handle_ai_error(question, str(e))
+            logger.error("PROPER RAG processing failed", error=str(e))
+            return {
+                'answer': f"I encountered an error processing your question: {str(e)}",
+                'sources': [],
+                'confidence': 'error',
+                'rag_type': 'error',
+                'documents_searched': 0,
+                'search_type': 'error'
+            }
     
     async def _process_with_enhanced_rag(self, question: str) -> Dict[str, Any]:
         """Process question using the Enhanced RAG Pipeline"""
