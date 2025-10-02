@@ -34,10 +34,14 @@ class RAGHandler:
         self.openai_client = openai_client
         self.model_name = model_name
         
-        # Initialize Enhanced RAG Integration Service as primary handler
-        self.enhanced_rag = RAGIntegrationService(
-            search_client, openai_client, model_name, settings or Settings()
-        )
+        # Initialize Enhanced RAG Integration Service as primary handler (optional)
+        self.enhanced_rag = None
+        try:
+            self.enhanced_rag = RAGIntegrationService(
+                search_client, openai_client, model_name, settings or Settings()
+            )
+        except Exception as e:
+            logger.warning("Enhanced RAG initialization failed, falling back to standard RAG", error=str(e))
         
         # Initialize new service-oriented architecture following SOLID principles
         self.intent_classifier = IntentClassifier(openai_client, model_name)
@@ -59,8 +63,8 @@ class RAGHandler:
         self._knowledge_base_content = None
         self._knowledge_base_url = "https://docs.google.com/document/d/1Lknql33hOdBZAMmEU7AjaxgwGinoPZePY-tKTVNcqMU/edit?usp=sharing"
         
-        # Feature flag for enhanced RAG
-        self.use_enhanced_rag = True
+        # Feature flag for enhanced RAG (temporarily disabled for startup)
+        self.use_enhanced_rag = False
         
         logger.info("RAG Handler initialized with Enhanced RAG Pipeline")
 
