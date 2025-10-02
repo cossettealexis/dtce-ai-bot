@@ -17,7 +17,7 @@ from .project_context_service import ProjectContextService
 from .prompt_builder import PromptBuilder
 from .document_formatter import DocumentFormatter
 from .specialized_search_service import SpecializedSearchService
-from .rag_integration_service import RAGIntegrationService
+# from .rag_integration_service import RAGIntegrationService  # Temporarily commented out
 from ..utils.suitefiles_urls import suitefiles_converter
 from ..config.settings import Settings
 
@@ -36,12 +36,13 @@ class RAGHandler:
         
         # Initialize Enhanced RAG Integration Service as primary handler (optional)
         self.enhanced_rag = None
-        try:
-            self.enhanced_rag = RAGIntegrationService(
-                search_client, openai_client, model_name, settings or Settings()
-            )
-        except Exception as e:
-            logger.warning("Enhanced RAG initialization failed, falling back to standard RAG", error=str(e))
+        # try:
+        #     from .rag_integration_service import RAGIntegrationService
+        #     self.enhanced_rag = RAGIntegrationService(
+        #         search_client, openai_client, model_name, settings or Settings()
+        #     )
+        # except Exception as e:
+        #     logger.warning("Enhanced RAG initialization failed, falling back to standard RAG", error=str(e))
         
         # Initialize new service-oriented architecture following SOLID principles
         self.intent_classifier = IntentClassifier(openai_client, model_name)
