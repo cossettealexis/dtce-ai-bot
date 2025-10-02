@@ -1,6 +1,6 @@
 """
-Proper RAG (Retrieval-Augmented Generation) Implementation
-Following Azure AI Search best practices with hybrid search, semantic ranking, and proper chunking
+Azure RAG (Retrieval-Augmented Generation) Service
+Implementation using Azure AI Search with hybrid search, semantic ranking, and document chunking
 """
 
 import json
@@ -13,9 +13,9 @@ from openai import AsyncAzureOpenAI
 logger = structlog.get_logger(__name__)
 
 
-class ProperRAGService:
+class AzureRAGService:
     """
-    Proper RAG implementation following Azure AI Search best practices:
+    RAG implementation using Azure AI Search best practices:
     1. Hybrid Search (Vector + Keyword)
     2. Semantic Ranking
     3. Query Rewriting
@@ -364,16 +364,16 @@ Provide a clear, accurate, and helpful answer:"""
 
 class RAGOrchestrator:
     """
-    Main RAG orchestrator that replaces the current broken system
+    Main RAG orchestrator for processing questions with Azure AI Search
     """
     
     def __init__(self, search_client: SearchClient, openai_client: AsyncAzureOpenAI, model_name: str):
-        self.rag_service = ProperRAGService(search_client, openai_client, model_name)
+        self.rag_service = AzureRAGService(search_client, openai_client, model_name)
         self.conversation_history = {}  # Store by session_id
         
     async def process_question(self, question: str, session_id: str = "default") -> Dict[str, Any]:
         """
-        Main entry point for question processing using proper RAG
+        Main entry point for question processing using Azure RAG
         """
         try:
             # Get conversation history for this session

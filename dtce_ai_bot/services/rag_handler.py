@@ -23,10 +23,10 @@ from ..config.settings import Settings
 
 logger = structlog.get_logger(__name__)
 
-from .proper_rag_service import RAGOrchestrator
+from .azure_rag_service import RAGOrchestrator
 
 class RAGHandler:
-    """Handles RAG processing using proper Azure AI Search hybrid search and semantic ranking."""
+    """Handles RAG processing using Azure AI Search hybrid search and semantic ranking."""
     
     def __init__(self, search_client: SearchClient, openai_client: AsyncAzureOpenAI, 
                  model_name: str, settings: Settings = None):
@@ -34,10 +34,10 @@ class RAGHandler:
         self.openai_client = openai_client
         self.model_name = model_name
         
-        # Initialize PROPER RAG system instead of keyword-based nonsense
+        # Initialize Azure RAG system with hybrid search
         self.rag_orchestrator = RAGOrchestrator(search_client, openai_client, model_name)
         
-        logger.info("RAG Handler initialized with PROPER RAG Pipeline (Hybrid Search + Semantic Ranking)")
+        logger.info("RAG Handler initialized with Azure AI Search Pipeline (Hybrid Search + Semantic Ranking)")
 
     def _get_knowledge_base_content(self) -> Optional[str]:
         """Fetch and cache Google Docs knowledge base content."""
@@ -438,27 +438,27 @@ Respond with JSON:
 
     async def process_question(self, question: str, session_id: str = "default") -> Dict[str, Any]:
         """
-        Process question using PROPER RAG implementation with:
+        Process question using RAG implementation with:
         1. Hybrid Search (Vector + Keyword)
         2. Semantic Ranking
         3. Query Enhancement
         4. Context-aware Generation
         """
         try:
-            logger.info("Processing question with PROPER RAG", question=question)
+            logger.info("Processing question with Azure RAG", question=question)
             
-            # Use the proper RAG orchestrator
+            # Use the RAG orchestrator
             result = await self.rag_orchestrator.process_question(question, session_id)
             
             # Add compatibility fields for existing code
             result.update({
                 'confidence': 'high' if result.get('final_documents_used', 0) > 0 else 'low',
-                'rag_type': 'proper_hybrid_rag',
+                'rag_type': 'azure_hybrid_rag',
                 'documents_searched': result.get('total_documents_searched', 0),
                 'search_type': result.get('search_type', 'hybrid_rag')
             })
             
-            logger.info("PROPER RAG processing completed", 
+            logger.info("Azure RAG processing completed", 
                        enhanced_queries=len(result.get('enhanced_queries', [])),
                        documents_found=result.get('total_documents_searched', 0),
                        documents_used=result.get('final_documents_used', 0))
@@ -466,7 +466,7 @@ Respond with JSON:
             return result
             
         except Exception as e:
-            logger.error("PROPER RAG processing failed", error=str(e))
+            logger.error("Azure RAG processing failed", error=str(e))
             return {
                 'answer': f"I encountered an error processing your question: {str(e)}",
                 'sources': [],
