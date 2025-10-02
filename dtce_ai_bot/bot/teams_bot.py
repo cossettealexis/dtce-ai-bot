@@ -596,8 +596,17 @@ Please analyze the uploaded documents in context of the user's question. If the 
             # Get conversation history for context
             conversation_history = await self._get_conversation_history(turn_context)
             
-            # Use the new universal AI assistant  
-            result = await self.qa_service.rag_handler.process_question(question)
+            # Use the new universal AI assistant with error handling
+            try:
+                result = await self.qa_service.rag_handler.process_question(question)
+            except Exception as qa_error:
+                logger.error("QA service failed", error=str(qa_error), question=question)
+                # Fallback to simple response
+                result = {
+                    'answer': f"I'm experiencing technical difficulties processing your question: '{question}'. Please try again or rephrase your question.",
+                    'confidence': 'error',
+                    'sources': []
+                }
             
             # Format response - natural and conversational
             if result.get('confidence') == 'error':

@@ -55,7 +55,7 @@ class DocumentQAService:
         
         # Initialize RAG handler with smart prompting (Single Responsibility)
         from .rag_handler import RAGHandler
-        self.rag_handler = RAGHandler(self.search_client, self.openai_client, self.model_name)
+        self.rag_handler = RAGHandler(self.search_client, self.openai_client, self.model_name, settings)
         
     async def answer_question(self, question: str, project_filter: Optional[str] = None) -> Dict[str, Any]:
         """
