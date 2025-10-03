@@ -118,10 +118,31 @@ Enhanced: ["NZS 3604 wind load requirements", "wind load calculations timber fra
                 max_tokens=300
             )
             
-            enhanced_queries = json.loads(response.choices[0].message.content)
-            
-            # Ensure we have at least the original query
-            if not enhanced_queries:
+            try:
+                response_content = response.choices[0].message.content
+                if not response_content or response_content.strip() == "":
+                    enhanced_queries = [user_query]
+                else:
+                    # Try to extract JSON from response if it has extra text
+                    import re
+                    json_match = re.search(r'\[.*\]', response_content, re.DOTALL)
+                    if json_match:
+                        json_text = json_match.group()
+                        enhanced_queries = json.loads(json_text)
+                    else:
+                        # If no JSON array found, treat as single query
+                        enhanced_queries = [response_content.strip().strip('"')]
+                
+                # Ensure we have valid queries
+                if not enhanced_queries or not isinstance(enhanced_queries, list):
+                    enhanced_queries = [user_query]
+                
+                # Clean up queries - remove empty strings
+                enhanced_queries = [q for q in enhanced_queries if q and q.strip()]
+                if not enhanced_queries:
+                    enhanced_queries = [user_query]
+                    
+            except (json.JSONDecodeError, ValueError, AttributeError, IndexError):
                 enhanced_queries = [user_query]
             
             logger.info("Query enhanced", original=user_query, enhanced=enhanced_queries)
@@ -226,10 +247,32 @@ Return JSON array with scores:
             )
             
             try:
-                scores = json.loads(response.choices[0].message.content)
-            except json.JSONDecodeError:
+                response_content = response.choices[0].message.content
+                if not response_content or response_content.strip() == "":
+                    raise json.JSONDecodeError("Empty response", "", 0)
+                
+                # Try to extract JSON from response if it has extra text
+                import re
+                json_match = re.search(r'\[.*\]', response_content, re.DOTALL)
+                if json_match:
+                    json_text = json_match.group()
+                else:
+                    json_text = response_content.strip()
+                
+                scores = json.loads(json_text)
+                
+                # Validate the structure
+                if not isinstance(scores, list) or not scores:
+                    raise ValueError("Invalid scores structure")
+                    
+                # Ensure all scores have required fields
+                for score in scores:
+                    if not isinstance(score, dict) or 'doc_id' not in score or 'score' not in score:
+                        raise ValueError("Invalid score item structure")
+                        
+            except (json.JSONDecodeError, ValueError, AttributeError, IndexError) as e:
                 # Fallback to simple scoring if JSON parsing fails
-                logger.warning("JSON parsing failed, using fallback scoring")
+                logger.warning("JSON parsing failed, using fallback scoring", error=str(e), response_preview=response.choices[0].message.content[:100] if response.choices else "No response")
                 scores = [{"doc_id": i+1, "score": 0.5, "reason": "fallback"} for i in range(len(unique_results[:20]))]
             
             # Apply scores and sort
