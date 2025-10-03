@@ -281,8 +281,8 @@ class DTCETeamsBot(ActivityHandler):
             # Get conversation history from turn context
             conversation_history = await self._get_conversation_history(turn_context)
             
-            # Use the new universal AI assistant
-            result = await self.qa_service.rag_handler.process_question(user_message)
+            # Use the proper DocumentQAService which routes to Azure RAG
+            result = await self.qa_service.answer_question(user_message)
             
             # Send the conversational response
             answer = result.get('answer', "I understand. Is there anything else I can help you with?")
@@ -596,9 +596,9 @@ Please analyze the uploaded documents in context of the user's question. If the 
             # Get conversation history for context
             conversation_history = await self._get_conversation_history(turn_context)
             
-            # Use the new universal AI assistant with error handling
+            # Use the proper DocumentQAService which routes to Azure RAG
             try:
-                result = await self.qa_service.rag_handler.process_question(question)
+                result = await self.qa_service.answer_question(question)
             except Exception as qa_error:
                 logger.error("QA service failed", error=str(qa_error), question=question)
                 # Fallback to simple response
