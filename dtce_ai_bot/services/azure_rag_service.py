@@ -154,12 +154,25 @@ Enhanced: ["NZS 3604 wind load requirements", "wind load calculations timber fra
     
     async def _hybrid_search(self, query: str, top_k: int = 10) -> List[Dict]:
         """
-        Keyword Search with semantic ranking (simplified until embeddings work)
+        TRUE Hybrid Search: Keyword + Vector Search with semantic ranking
         """
         try:
-            # Perform keyword search with semantic ranking
+            # Generate query embedding for vector search
+            query_vector = await self._get_query_embedding(query)
+            
+            # Create vectorized query for semantic search
+            vector_query = VectorizedQuery(
+                vector=query_vector,
+                k_nearest_neighbors=top_k,
+                fields="content_vector"  # Make sure this matches your index field name
+            )
+            
+            # Perform hybrid search: keyword + vector + semantic ranking
             search_results = self.search_client.search(
                 search_text=query,  # Keyword search
+                vector_queries=[vector_query],  # Vector search
+                query_type="semantic",  # Enable semantic ranking
+                semantic_configuration_name="default",  # Use default semantic config
                 top=top_k,
                 include_total_count=True
             )
