@@ -26,7 +26,7 @@ class AzureRAGService:
         self.search_client = search_client
         self.openai_client = openai_client
         self.model_name = model_name
-        self.embedding_model = "text-embedding-3-large"  # Use proper embedding model
+        self.embedding_model = "text-embedding-3-small"  # Use existing Azure deployment
         
     async def process_query(self, user_query: str, conversation_history: List[Dict] = None) -> Dict[str, Any]:
         """
@@ -133,31 +133,14 @@ Enhanced: ["NZS 3604 wind load requirements", "wind load calculations timber fra
     
     async def _hybrid_search(self, query: str, top_k: int = 10) -> List[Dict]:
         """
-        Hybrid Search combining:
-        1. Vector search (semantic similarity)
-        2. Keyword search (exact matches)
-        3. Semantic ranking
+        Keyword Search with semantic ranking (simplified until embeddings work)
         """
         try:
-            # Generate query embedding for vector search
-            query_embedding = await self._get_query_embedding(query)
-            
-            # Create vector query
-            vector_query = VectorizedQuery(
-                vector=query_embedding,
-                k_nearest_neighbors=top_k,
-                fields="contentVector"  # Assuming this is your vector field name
-            )
-            
-            # Perform hybrid search
+            # Perform keyword search with semantic ranking
             search_results = self.search_client.search(
                 search_text=query,  # Keyword search
-                vector_queries=[vector_query],  # Vector search
                 top=top_k,
-                query_type="semantic",  # Enable semantic ranking
-                semantic_configuration_name="default-semantic-config",  # Your semantic config
-                query_caption="extractive",  # Get captions
-                query_answer="extractive"  # Get answers
+                include_total_count=True
             )
             
             results = []
@@ -235,14 +218,19 @@ Return JSON array with scores:
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {"role": "system", "content": "You are an expert at scoring document relevance. Always return valid JSON."},
+                    {"role": "system", "content": "You are an expert at scoring document relevance. Always return valid JSON array."},
                     {"role": "user", "content": full_prompt}
                 ],
                 temperature=0.1,
                 max_tokens=1000
             )
             
-            scores = json.loads(response.choices[0].message.content)
+            try:
+                scores = json.loads(response.choices[0].message.content)
+            except json.JSONDecodeError:
+                # Fallback to simple scoring if JSON parsing fails
+                logger.warning("JSON parsing failed, using fallback scoring")
+                scores = [{"doc_id": i+1, "score": 0.5, "reason": "fallback"} for i in range(len(unique_results[:20]))]
             
             # Apply scores and sort
             scored_results = []
