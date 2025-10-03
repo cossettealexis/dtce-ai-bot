@@ -69,15 +69,47 @@ MEMORY_STORAGE = MemoryStorage()
 CONVERSATION_STATE = ConversationState(MEMORY_STORAGE)
 USER_STATE = UserState(MEMORY_STORAGE)
 
-# Initialize with actual service clients
+# Initialize bot components with error handling
+BOT = None
+SEARCH_CLIENT = None
+QA_SERVICE = None
+
+def initialize_bot_components():
+    """Initialize bot components with proper error handling"""
+    global BOT, SEARCH_CLIENT, QA_SERVICE
+    
+    try:
+        logger.info("Initializing bot components...")
+        
+        # Initialize Azure Search client
+        logger.info("Initializing Azure Search client...")
+        SEARCH_CLIENT = get_search_client()
+        logger.info("Azure Search client initialized")
+        
+        # Initialize QA service  
+        logger.info("Initializing QA service...")
+        QA_SERVICE = DocumentQAService(SEARCH_CLIENT)
+        logger.info("QA service initialized")
+        
+        # Initialize Teams bot
+        logger.info("Initializing Teams bot...")
+        BOT = DTCETeamsBot(CONVERSATION_STATE, USER_STATE, SEARCH_CLIENT, QA_SERVICE)
+        logger.info("Teams bot initialized successfully")
+        
+        return True
+        
+    except Exception as e:
+        logger.error("Failed to initialize Teams bot", error=str(e), error_type=type(e).__name__)
+        BOT = None
+        SEARCH_CLIENT = None
+        QA_SERVICE = None
+        return False
+
+# Try to initialize components, but don't fail if it doesn't work
 try:
-    search_client = get_search_client()
-    qa_service = DocumentQAService(search_client)
-    BOT = DTCETeamsBot(CONVERSATION_STATE, USER_STATE, search_client, qa_service)
-    logger.info("Teams bot initialized successfully")
+    initialize_bot_components()
 except Exception as e:
-    logger.error("Failed to initialize Teams bot", error=str(e))
-    BOT = None
+    logger.error("Bot component initialization failed during module load", error=str(e))
 
 
 @router.options("/messages")
@@ -100,9 +132,13 @@ async def messages_endpoint(request: Request):
     try:
         logger.info("Received Teams message request")
         
+        # Try to initialize bot if not available
         if not BOT:
-            logger.error("Bot not initialized")
-            raise HTTPException(status_code=503, detail="Teams bot not available")
+            logger.warning("Bot not initialized, attempting to initialize...")
+            if not initialize_bot_components():
+                logger.error("Bot initialization failed")
+                return {"status": "error", "message": "Teams bot unavailable - initialization failed"}
+            logger.info("Bot initialized successfully on demand")
         
         # Check content type
         content_type = request.headers.get("Content-Type", "")
