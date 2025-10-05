@@ -1,5 +1,10 @@
 """
-Azure RAG (Retrieval-Augmented Generation) Service
+Azure RAG (Retrieval-A    def __init__(self, search_client: SearchClient, openai_client: AsyncAzureOpenAI, model_name: str):
+        self.search_client = search_client
+        self.openai_client = openai_client
+        self.model_name = model_name
+        self.embedding_model = "text-embedding-3-small"  # Use existing Azure deployment
+        self.intent_detector = IntentDetector(openai_client, model_name)  # AI-based intent detectioned Generation) Service
 Implementation using Azure AI Search with hybrid search, semantic ranking, and document chunking
 """
 
@@ -10,7 +15,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
 from openai import AsyncAzureOpenAI
-from .intent_detector import IntentDetector
+from .intent_detector_ai import IntentDetector
 
 logger = structlog.get_logger(__name__)
 
