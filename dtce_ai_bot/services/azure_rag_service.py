@@ -77,11 +77,18 @@ class AzureRAGService:
     async def _enhance_query(self, user_query: str, conversation_history: List[Dict] = None) -> List[str]:
         """
         Query Enhancement and Decomposition:
+        - Detect project numbers (e.g., "project 225" or "225221")
         - Break complex queries into sub-queries
         - Add context from conversation history
         - Generate synonyms and related terms
         """
         try:
+            # First, detect if this is a project query
+            project_queries = self._detect_project_query(user_query)
+            if project_queries:
+                logger.info("Detected project query", original=user_query, enhanced=project_queries)
+                return project_queries
+            
             context = ""
             if conversation_history:
                 # Extract relevant context from conversation
@@ -162,6 +169,44 @@ Enhanced: ["225221", "job 225221", "project 225221"]"""
         except Exception as e:
             logger.error("Query enhancement failed", error=str(e))
             return [user_query]  # Fallback to original
+    
+    def _detect_project_query(self, query: str) -> List[str]:
+        """
+        Detect if query is asking about a project number.
+        Returns optimized search queries for project numbers.
+        
+        Examples:
+            "what is project 225" -> ["225", "2025", "job 225"]
+            "project 225221" -> ["225221", "job 225221"] 
+            "tell me about 225221" -> ["225221", "job 225221"]
+        """
+        query_lower = query.lower()
+        
+        # Pattern 1: 6-digit job number (e.g., "225221", "219208")
+        job_match = re.search(r'\b(2\d{2}\d{3})\b', query)
+        if job_match:
+            job_number = job_match.group(1)
+            year_code = job_number[:3]
+            return [
+                job_number,
+                f"job {job_number}",
+                f"{year_code}"  # Also search year in case they want all projects from that year
+            ]
+        
+        # Pattern 2: 3-digit year code (e.g., "project 225", "what is 219")
+        year_match = re.search(r'\b(2[0-9]{2})\b', query)
+        if year_match and any(word in query_lower for word in ['project', 'job', 'what is', 'tell me about']):
+            year_code = year_match.group(1)
+            year_suffix = year_code[1:]  # "25" from "225"
+            full_year = f"20{year_suffix}"
+            return [
+                year_code,  # "225"
+                full_year,   # "2025"
+                f"job {year_code}",  # "job 225"
+                f"project {year_code}"  # "project 225"
+            ]
+        
+        return None
     
     async def _hybrid_search(self, query: str, top_k: int = 10) -> List[Dict]:
         """
