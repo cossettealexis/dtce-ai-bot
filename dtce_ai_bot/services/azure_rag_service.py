@@ -1,21 +1,14 @@
 """
-Azure RAG (Retrieval-A    def __init__(self, search_client: SearchClient, openai_client: AsyncAzureOpenAI, model_name: str):
-        self.search_client = search_client
-        self.openai_client = openai_client
-        self.model_name = model_name
-        self.embedding_model = "text-embedding-3-small"  # Use existing Azure deployment
-        self.intent_detector = IntentDetector(openai_client, model_name)  # AI-based intent detectioned Generation) Service
+Azure RAG (Retrieval-Augmented Generation) Service
 Implementation using Azure AI Search with hybrid search, semantic ranking, and document chunking
 """
 
 import json
 import structlog
-import re
 from typing import List, Dict, Any, Optional, Tuple
 from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
 from openai import AsyncAzureOpenAI
-from .intent_detector_ai import IntentDetector
 
 logger = structlog.get_logger(__name__)
 
@@ -34,53 +27,39 @@ class AzureRAGService:
         self.openai_client = openai_client
         self.model_name = model_name
         self.embedding_model = "text-embedding-3-small"  # Use existing Azure deployment
-        self.intent_detector = IntentDetector()  # Intent classification
         
     async def process_query(self, user_query: str, conversation_history: List[Dict] = None) -> Dict[str, Any]:
         """
-        Main RAG pipeline with intent detection:
-        1. Detect query intent (Policy, Procedure, Standard, Project, Client, General)
-        2. Query enhancement and rewriting
-        3. Hybrid search filtered by intent (search specific folders)
-        4. Semantic re-ranking
-        5. Context-aware generation
+        Main RAG pipeline:
+        1. Query rewriting and decomposition
+        2. Hybrid search with semantic ranking
+        3. Context-aware generation
         """
         try:
             logger.info("Starting RAG pipeline", query=user_query)
             
-            # Step 0: Detect Intent
-            intent_result = self.intent_detector.detect_intent(user_query)
-            logger.info("Intent detected", 
-                       intent=intent_result['intent'].value,
-                       confidence=intent_result['confidence'],
-                       folders=intent_result['folders'])
-            
             # Step 1: Query Enhancement and Rewriting
-            enhanced_queries = await self._enhance_query(user_query, conversation_history, intent_result)
+            enhanced_queries = await self._enhance_query(user_query, conversation_history)
             
-            # Step 2: Hybrid Search for each query (with intent-based filtering)
+            # Step 2: Hybrid Search for each query
             all_results = []
-            search_filter = self.intent_detector.get_search_filter(intent_result)
-            
             for query in enhanced_queries:
-                results = await self._hybrid_search(query, search_filter=search_filter)
+                results = await self._hybrid_search(query)
                 all_results.extend(results)
             
             # Step 3: Semantic Re-ranking
             ranked_results = await self._semantic_rerank(user_query, all_results)
             
             # Step 4: Context-aware Generation
-            answer = await self._generate_answer(user_query, ranked_results, conversation_history, intent_result)
+            answer = await self._generate_answer(user_query, ranked_results, conversation_history)
             
             return {
                 'answer': answer,
                 'sources': [self._format_source(r) for r in ranked_results[:5]],
                 'enhanced_queries': enhanced_queries,
-                'intent': intent_result['intent'].value,
-                'intent_confidence': intent_result['confidence'],
                 'total_documents_searched': len(all_results),
                 'final_documents_used': len(ranked_results),
-                'search_type': 'hybrid_rag_with_intent'
+                'search_type': 'hybrid_rag'
             }
             
         except Exception as e:
@@ -94,57 +73,40 @@ class AzureRAGService:
                 'search_type': 'error'
             }
     
-    async def _enhance_query(self, user_query: str, conversation_history: List[Dict] = None, intent_result: Dict = None) -> List[str]:
+    async def _enhance_query(self, user_query: str, conversation_history: List[Dict] = None) -> List[str]:
         """
         Query Enhancement and Decomposition:
-        - Detect project numbers (e.g., "project 225" or "225221")
         - Break complex queries into sub-queries
         - Add context from conversation history
         - Generate synonyms and related terms
         """
         try:
-            # First, detect if this is a project query
-            project_queries = self._detect_project_query(user_query)
-            if project_queries:
-                logger.info("Detected project query", original=user_query, enhanced=project_queries)
-                return project_queries
-            
             context = ""
             if conversation_history:
                 # Extract relevant context from conversation
                 recent_turns = conversation_history[-3:]  # Last 3 turns
                 context = "\n".join([f"{turn['role']}: {turn['content']}" for turn in recent_turns])
             
-            enhancement_prompt = f"""You are a query enhancement expert for an engineering company. Your job is to take a user's question and create 1-3 optimized search queries.
+            enhancement_prompt = f"""You are a query enhancement expert. Your job is to take a user's question and create 1-3 optimized search queries that will find the most relevant information.
 
 Original Question: "{user_query}"
 
 Conversation Context:
 {context}
 
-IMPORTANT - Project Number Format:
-- Project numbers are 6 digits: YYYnnn (e.g., 225221, 219208, 220134)
-- First 3 digits = year code (225 = 2025, 219 = 2019, 220 = 2020)
-- Last 3 digits = job sequence number
-- If user says "project 225", they mean ALL projects from 2025 (225xxx)
-- If user says "project 225221", they mean that specific job
-
 Tasks:
-1. If the question mentions a project number (e.g., "225", "225221"), include that exact number in searches
-2. If question references previous conversation ("it", "that project", "the policy"), resolve using context
-3. Break complex questions into focused sub-queries
-4. Generate synonyms and alternative phrasings
-5. Keep technical terms and specific codes/standards intact
+1. If the question references previous conversation ("it", "that project", "the policy"), resolve these references using context
+2. Break complex questions into focused sub-queries
+3. Generate synonyms and alternative phrasings
+4. Keep technical terms and specific codes/standards intact
 
 Return 1-3 enhanced queries as JSON array:
 ["enhanced query 1", "enhanced query 2", "enhanced query 3"]
 
-Examples:
-User: "what is project 225?"
-Enhanced: ["225 project", "2025 projects", "job 225"]
-
-User: "tell me about project 225221"
-Enhanced: ["225221", "job 225221", "project 225221"]"""
+Example:
+User: "What are the wind load requirements for that?"
+Context shows previous discussion about NZS 3604
+Enhanced: ["NZS 3604 wind load requirements", "wind load calculations timber framing", "structural wind load specifications"]"""
 
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
@@ -190,48 +152,9 @@ Enhanced: ["225221", "job 225221", "project 225221"]"""
             logger.error("Query enhancement failed", error=str(e))
             return [user_query]  # Fallback to original
     
-    def _detect_project_query(self, query: str) -> List[str]:
-        """
-        Detect if query is asking about a project number.
-        Returns optimized search queries for project numbers.
-        
-        Examples:
-            "what is project 225" -> ["225", "2025", "job 225"]
-            "project 225221" -> ["225221", "job 225221"] 
-            "tell me about 225221" -> ["225221", "job 225221"]
-        """
-        query_lower = query.lower()
-        
-        # Pattern 1: 6-digit job number (e.g., "225221", "219208")
-        job_match = re.search(r'\b(2\d{2}\d{3})\b', query)
-        if job_match:
-            job_number = job_match.group(1)
-            year_code = job_number[:3]
-            return [
-                job_number,
-                f"job {job_number}",
-                f"{year_code}"  # Also search year in case they want all projects from that year
-            ]
-        
-        # Pattern 2: 3-digit year code (e.g., "project 225", "what is 219")
-        year_match = re.search(r'\b(2[0-9]{2})\b', query)
-        if year_match and any(word in query_lower for word in ['project', 'job', 'what is', 'tell me about']):
-            year_code = year_match.group(1)
-            year_suffix = year_code[1:]  # "25" from "225"
-            full_year = f"20{year_suffix}"
-            return [
-                year_code,  # "225"
-                full_year,   # "2025"
-                f"job {year_code}",  # "job 225"
-                f"project {year_code}"  # "project 225"
-            ]
-        
-        return None
-    
-    async def _hybrid_search(self, query: str, top_k: int = 10, search_filter: Optional[str] = None) -> List[Dict]:
+    async def _hybrid_search(self, query: str, top_k: int = 10) -> List[Dict]:
         """
         TRUE Hybrid Search: Keyword + Vector Search with semantic ranking
-        Optionally filtered by intent (e.g., only search project folders)
         """
         try:
             # Generate query embedding for vector search
@@ -245,21 +168,14 @@ Enhanced: ["225221", "job 225221", "project 225221"]"""
             )
             
             # Perform hybrid search: keyword + vector + semantic ranking
-            search_params = {
-                "search_text": query,  # Keyword search
-                "vector_queries": [vector_query],  # Vector search
-                "query_type": "semantic",  # Enable semantic ranking
-                "semantic_configuration_name": "default",  # Use default semantic config
-                "top": top_k,
-                "include_total_count": True
-            }
-            
-            # Add filter if provided (intent-based folder filtering)
-            if search_filter:
-                search_params["filter"] = search_filter
-                logger.info("Applying search filter", filter=search_filter)
-            
-            search_results = self.search_client.search(**search_params)
+            search_results = self.search_client.search(
+                search_text=query,  # Keyword search
+                vector_queries=[vector_query],  # Vector search
+                query_type="semantic",  # Enable semantic ranking
+                semantic_configuration_name="default",  # Use default semantic config
+                top=top_k,
+                include_total_count=True
+            )
             
             results = []
             for result in search_results:
@@ -422,7 +338,7 @@ Return JSON array with scores:
         return unique_results
     
     async def _generate_answer(self, user_query: str, ranked_results: List[Dict], 
-                             conversation_history: List[Dict] = None, intent_result: Dict = None) -> str:
+                             conversation_history: List[Dict] = None) -> str:
         """
         Generate contextual answer using retrieved documents
         """
@@ -430,18 +346,9 @@ Return JSON array with scores:
             # Build context from retrieved documents
             context_chunks = []
             sources_used = []
-            project_docs = []
             
             for i, result in enumerate(ranked_results[:5]):  # Use top 5 results
-                title = result.get('title', 'Unknown')
-                project_name = result.get('metadata', {}).get('project_id', '')
-                folder = result.get('metadata', {}).get('category', '')
-                
-                # Track if this is a project document
-                if any(x in str(folder) for x in ['225', '219', '220', '221', '222', '223', '224']):
-                    project_docs.append((title, folder, project_name))
-                
-                chunk = f"[Source {i+1}: {title}]\n{result.get('content', '')}"
+                chunk = f"[Source {i+1}: {result.get('title', 'Unknown')}]\n{result.get('content', '')}"
                 context_chunks.append(chunk)
                 sources_used.append(result.get('source', 'Unknown'))
             
@@ -453,35 +360,34 @@ Return JSON array with scores:
                 recent_turns = conversation_history[-3:]
                 conversation_context = "\n".join([f"{turn['role']}: {turn['content']}" for turn in recent_turns])
             
-            # Add project context if this is a project query
-            project_context = ""
-            if project_docs:
-                project_list = "\n".join([f"  - {doc[0]} (from {doc[1]})" for doc in project_docs])
-                project_context = f"\n\nIMPORTANT - These are PROJECT DOCUMENTS:\n{project_list}\nIf user asks about a project number, tell them about these project files, NOT about technical dimensions."
-            
             # Generate answer with proper RAG prompt
-            rag_prompt = f"""User Question: "{user_query}"
+            rag_prompt = f"""You are DTCE AI Assistant, an expert engineering AI that provides accurate answers based on retrieved documents.
 
-{f"Previous conversation:{conversation_context}" if conversation_context else ""}
+User Question: "{user_query}"
 
-Here's what I found in our documents:
-{context}{project_context}
+Conversation History:
+{conversation_context}
 
-Answer the question naturally like a colleague would - be direct, helpful, and conversational. 
-- Don't say "based on the retrieved documents" or "according to the context"
-- Just answer the question using the information
-- If you can't find the answer, say "I couldn't find that information" 
-- Be specific with names, numbers, and details when they're in the documents
-- Keep it brief and natural
-- If they ask about "project 225" or similar, they want project information, NOT technical specs like "225mm beam depth"!"""
+Retrieved Context:
+{context}
+
+Instructions:
+1. Answer the question using ONLY the information provided in the retrieved context
+2. If the context doesn't contain enough information, say so clearly
+3. Quote specific sections when making technical claims
+4. Include relevant document sources in your answer
+5. If you need to make assumptions, state them clearly
+6. For engineering questions, be precise with numbers, codes, and specifications
+
+Provide a clear, accurate, and helpful answer:"""
 
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {"role": "system", "content": "You're a helpful DTCE colleague answering questions using company documents. Be natural and conversational, not robotic. Answer directly without mentioning 'the documents say' or 'based on retrieved context'. Just give the answer."},
+                    {"role": "system", "content": "You are an expert engineering assistant that provides accurate answers based on retrieved documents. Never make up information not in the context."},
                     {"role": "user", "content": rag_prompt}
                 ],
-                temperature=0.3,  # Slightly higher for natural language
+                temperature=0.1,  # Low temperature for factual accuracy
                 max_tokens=1500
             )
             

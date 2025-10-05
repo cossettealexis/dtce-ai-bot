@@ -23,10 +23,10 @@ from ..config.settings import Settings
 
 logger = structlog.get_logger(__name__)
 
-from .azure_rag_service import RAGOrchestrator
+from .azure_rag_service_v2 import RAGOrchestrator
 
 class RAGHandler:
-    """Handles RAG processing using Azure AI Search hybrid search and semantic ranking."""
+    """Handles RAG processing using Azure AI Search hybrid search and semantic ranking (V2 Architecture)."""
     
     def __init__(self, search_client: SearchClient, openai_client: AsyncAzureOpenAI, 
                  model_name: str, settings: Settings = None):
@@ -34,10 +34,10 @@ class RAGHandler:
         self.openai_client = openai_client
         self.model_name = model_name
         
-        # Initialize Azure RAG system with hybrid search
+        # Initialize Azure RAG system V2 with Intent-Based Routing
         self.rag_orchestrator = RAGOrchestrator(search_client, openai_client, model_name)
         
-        logger.info("RAG Handler initialized with Azure AI Search Pipeline (Hybrid Search + Semantic Ranking)")
+        logger.info("RAG Handler initialized with Azure RAG V2 (Intent Detection + Hybrid Search + Semantic Ranking)")
 
     def _get_knowledge_base_content(self) -> Optional[str]:
         """Fetch and cache Google Docs knowledge base content."""
