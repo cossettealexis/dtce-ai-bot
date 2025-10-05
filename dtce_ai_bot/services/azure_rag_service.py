@@ -179,20 +179,29 @@ Enhanced: ["NZS 3604 wind load requirements", "wind load calculations timber fra
             
             results = []
             for result in search_results:
+                content = result.get('content', '')
+                
+                # Log if content is empty or just filename
+                if not content or len(content) < 100:
+                    logger.warning("Search result has minimal content", 
+                                 filename=result.get('filename', 'Unknown'),
+                                 content_length=len(content),
+                                 content_preview=content[:100])
+                
                 results.append({
-                    'content': result.get('content', ''),
-                    'title': result.get('title', ''),
-                    'source': result.get('source', ''),
-                    'chunk_id': result.get('chunk_id', ''),
+                    'content': content,
+                    'title': result.get('filename', 'Unknown Document'),
+                    'source': result.get('filename', '') or result.get('blob_url', ''),
+                    'chunk_id': result.get('chunk_id', '') or result.get('id', ''),
                     'search_score': result.get('@search.score', 0),
                     'reranker_score': result.get('@search.reranker_score', 0),
                     'captions': result.get('@search.captions', []),
                     'answers': result.get('@search.answers', []),
                     'metadata': {
                         'document_type': result.get('document_type', ''),
-                        'category': result.get('category', ''),
-                        'project_id': result.get('project_id', ''),
-                        'date_created': result.get('date_created', '')
+                        'category': result.get('category', '') or result.get('folder', ''),
+                        'project_id': result.get('project_id', '') or result.get('project_name', ''),
+                        'date_created': result.get('date_created', '') or result.get('last_modified', '')
                     }
                 })
             
