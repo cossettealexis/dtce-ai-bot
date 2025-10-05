@@ -361,33 +361,27 @@ Return JSON array with scores:
                 conversation_context = "\n".join([f"{turn['role']}: {turn['content']}" for turn in recent_turns])
             
             # Generate answer with proper RAG prompt
-            rag_prompt = f"""You are DTCE AI Assistant, an expert engineering AI that provides accurate answers based on retrieved documents.
+            rag_prompt = f"""User Question: "{user_query}"
 
-User Question: "{user_query}"
+{f"Previous conversation:{conversation_context}" if conversation_context else ""}
 
-Conversation History:
-{conversation_context}
-
-Retrieved Context:
+Here's what I found in our documents:
 {context}
 
-Instructions:
-1. Answer the question using ONLY the information provided in the retrieved context
-2. If the context doesn't contain enough information, say so clearly
-3. Quote specific sections when making technical claims
-4. Include relevant document sources in your answer
-5. If you need to make assumptions, state them clearly
-6. For engineering questions, be precise with numbers, codes, and specifications
-
-Provide a clear, accurate, and helpful answer:"""
+Answer the question naturally like a colleague would - be direct, helpful, and conversational. 
+- Don't say "based on the retrieved documents" or "according to the context"
+- Just answer the question using the information
+- If you can't find the answer, say "I couldn't find that information" 
+- Be specific with names, numbers, and details when they're in the documents
+- Keep it brief and natural"""
 
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {"role": "system", "content": "You are an expert engineering assistant that provides accurate answers based on retrieved documents. Never make up information not in the context."},
+                    {"role": "system", "content": "You're a helpful DTCE colleague answering questions using company documents. Be natural and conversational, not robotic. Answer directly without mentioning 'the documents say' or 'based on retrieved context'. Just give the answer."},
                     {"role": "user", "content": rag_prompt}
                 ],
-                temperature=0.1,  # Low temperature for factual accuracy
+                temperature=0.3,  # Slightly higher for natural language
                 max_tokens=1500
             )
             
