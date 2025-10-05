@@ -5,6 +5,7 @@ Implementation using Azure AI Search with hybrid search, semantic ranking, and d
 
 import json
 import structlog
+import re
 from typing import List, Dict, Any, Optional, Tuple
 from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
@@ -87,26 +88,36 @@ class AzureRAGService:
                 recent_turns = conversation_history[-3:]  # Last 3 turns
                 context = "\n".join([f"{turn['role']}: {turn['content']}" for turn in recent_turns])
             
-            enhancement_prompt = f"""You are a query enhancement expert. Your job is to take a user's question and create 1-3 optimized search queries that will find the most relevant information.
+            enhancement_prompt = f"""You are a query enhancement expert for an engineering company. Your job is to take a user's question and create 1-3 optimized search queries.
 
 Original Question: "{user_query}"
 
 Conversation Context:
 {context}
 
+IMPORTANT - Project Number Format:
+- Project numbers are 6 digits: YYYnnn (e.g., 225221, 219208, 220134)
+- First 3 digits = year code (225 = 2025, 219 = 2019, 220 = 2020)
+- Last 3 digits = job sequence number
+- If user says "project 225", they mean ALL projects from 2025 (225xxx)
+- If user says "project 225221", they mean that specific job
+
 Tasks:
-1. If the question references previous conversation ("it", "that project", "the policy"), resolve these references using context
-2. Break complex questions into focused sub-queries
-3. Generate synonyms and alternative phrasings
-4. Keep technical terms and specific codes/standards intact
+1. If the question mentions a project number (e.g., "225", "225221"), include that exact number in searches
+2. If question references previous conversation ("it", "that project", "the policy"), resolve using context
+3. Break complex questions into focused sub-queries
+4. Generate synonyms and alternative phrasings
+5. Keep technical terms and specific codes/standards intact
 
 Return 1-3 enhanced queries as JSON array:
 ["enhanced query 1", "enhanced query 2", "enhanced query 3"]
 
-Example:
-User: "What are the wind load requirements for that?"
-Context shows previous discussion about NZS 3604
-Enhanced: ["NZS 3604 wind load requirements", "wind load calculations timber framing", "structural wind load specifications"]"""
+Examples:
+User: "what is project 225?"
+Enhanced: ["225 project", "2025 projects", "job 225"]
+
+User: "tell me about project 225221"
+Enhanced: ["225221", "job 225221", "project 225221"]"""
 
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,

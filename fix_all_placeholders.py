@@ -12,6 +12,7 @@ from urllib.parse import unquote, urlparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from dtce_ai_bot.config.settings import get_settings
+from dtce_ai_bot.utils.project_parser import extract_project_from_blob_path
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -131,12 +132,8 @@ async def process_documents():
                 error += 1
                 continue
             
-            # Extract project name from blob path
-            project = ""
-            for part in blob_name.split('/'):
-                if part.startswith('219') or part.startswith('220') or part.startswith('225'):
-                    project = part
-                    break
+            # Extract project name using proper parser
+            project_name = extract_project_from_blob_path(blob_name)
             
             # Update document in index
             document = {
@@ -146,7 +143,7 @@ async def process_documents():
                 "content_vector": embedding,
                 "blob_url": blob_url,
                 "folder": os.path.dirname(blob_name),
-                "project_name": project if project else "Company Documents"
+                "project_name": project_name
             }
             
             search_client.merge_or_upload_documents([document])
