@@ -10,6 +10,7 @@ from typing import List, Dict, Any, Optional, Tuple
 from azure.search.documents import SearchClient
 from azure.search.documents.models import VectorizedQuery
 from openai import AsyncAzureOpenAI
+from .intent_detector import IntentDetector
 
 logger = structlog.get_logger(__name__)
 
@@ -28,39 +29,53 @@ class AzureRAGService:
         self.openai_client = openai_client
         self.model_name = model_name
         self.embedding_model = "text-embedding-3-small"  # Use existing Azure deployment
+        self.intent_detector = IntentDetector()  # Intent classification
         
     async def process_query(self, user_query: str, conversation_history: List[Dict] = None) -> Dict[str, Any]:
         """
-        Main RAG pipeline:
-        1. Query rewriting and decomposition
-        2. Hybrid search with semantic ranking
-        3. Context-aware generation
+        Main RAG pipeline with intent detection:
+        1. Detect query intent (Policy, Procedure, Standard, Project, Client, General)
+        2. Query enhancement and rewriting
+        3. Hybrid search filtered by intent (search specific folders)
+        4. Semantic re-ranking
+        5. Context-aware generation
         """
         try:
             logger.info("Starting RAG pipeline", query=user_query)
             
-            # Step 1: Query Enhancement and Rewriting
-            enhanced_queries = await self._enhance_query(user_query, conversation_history)
+            # Step 0: Detect Intent
+            intent_result = self.intent_detector.detect_intent(user_query)
+            logger.info("Intent detected", 
+                       intent=intent_result['intent'].value,
+                       confidence=intent_result['confidence'],
+                       folders=intent_result['folders'])
             
-            # Step 2: Hybrid Search for each query
+            # Step 1: Query Enhancement and Rewriting
+            enhanced_queries = await self._enhance_query(user_query, conversation_history, intent_result)
+            
+            # Step 2: Hybrid Search for each query (with intent-based filtering)
             all_results = []
+            search_filter = self.intent_detector.get_search_filter(intent_result)
+            
             for query in enhanced_queries:
-                results = await self._hybrid_search(query)
+                results = await self._hybrid_search(query, search_filter=search_filter)
                 all_results.extend(results)
             
             # Step 3: Semantic Re-ranking
             ranked_results = await self._semantic_rerank(user_query, all_results)
             
             # Step 4: Context-aware Generation
-            answer = await self._generate_answer(user_query, ranked_results, conversation_history)
+            answer = await self._generate_answer(user_query, ranked_results, conversation_history, intent_result)
             
             return {
                 'answer': answer,
                 'sources': [self._format_source(r) for r in ranked_results[:5]],
                 'enhanced_queries': enhanced_queries,
+                'intent': intent_result['intent'].value,
+                'intent_confidence': intent_result['confidence'],
                 'total_documents_searched': len(all_results),
                 'final_documents_used': len(ranked_results),
-                'search_type': 'hybrid_rag'
+                'search_type': 'hybrid_rag_with_intent'
             }
             
         except Exception as e:
@@ -74,7 +89,7 @@ class AzureRAGService:
                 'search_type': 'error'
             }
     
-    async def _enhance_query(self, user_query: str, conversation_history: List[Dict] = None) -> List[str]:
+    async def _enhance_query(self, user_query: str, conversation_history: List[Dict] = None, intent_result: Dict = None) -> List[str]:
         """
         Query Enhancement and Decomposition:
         - Detect project numbers (e.g., "project 225" or "225221")
@@ -208,9 +223,10 @@ Enhanced: ["225221", "job 225221", "project 225221"]"""
         
         return None
     
-    async def _hybrid_search(self, query: str, top_k: int = 10) -> List[Dict]:
+    async def _hybrid_search(self, query: str, top_k: int = 10, search_filter: Optional[str] = None) -> List[Dict]:
         """
         TRUE Hybrid Search: Keyword + Vector Search with semantic ranking
+        Optionally filtered by intent (e.g., only search project folders)
         """
         try:
             # Generate query embedding for vector search
@@ -224,14 +240,21 @@ Enhanced: ["225221", "job 225221", "project 225221"]"""
             )
             
             # Perform hybrid search: keyword + vector + semantic ranking
-            search_results = self.search_client.search(
-                search_text=query,  # Keyword search
-                vector_queries=[vector_query],  # Vector search
-                query_type="semantic",  # Enable semantic ranking
-                semantic_configuration_name="default",  # Use default semantic config
-                top=top_k,
-                include_total_count=True
-            )
+            search_params = {
+                "search_text": query,  # Keyword search
+                "vector_queries": [vector_query],  # Vector search
+                "query_type": "semantic",  # Enable semantic ranking
+                "semantic_configuration_name": "default",  # Use default semantic config
+                "top": top_k,
+                "include_total_count": True
+            }
+            
+            # Add filter if provided (intent-based folder filtering)
+            if search_filter:
+                search_params["filter"] = search_filter
+                logger.info("Applying search filter", filter=search_filter)
+            
+            search_results = self.search_client.search(**search_params)
             
             results = []
             for result in search_results:
@@ -394,7 +417,7 @@ Return JSON array with scores:
         return unique_results
     
     async def _generate_answer(self, user_query: str, ranked_results: List[Dict], 
-                             conversation_history: List[Dict] = None) -> str:
+                             conversation_history: List[Dict] = None, intent_result: Dict = None) -> str:
         """
         Generate contextual answer using retrieved documents
         """
@@ -402,9 +425,18 @@ Return JSON array with scores:
             # Build context from retrieved documents
             context_chunks = []
             sources_used = []
+            project_docs = []
             
             for i, result in enumerate(ranked_results[:5]):  # Use top 5 results
-                chunk = f"[Source {i+1}: {result.get('title', 'Unknown')}]\n{result.get('content', '')}"
+                title = result.get('title', 'Unknown')
+                project_name = result.get('metadata', {}).get('project_id', '')
+                folder = result.get('metadata', {}).get('category', '')
+                
+                # Track if this is a project document
+                if any(x in str(folder) for x in ['225', '219', '220', '221', '222', '223', '224']):
+                    project_docs.append((title, folder, project_name))
+                
+                chunk = f"[Source {i+1}: {title}]\n{result.get('content', '')}"
                 context_chunks.append(chunk)
                 sources_used.append(result.get('source', 'Unknown'))
             
@@ -416,20 +448,27 @@ Return JSON array with scores:
                 recent_turns = conversation_history[-3:]
                 conversation_context = "\n".join([f"{turn['role']}: {turn['content']}" for turn in recent_turns])
             
+            # Add project context if this is a project query
+            project_context = ""
+            if project_docs:
+                project_list = "\n".join([f"  - {doc[0]} (from {doc[1]})" for doc in project_docs])
+                project_context = f"\n\nIMPORTANT - These are PROJECT DOCUMENTS:\n{project_list}\nIf user asks about a project number, tell them about these project files, NOT about technical dimensions."
+            
             # Generate answer with proper RAG prompt
             rag_prompt = f"""User Question: "{user_query}"
 
 {f"Previous conversation:{conversation_context}" if conversation_context else ""}
 
 Here's what I found in our documents:
-{context}
+{context}{project_context}
 
 Answer the question naturally like a colleague would - be direct, helpful, and conversational. 
 - Don't say "based on the retrieved documents" or "according to the context"
 - Just answer the question using the information
 - If you can't find the answer, say "I couldn't find that information" 
 - Be specific with names, numbers, and details when they're in the documents
-- Keep it brief and natural"""
+- Keep it brief and natural
+- If they ask about "project 225" or similar, they want project information, NOT technical specs like "225mm beam depth"!"""
 
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
