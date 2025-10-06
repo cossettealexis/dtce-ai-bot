@@ -17,6 +17,7 @@ from azure.search.documents.aio import SearchClient
 from azure.search.documents.models import VectorizedQuery
 from openai import AsyncAzureOpenAI
 from .intent_detector_ai import IntentDetector
+from ..utils.suitefiles_urls import suitefiles_converter
 
 logger = structlog.get_logger(__name__)
 
@@ -264,6 +265,13 @@ class AzureRAGService:
             for i, result in enumerate(search_results[:3], 1):  # Use top 3 results
                 content = result.get('content', '')
                 filename = result.get('filename', 'Unknown')
+                folder = result.get('folder', '')
+                blob_url = result.get('blob_url', '')
+                
+                # Get SuiteFiles URL for this document
+                suitefiles_url = ""
+                if blob_url:
+                    suitefiles_url = suitefiles_converter.get_safe_suitefiles_url(blob_url) or ""
                 
                 # Use more generous truncation - try to get meaningful content
                 # Take both the beginning and end of the document to catch key info
@@ -277,7 +285,12 @@ class AzureRAGService:
                 else:
                     truncated_content = content
                 
-                chunk = f"[Source {i}: {filename}]\n{truncated_content}"
+                # Include metadata for citation formatting
+                source_metadata = f"FILENAME: {filename}\nFOLDER: {folder}"
+                if suitefiles_url:
+                    source_metadata += f"\nSUITEFILES_URL: {suitefiles_url}"
+                
+                chunk = f"[Source {i}]\n{source_metadata}\nCONTENT:\n{truncated_content}"
                 context_chunks.append(chunk)
             
             context = "\n\n".join(context_chunks)
@@ -299,7 +312,8 @@ Tone & Synthesis Rules:
 2. Synthesis ONLY: Write the answer in a single block of text. DO NOT mention file names, document titles, or email subjects within the body of your answer.
 
 Citation Rules:
-3. Source List: Immediately after the final answer, output a separate list of the documents used to formulate the answer. Use the filename and folder metadata for the citation list.
+3. Source List: Immediately after the final answer, output a separate list of the documents used to formulate the answer. 
+4. Citation Format: For each source used, create a clickable link using the SuiteFiles URL if provided, otherwise use filename and folder.
 
 Format your response EXACTLY like this:
 
@@ -307,9 +321,13 @@ ANSWER:
 [Your direct, natural answer here without mentioning any document names]
 
 SOURCES:
-1. [filename] ([folder])
-2. [filename] ([folder])
-[etc.]"""
+- [Document Name (Folder Category)] [Open Link](SUITEFILES_URL) if URL available
+- [Document Name (Folder Category)] if no URL available
+
+Example:
+SOURCES:
+- [Safety Manual (Health and Safety)] [Open Link](https://dtce.sharepoint.com/sites/SuiteFiles/...)
+- [Project Guidelines (Templates)]"""
 
             # Build conversation context separately to avoid f-string backslash issues
             conversation_section = ""
