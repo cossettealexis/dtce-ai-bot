@@ -18,6 +18,8 @@ import PyPDF2
 import docx
 from openai import AsyncAzureOpenAI
 from azure.core.exceptions import ServiceResponseError
+from azure.ai.formrecognizer import DocumentAnalysisClient
+from azure.core.credentials import AzureKeyCredential
 
 # Try to import additional PDF libraries for better extraction
 try:
@@ -64,6 +66,99 @@ def clean_extracted_text(text: str) -> str:
     return text.strip()
 
 
+# Global rate limiting for Form Recognizer
+FORM_RECOGNIZER_REQUESTS = 0
+FORM_RECOGNIZER_PAGES_PROCESSED = 0
+FORM_RECOGNIZER_MAX_REQUESTS_PER_MINUTE = 15  # Conservative limit
+FORM_RECOGNIZER_MAX_PAGES_PER_HOUR = 1000    # Cost management
+FORM_RECOGNIZER_LAST_REQUEST_TIME = 0
+
+def should_use_form_recognizer(estimated_pages: int = 1) -> bool:
+    """Determine if we should use Form Recognizer based on rate limits and cost."""
+    global FORM_RECOGNIZER_REQUESTS, FORM_RECOGNIZER_PAGES_PROCESSED, FORM_RECOGNIZER_LAST_REQUEST_TIME
+    
+    current_time = time.time()
+    
+    # Reset counters every hour
+    if current_time - FORM_RECOGNIZER_LAST_REQUEST_TIME > 3600:  # 1 hour
+        FORM_RECOGNIZER_PAGES_PROCESSED = 0
+        print(f"  🔄 Resetting Form Recognizer hourly limits")
+    
+    # Reset request counter every minute
+    if current_time - FORM_RECOGNIZER_LAST_REQUEST_TIME > 60:  # 1 minute
+        FORM_RECOGNIZER_REQUESTS = 0
+    
+    # Check rate limits
+    if FORM_RECOGNIZER_REQUESTS >= FORM_RECOGNIZER_MAX_REQUESTS_PER_MINUTE:
+        print(f"  ⏸️  Form Recognizer rate limit reached (requests/min)")
+        return False
+        
+    if FORM_RECOGNIZER_PAGES_PROCESSED + estimated_pages > FORM_RECOGNIZER_MAX_PAGES_PER_HOUR:
+        print(f"  💰 Form Recognizer page limit reached (cost management)")
+        return False
+    
+    return True
+
+
+def extract_pdf_content_form_recognizer(blob_data: bytes, form_recognizer_client) -> str:
+    """Extract PDF content using Azure Form Recognizer with rate limiting."""
+    global FORM_RECOGNIZER_REQUESTS, FORM_RECOGNIZER_PAGES_PROCESSED, FORM_RECOGNIZER_LAST_REQUEST_TIME
+    
+    if not form_recognizer_client:
+        return None
+    
+    # Quick check of PDF size to estimate pages (rough estimate: 50KB per page)
+    estimated_pages = max(1, len(blob_data) // 51200)
+    
+    if not should_use_form_recognizer(estimated_pages):
+        return None
+        
+    try:
+        print(f"  📄 Using Azure Form Recognizer (est. {estimated_pages} pages)...")
+        
+        # Rate limiting - add delay if needed
+        current_time = time.time()
+        if current_time - FORM_RECOGNIZER_LAST_REQUEST_TIME < 4:  # 4 seconds between requests
+            sleep_time = 4 - (current_time - FORM_RECOGNIZER_LAST_REQUEST_TIME)
+            print(f"  ⏱️  Rate limiting: waiting {sleep_time:.1f}s...")
+            time.sleep(sleep_time)
+        
+        # Update counters
+        FORM_RECOGNIZER_REQUESTS += 1
+        FORM_RECOGNIZER_LAST_REQUEST_TIME = time.time()
+        
+        # Use Form Recognizer's prebuilt-read model
+        poller = form_recognizer_client.begin_analyze_document(
+            "prebuilt-read", document=blob_data
+        )
+        result = poller.result()
+        
+        if not result.content:
+            return None
+            
+        # Form Recognizer provides the text content directly
+        text_content = result.content
+        
+        # Count actual pages and update counter
+        actual_pages = len(result.pages) if result.pages else 1
+        FORM_RECOGNIZER_PAGES_PROCESSED += actual_pages
+        
+        char_count = len(text_content)
+        
+        if char_count > 10:
+            print(f"  ✅ Form Recognizer extracted {char_count} characters from {actual_pages} pages")
+            print(f"  📊 Usage: {FORM_RECOGNIZER_REQUESTS}/{FORM_RECOGNIZER_MAX_REQUESTS_PER_MINUTE} req/min, {FORM_RECOGNIZER_PAGES_PROCESSED}/{FORM_RECOGNIZER_MAX_PAGES_PER_HOUR} pages/hour")
+            # Clean the text
+            cleaned_text = clean_extracted_text(text_content)
+            return cleaned_text
+        else:
+            return None
+            
+    except Exception as e:
+        print(f"  Warning: Form Recognizer extraction failed: {e}")
+        return None
+
+
 def extract_pdf_content_pymupdf(blob_data: bytes) -> str:
     """Alternative PDF extraction using PyMuPDF (if available)."""
     if not PYMUPDF_AVAILABLE:
@@ -99,19 +194,65 @@ def extract_pdf_content_pymupdf(blob_data: bytes) -> str:
         return None
 
 
-def extract_pdf_content(blob_data: bytes) -> str:
-    """Extract text content from PDF blob data with enhanced extraction methods."""
+def is_likely_scanned_pdf(blob_data: bytes) -> bool:
+    """Heuristic to determine if PDF is likely scanned and needs Form Recognizer."""
+    try:
+        # Quick check using PyPDF2 - if it extracts very little text, likely scanned
+        pdf_stream = io.BytesIO(blob_data)
+        pdf_reader = PyPDF2.PdfReader(pdf_stream)
+        
+        if len(pdf_reader.pages) == 0:
+            return False
+            
+        # Sample first page
+        first_page = pdf_reader.pages[0]
+        sample_text = first_page.extract_text()
+        
+        # If very little text relative to estimated page size, likely scanned
+        text_density = len(sample_text.strip()) / max(1, len(blob_data) // 10000)
+        
+        return text_density < 10  # Low text density suggests scanned document
+        
+    except:
+        return False  # If we can't analyze, assume not scanned
+
+
+def extract_pdf_content(blob_data: bytes, form_recognizer_client=None) -> str:
+    """Extract text content from PDF blob data with intelligent method selection."""
     
-    # First try PyMuPDF if available (generally better at text extraction)
+    # Strategy 1: For likely scanned documents, try Form Recognizer first if available
+    if form_recognizer_client and is_likely_scanned_pdf(blob_data):
+        print(f"  🔍 Detected likely scanned PDF - prioritizing Form Recognizer...")
+        fr_result = extract_pdf_content_form_recognizer(blob_data, form_recognizer_client)
+        if fr_result and len(fr_result.strip()) > 50:  # Good extraction
+            return fr_result
+    
+    # Strategy 2: Try PyMuPDF for regular PDFs (fast and good quality)
     if PYMUPDF_AVAILABLE:
         print(f"  📄 Trying PyMuPDF extraction...")
         pymupdf_result = extract_pdf_content_pymupdf(blob_data)
-        if pymupdf_result:
+        if pymupdf_result and len(pymupdf_result.strip()) > 50:
             return pymupdf_result
-        else:
-            print(f"  📄 PyMuPDF failed, falling back to PyPDF2...")
     
-    # Fallback to PyPDF2 method
+    # Strategy 3: Try PyPDF2 as backup
+    print(f"  📄 Trying PyPDF2 extraction...")
+    pypdf2_result = extract_pdf_content_pypdf2(blob_data)
+    if pypdf2_result and len(pypdf2_result.strip()) > 50:
+        return pypdf2_result
+    
+    # Strategy 4: If all else fails and we haven't tried Form Recognizer yet, try it now
+    if form_recognizer_client and not is_likely_scanned_pdf(blob_data):
+        print(f"  🆘 Last resort: trying Form Recognizer for difficult PDF...")
+        fr_result = extract_pdf_content_form_recognizer(blob_data, form_recognizer_client)
+        if fr_result:
+            return fr_result
+    
+    # If we get here, the PDF likely has no extractable text
+    return f"PDF file (no extractable text found - may be scanned images or protected)"
+
+
+def extract_pdf_content_pypdf2(blob_data: bytes) -> str:
+    """PyPDF2 extraction method (renamed for clarity)."""
     try:
         pdf_stream = io.BytesIO(blob_data)
         pdf_reader = PyPDF2.PdfReader(pdf_stream)
@@ -124,14 +265,11 @@ def extract_pdf_content(blob_data: bytes) -> str:
                 if pdf_reader.decrypt(""):
                     print(f"  ✅ Successfully decrypted with empty password")
                 else:
-                    print(f"  ❌ PDF requires password - cannot extract content")
-                    return f"Encrypted PDF file (password required for content extraction)"
+                    return None  # Let other methods try
             except Exception as decrypt_error:
-                print(f"  ❌ Decryption failed: {decrypt_error}")
-                return f"Encrypted PDF file (decryption failed: {str(decrypt_error)})"
+                return None  # Let other methods try
         
         num_pages = len(pdf_reader.pages)
-        print(f"  📄 Processing PDF with {num_pages} pages using PyPDF2...")
         
         text_content = ""
         pages_with_text = 0
@@ -147,10 +285,9 @@ def extract_pdf_content(blob_data: bytes) -> str:
                 if standard_text and standard_text.strip():
                     page_text = standard_text
                 
-                # Method 2: If standard method fails, try extracting with different parameters
+                # Method 2: Try different orientations
                 if not page_text.strip():
                     try:
-                        # Try different extraction methods available in newer PyPDF2 versions
                         if hasattr(page, 'extract_text'):
                             alt_text = page.extract_text(orientations=(0, 90, 180, 270))
                             if alt_text and alt_text.strip():
@@ -168,20 +305,17 @@ def extract_pdf_content(blob_data: bytes) -> str:
                         total_chars_extracted += len(cleaned_text)
                     
             except Exception as e:
-                print(f"  Warning: Could not extract page {page_num + 1}: {e}")
                 continue
         
         if pages_with_text == 0:
-            print(f"  📄 No extractable text found in {num_pages} pages (possibly scanned images)")
-            return f"PDF file with {num_pages} pages (no extractable text - may be scanned images)"
+            return None  # No text found
         else:
             print(f"  ✅ PyPDF2 extracted text from {pages_with_text}/{num_pages} pages ({total_chars_extracted} characters)")
         
         return text_content.strip()
         
     except Exception as e:
-        print(f"  ❌ PDF extraction error: {e}")
-        return f"PDF file (extraction failed: {str(e)[:100]})"
+        return None  # Let other methods try
 
 
 def extract_docx_content(blob_data: bytes) -> str:
@@ -523,13 +657,13 @@ def should_skip_file(blob_name: str) -> bool:
     return any(filename.endswith(ext) for ext in skip_extensions)
 
 
-def extract_document_content(blob_name: str, blob_data: bytes) -> str:
+def extract_document_content(blob_name: str, blob_data: bytes, form_recognizer_client=None) -> str:
     """Extract content from document based on file extension."""
     filename = blob_name.lower()
     
     # PDF files
     if filename.endswith('.pdf'):
-        return extract_pdf_content(blob_data)
+        return extract_pdf_content(blob_data, form_recognizer_client)
     
     # Modern Office formats (Office 2007+)
     elif filename.endswith(('.docx', '.dotx')):  # Include Word templates
@@ -616,6 +750,10 @@ async def production_reindex():
 
     search_key = os.getenv("AZURE_SEARCH_ADMIN_KEY") or os.getenv("AZURE_SEARCH_API_KEY")
     index_name = os.getenv("AZURE_SEARCH_INDEX_NAME", "dtce-documents-index")
+    
+    # Form Recognizer settings
+    form_recognizer_endpoint = os.getenv("AZURE_FORM_RECOGNIZER_ENDPOINT")
+    form_recognizer_key = os.getenv("AZURE_FORM_RECOGNIZER_KEY")
     container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "dtce-documents")
     
     if not connection_string or not search_key or not search_service_name:
@@ -637,6 +775,21 @@ async def production_reindex():
         api_version="2024-02-15-preview",
         azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT")
     )
+    
+    # Initialize Form Recognizer client for better PDF text extraction
+    form_recognizer_client = None
+    if form_recognizer_endpoint and form_recognizer_key:
+        try:
+            form_recognizer_client = DocumentAnalysisClient(
+                endpoint=form_recognizer_endpoint,
+                credential=AzureKeyCredential(form_recognizer_key)
+            )
+            print(f"✅ Form Recognizer client initialized for enhanced PDF extraction")
+        except Exception as e:
+            print(f"⚠️  Form Recognizer client initialization failed: {e}")
+            print(f"  Will fall back to basic PDF extraction methods")
+    else:
+        print(f"⚠️  Form Recognizer credentials not found, using basic PDF extraction")
     
     container_client = storage_client.get_container_client(container_name)
     
@@ -771,7 +924,7 @@ async def production_reindex():
             print(f"  📄 Downloading and extracting content...")
             try:
                 blob_data = blob_client.download_blob().readall()
-                content = extract_document_content(blob.name, blob_data)
+                content = extract_document_content(blob.name, blob_data, form_recognizer_client)
                 
                 if not content or len(content.strip()) < 50:
                     print(f"  ⚠️  Minimal content extracted ({len(content)} chars)")
