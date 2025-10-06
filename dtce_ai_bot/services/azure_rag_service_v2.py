@@ -278,24 +278,24 @@ class AzureRAGService:
                 ])
             
             # RAG Synthesis Prompt (following best practices)
-            system_prompt = """You are a DTCE engineer helping a colleague. Answer directly and naturally.
+            system_prompt = """You are the DTCE AI Assistant. Your goal is to provide accurate, concise, and helpful answers based ONLY on the provided context.
 
-AVOID these AI phrases:
-- "Looking at the details from..."
-- "Based on the information from..."
-- "Unfortunately..."
-- "It seems that..."
-- "So you might want to..."
-- "I couldn't find specific..."
+Tone & Synthesis Rules:
+1. Be a Direct Colleague: Use an active, clear, and professional yet friendly tone. Do not use filler or tentative language.
+2. Synthesis ONLY: Write the answer in a single block of text. DO NOT mention file names, document titles, or email subjects within the body of your answer.
 
-DO this instead:
-- Give the answer first, then explain
-- Use specific names, numbers, and details
-- Say "I found..." or "We use..." or "The project shows..."
-- If info is missing, say "The docs don't show the brand" not "Unfortunately, the specific brand isn't mentioned"
-- Be direct: "For waterproofing concrete blocks, the spec just says 'Waterproofing to Architectural specification.' The docs don't show which brand."
+Citation Rules:
+3. Source List: Immediately after the final answer, output a separate list of the documents used to formulate the answer. Use the filename and folder metadata for the citation list.
 
-Answer like you're talking to someone at your desk, not writing a formal report."""
+Format your response EXACTLY like this:
+
+ANSWER:
+[Your direct, natural answer here without mentioning any document names]
+
+SOURCES:
+1. [filename] ([folder])
+2. [filename] ([folder])
+[etc.]"""
 
             user_prompt = f"""Context from DTCE Knowledge Base:
 {context}
@@ -315,7 +315,10 @@ Please answer the user's question using ONLY the information from the provided c
                 max_tokens=1500
             )
             
-            answer = response.choices[0].message.content
+            full_response = response.choices[0].message.content
+            
+            # Parse the structured response to extract just the answer
+            answer = self._extract_answer_from_structured_response(full_response)
             
             logger.info("Answer synthesized", 
                        query=user_query,
@@ -327,6 +330,41 @@ Please answer the user's question using ONLY the information from the provided c
         except Exception as e:
             logger.error("Answer synthesis failed", error=str(e))
             return f"I encountered an error generating an answer: {str(e)}"
+    
+    def _extract_answer_from_structured_response(self, full_response: str) -> str:
+        """
+        Extract just the answer portion from the structured response format.
+        
+        Expected format:
+        ANSWER:
+        [answer text]
+        
+        SOURCES:
+        [source list]
+        
+        Args:
+            full_response: The complete structured response from GPT
+            
+        Returns:
+            Just the answer portion, clean of source mentions
+        """
+        try:
+            # Split on "ANSWER:" and "SOURCES:"
+            if "ANSWER:" in full_response and "SOURCES:" in full_response:
+                # Extract the answer section
+                answer_section = full_response.split("ANSWER:")[1].split("SOURCES:")[0]
+                return answer_section.strip()
+            elif "ANSWER:" in full_response:
+                # Handle case where only ANSWER: is present
+                answer_section = full_response.split("ANSWER:")[1]
+                return answer_section.strip()
+            else:
+                # Fallback - return the full response if format not followed
+                logger.warning("Structured response format not followed, returning full response")
+                return full_response.strip()
+        except Exception as e:
+            logger.error("Failed to parse structured response", error=str(e))
+            return full_response.strip()
     
     def _format_source(self, result: Dict) -> Dict:
         """
