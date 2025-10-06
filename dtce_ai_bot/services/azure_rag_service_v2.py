@@ -480,6 +480,51 @@ Please help answer this question using the information available in our knowledg
             'excerpt': excerpt
         }
 
+    def _should_skip_file_in_results(self, filename: str, content: str) -> bool:
+        """
+        Determine if a file should be skipped from search results.
+        
+        Args:
+            filename: Name of the file
+            content: File content
+            
+        Returns:
+            True if file should be skipped
+        """
+        # Skip placeholder and system files
+        skip_files = [
+            '.keep',
+            '.gitkeep', 
+            'Thumbs.db',
+            '.DS_Store',
+            'desktop.ini',
+            '.directory'
+        ]
+        
+        # Skip files with irrelevant extensions
+        skip_extensions = [
+            '.tmp', '.temp', '.log', '.cache',
+            '.bak', '.backup', '.old',
+            '.lock', '.pid'
+        ]
+        
+        filename_lower = filename.lower()
+        
+        # Check exact filename matches
+        if filename_lower in [f.lower() for f in skip_files]:
+            return True
+            
+        # Check extension matches
+        for ext in skip_extensions:
+            if filename_lower.endswith(ext.lower()):
+                return True
+        
+        # Skip if content is too short to be meaningful (likely placeholder)
+        if len(content.strip()) < 50:
+            return True
+            
+        return False
+
 
 class RAGOrchestrator:
     """
@@ -533,51 +578,6 @@ class RAGOrchestrator:
                 'search_type': 'error'
             }
     
-    def _should_skip_file_in_results(self, filename: str, content: str) -> bool:
-        """
-        Determine if a file should be skipped from search results.
-        
-        Args:
-            filename: Name of the file
-            content: File content
-            
-        Returns:
-            True if file should be skipped
-        """
-        # Skip placeholder and system files
-        skip_files = [
-            '.keep',
-            '.gitkeep', 
-            'Thumbs.db',
-            '.DS_Store',
-            'desktop.ini',
-            '.directory'
-        ]
-        
-        # Skip files with irrelevant extensions
-        skip_extensions = [
-            '.tmp', '.temp', '.log', '.cache',
-            '.bak', '.backup', '.old',
-            '.lock', '.pid'
-        ]
-        
-        filename_lower = filename.lower()
-        
-        # Check exact filename matches
-        if filename_lower in [f.lower() for f in skip_files]:
-            return True
-            
-        # Check extension matches
-        for ext in skip_extensions:
-            if filename_lower.endswith(ext.lower()):
-                return True
-        
-        # Skip if content is too short to be meaningful (likely placeholder)
-        if len(content.strip()) < 50:
-            return True
-            
-        return False
-
     def _update_conversation_history(self, session_id: str, question: str, answer: str):
         """
         Update conversation history for the session.
