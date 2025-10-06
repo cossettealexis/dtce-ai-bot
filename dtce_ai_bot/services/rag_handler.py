@@ -36,11 +36,19 @@ class RAGHandler:
         self.openai_client = openai_client
         self.model_name = model_name
         
+        # Import settings if not provided
+        if settings is None:
+            from ..config.settings import get_settings
+            settings = get_settings()
+        
         # Use async clients for RAG V2
+        from ..integrations.azure_search import get_search_endpoint
+        search_endpoint = get_search_endpoint()
+        
         self.search_client_async = SearchClient(
-            endpoint=settings.azure_search_service_endpoint,
+            endpoint=search_endpoint,
             index_name=settings.azure_search_index_name,
-            credential=AzureKeyCredential(settings.azure_search_api_key)
+            credential=AzureKeyCredential(settings.azure_search_admin_key)
         )
         
         self.openai_client_async = AsyncAzureOpenAI(
@@ -466,8 +474,8 @@ Respond with JSON:
         try:
             logger.info("Processing question with Azure RAG", question=question)
             
-            # Use the RAG orchestrator
-            result = await self.rag_orchestrator.process_question(question, session_id)
+            # Use the RAG service V2
+            result = await self.rag_service_v2.process_query(question, conversation_history=None)
             
             # Add compatibility fields for existing code
             result.update({
