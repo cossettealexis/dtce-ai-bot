@@ -63,8 +63,9 @@ def extract_pdf_content(blob_data: bytes) -> str:
 
 
 def extract_docx_content(blob_data: bytes) -> str:
-    """Extract text content from DOCX blob data."""
+    """Extract text content from DOCX blob data with fallback options."""
     try:
+        # First, try standard DOCX extraction
         docx_stream = io.BytesIO(blob_data)
         doc = docx.Document(docx_stream)
         
@@ -84,9 +85,56 @@ def extract_docx_content(blob_data: bytes) -> str:
                     text_content += " | ".join(row_text) + "\n"
         
         return text_content.strip()
+        
     except Exception as e:
-        print(f"  Error extracting DOCX: {e}")
-        return ""
+        print(f"  Error extracting DOCX with python-docx: {e}")
+        
+        # Fallback 1: Try to extract as ZIP and read document.xml directly
+        try:
+            import zipfile
+            import xml.etree.ElementTree as ET
+            
+            docx_stream = io.BytesIO(blob_data)
+            with zipfile.ZipFile(docx_stream, 'r') as zip_file:
+                # Read the main document XML
+                if 'word/document.xml' in zip_file.namelist():
+                    xml_content = zip_file.read('word/document.xml')
+                    root = ET.fromstring(xml_content)
+                    
+                    # Extract text from XML (basic extraction)
+                    text_parts = []
+                    for elem in root.iter():
+                        if elem.text:
+                            text_parts.append(elem.text)
+                    
+                    extracted_text = ' '.join(text_parts).strip()
+                    if extracted_text:
+                        print(f"  ✅ Extracted via XML fallback ({len(extracted_text)} chars)")
+                        return extracted_text
+                        
+        except Exception as fallback_e:
+            print(f"  Fallback XML extraction also failed: {fallback_e}")
+        
+        # Fallback 2: Try legacy Office extraction for potentially misnamed files
+        try:
+            legacy_content = extract_legacy_office_content(blob_data, 'doc')
+            if legacy_content and len(legacy_content.strip()) > 20:
+                print(f"  ✅ Extracted as legacy format ({len(legacy_content)} chars)")
+                return legacy_content
+        except Exception as legacy_e:
+            print(f"  Legacy extraction also failed: {legacy_e}")
+        
+        # Fallback 3: Basic text extraction
+        try:
+            text_content = extract_text_content(blob_data)
+            if text_content and len(text_content.strip()) > 10:
+                print(f"  ✅ Extracted as plain text ({len(text_content)} chars)")
+                return text_content
+        except Exception as text_e:
+            print(f"  Text extraction also failed: {text_e}")
+        
+        print(f"  ❌ All extraction methods failed for DOCX file")
+        return f"DOCX file (extraction failed - possibly corrupted: {str(e)})"
 
 
 def extract_legacy_office_content(blob_data: bytes, file_type: str) -> str:
