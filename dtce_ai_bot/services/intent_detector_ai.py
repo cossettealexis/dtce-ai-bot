@@ -18,22 +18,22 @@ class IntentDetector:
     Uses a lightweight LLM call to classify user queries into knowledge categories.
     """
     
-    # Knowledge Categories aligned with index metadata
+    # Knowledge Categories mapped to YOUR actual folder structure
     CATEGORIES = {
         "Policy": {
-            "description": "Company policies, rules, H&S procedures, employee requirements",
+            "description": "Company policies, H&S procedures, IT policies, employee requirements - documents employees must follow",
             "folder_field": "folder",
-            "folder_values": ["Policies", "Health and Safety", "H&S", "Company Documents", "Wellbeing"]
+            "folder_values": ["DTCE Workplace Essentials/Health & Safety", "DTCE Workplace Essentials/IT Support", "DTCE Workplace Essentials/Employment & Onboarding"]
         },
         "Procedure": {
-            "description": "How-to guides, technical procedures, best practices",
+            "description": "Technical & Admin Procedures, H2H (How to Handbooks), best practices - 'how we do things at DTCE'",
             "folder_field": "folder", 
-            "folder_values": ["Procedures", "How to Handbooks", "H2H", "Technical"]
+            "folder_values": ["DTCE Workplace Essentials/DTCE workplace general templates", "Engineering"]
         },
         "Standards": {
-            "description": "NZ Engineering Standards (NZS, AS/NZS codes)",
+            "description": "NZ Engineering Standards (NZS, AS/NZS codes) - folder containing engineering standards PDFs",
             "folder_field": "folder",
-            "folder_values": ["Standards", "NZ Standards", "NZS", "Technical Library", "Codes"]
+            "folder_values": ["Engineering"]  # Your NZ Standards are likely in Engineering folder
         },
         "Project": {
             "description": "Past project information, job folders (requires extracting job number or year)",

@@ -41,25 +41,52 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def extract_pdf_content(blob_data: bytes) -> str:
-    """Extract text content from PDF blob data."""
+    """Extract text content from PDF blob data with enhanced error reporting."""
     try:
         pdf_stream = io.BytesIO(blob_data)
         pdf_reader = PyPDF2.PdfReader(pdf_stream)
         
+        # Check if PDF is encrypted
+        if pdf_reader.is_encrypted:
+            print(f"  📄 PDF is encrypted - attempting to decrypt...")
+            try:
+                # Try empty password first (common case)
+                if pdf_reader.decrypt(""):
+                    print(f"  ✅ Successfully decrypted with empty password")
+                else:
+                    print(f"  ❌ PDF requires password - cannot extract content")
+                    return f"Encrypted PDF file (password required for content extraction)"
+            except Exception as decrypt_error:
+                print(f"  ❌ Decryption failed: {decrypt_error}")
+                return f"Encrypted PDF file (decryption failed: {str(decrypt_error)})"
+        
+        num_pages = len(pdf_reader.pages)
+        print(f"  📄 Processing PDF with {num_pages} pages...")
+        
         text_content = ""
+        pages_with_text = 0
+        
         for page_num, page in enumerate(pdf_reader.pages):
             try:
                 page_text = page.extract_text()
                 if page_text.strip():
                     text_content += f"\n--- Page {page_num + 1} ---\n{page_text}"
+                    pages_with_text += 1
             except Exception as e:
                 print(f"  Warning: Could not extract page {page_num + 1}: {e}")
                 continue
         
+        if pages_with_text == 0:
+            print(f"  📄 No extractable text found in {num_pages} pages (possibly scanned images)")
+            return f"PDF file with {num_pages} pages (no extractable text - may be scanned images)"
+        else:
+            print(f"  ✅ Extracted text from {pages_with_text}/{num_pages} pages")
+        
         return text_content.strip()
+        
     except Exception as e:
-        print(f"  Error extracting PDF: {e}")
-        return ""
+        print(f"  ❌ PDF extraction error: {e}")
+        return f"PDF file (extraction failed: {str(e)[:100]})"
 
 
 def extract_docx_content(blob_data: bytes) -> str:
