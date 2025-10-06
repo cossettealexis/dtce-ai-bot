@@ -73,6 +73,20 @@ class AzureRAGService:
             # STEP 1: Intent Classification
             intent = await self.intent_detector.classify_intent(user_query)
             
+            # Handle Simple Test queries without document search
+            if intent == "Simple_Test":
+                logger.info("Simple test query detected - providing direct response", query=user_query)
+                return {
+                    'answer': "Hello! I'm the DTCE AI Assistant. I can help you with:\n\n• Company policies and procedures\n• Engineering standards and codes\n• Past project information\n• Client details\n• Technical questions\n\nWhat would you like to know about?",
+                    'sources': [],
+                    'intent': intent,
+                    'search_type': 'direct_response',
+                    'total_documents_searched': 0,
+                    'final_documents_used': 0,
+                    'has_relevant_content': True,
+                    'confidence_score': 1.0
+                }
+            
             # STEP 2: Dynamic Filter Construction
             search_filter = self.intent_detector.build_search_filter(intent, user_query)
             

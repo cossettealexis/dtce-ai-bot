@@ -50,6 +50,11 @@ class IntentDetector:
             "description": "General engineering knowledge, company info (no internal filter needed)",
             "folder_field": None,
             "folder_values": []
+        },
+        "Simple_Test": {
+            "description": "Simple test queries, greetings, nonsense input - should return helpful response without document search",
+            "folder_field": None,
+            "folder_values": []
         }
     }
     
@@ -64,8 +69,20 @@ class IntentDetector:
         Step 2.1: Intent Classification
         Uses GPT-4o-mini (fast, cheap) to classify query into ONE category.
         
-        Returns: Category name (e.g., "Policy", "Project", "General_Knowledge")
+        Returns: Category name (e.g., "Policy", "Project", "General_Knowledge", "Simple_Test")
         """
+        # Pre-filter for simple test queries or nonsense input
+        query_lower = user_query.lower().strip()
+        simple_test_patterns = [
+            "test", "testing", "hello", "hi", "hey", "ping", "check", 
+            "1", "2", "3", "a", "b", "c", ".", "?", "??", "???"
+        ]
+        
+        # Check if query is too short or matches test patterns
+        if len(query_lower) <= 3 or query_lower in simple_test_patterns:
+            logger.info("Simple test query detected", query=user_query)
+            return "Simple_Test"
+            
         try:
             classification_prompt = f"""Goal: Classify the user's query into one of the following categories to enable targeted search. Output ONLY the category name and nothing else.
 
@@ -161,8 +178,13 @@ Output ONLY the category name (e.g., "Project" or "Policy" or "General_Knowledge
         Builds a robust OData filter based on the CORRECT folder structure:
         Projects/{YEAR_CODE}/{JOB_NUMBER}. Uses range queries for folder scoping.
 
-        Returns: OData filter string or None (for General_Knowledge)
+        Returns: OData filter string or None (for General_Knowledge and Simple_Test)
         """
+        # Handle Simple_Test queries - no search needed
+        if intent == "Simple_Test":
+            logger.info("Simple test query - no document search needed", intent=intent)
+            return None
+            
         category = self.CATEGORIES.get(intent)
         if not category or not category.get("folder_field"):
             logger.info("No folder-based filter needed for intent", intent=intent)
