@@ -24,6 +24,7 @@ class Settings(BaseSettings):
 
     # Azure Search settings
     azure_search_service_endpoint: str = ""
+    azure_search_service_name: str = ""
     azure_search_index_name: str = ""
     azure_search_api_key: str = ""
     azure_search_admin_key: str = ""
