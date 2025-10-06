@@ -16,8 +16,8 @@ class SuiteFilesUrlConverter:
     
     def __init__(self):
         # SharePoint site configuration
-        self.sharepoint_base = "https://dtce.sharepoint.com"
-        self.site_path = "/sites/SuiteFiles"
+        self.sharepoint_base = "https://donthomson.sharepoint.com"
+        self.site_path = "/sites/suitefiles"
         
     def convert_blob_to_suitefiles_url(self, blob_url: str, link_type: str = "file") -> Optional[str]:
         """
@@ -57,13 +57,16 @@ class SuiteFilesUrlConverter:
                 encoded_folder_path = quote(folder_path, safe='/')
                 sharepoint_url = f"{self.sharepoint_base}{self.site_path}/_layouts/15/onedrive.aspx?id=%2Fsites%2FSuiteFiles%2F{encoded_folder_path}&view=0"
             else:
-                # For file viewer link - use SharePoint document viewer instead of direct download
+                # For file viewer link - use SharePoint AppPages documents viewer format
+                # This format works like: /sites/suitefiles/AppPages/documents.aspx#/path/to/file.pdf
+                
+                # URL encode the path components properly for SharePoint
                 path_components = clean_path.split('/')
                 encoded_components = [quote(component, safe='') for component in path_components]
                 encoded_path = '/'.join(encoded_components)
                 
-                # Use SharePoint document viewer URL that opens in browser instead of downloading
-                sharepoint_url = f"{self.sharepoint_base}{self.site_path}/_layouts/15/Doc.aspx?sourcedoc=%2Fsites%2FSuiteFiles%2F{quote(encoded_path, safe='/')}&action=default"
+                # Use the AppPages/documents.aspx format that opens files in browser
+                sharepoint_url = f"{self.sharepoint_base}{self.site_path}/AppPages/documents.aspx#/{encoded_path}"
                 
             logger.debug("Successfully converted blob URL to SuiteFiles URL", 
                         blob_url=blob_url, sharepoint_url=sharepoint_url)
