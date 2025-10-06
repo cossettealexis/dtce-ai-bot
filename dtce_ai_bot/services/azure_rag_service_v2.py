@@ -90,7 +90,7 @@ class AzureRAGService:
             # STEP 4: Answer Synthesis
             answer = await self._synthesize_answer(
                 user_query=user_query,
-                search_results=search_results[:3], # Use only the top 3 results to avoid context overload
+                search_results=search_results[:2], # Use only the top 2 results to be safe
                 conversation_history=conversation_history,
                 intent=intent
             )
@@ -247,12 +247,23 @@ class AzureRAGService:
                 return "I couldn't find any relevant information in the DTCE knowledge base to answer your question."
             
             context_chunks = []
-            for i, result in enumerate(search_results[:5], 1):  # Use top 5 results
-                filename = result.get('filename', 'Unknown')
-                folder = result.get('folder', '')
+            for i, result in enumerate(search_results[:3], 1):  # Use top 3 results
                 content = result.get('content', '')
+                filename = result.get('filename', 'Unknown')
                 
-                chunk = f"[Source {i}: {filename} from {folder}]\n{content}"
+                # Use more generous truncation - try to get meaningful content
+                # Take both the beginning and end of the document to catch key info
+                if len(content) > 8000:
+                    # Take first 4000 chars and last 3000 chars with separator
+                    truncated_content = content[:4000] + "\n\n[... CONTENT TRUNCATED ...]\n\n" + content[-3000:]
+                    logger.warning("Document content truncated for synthesis", 
+                                   filename=filename,
+                                   original_length=len(content),
+                                   truncated_length=len(truncated_content))
+                else:
+                    truncated_content = content
+                
+                chunk = f"[Source {i}: {filename}]\n{truncated_content}"
                 context_chunks.append(chunk)
             
             context = "\n\n".join(context_chunks)
@@ -267,15 +278,17 @@ class AzureRAGService:
                 ])
             
             # RAG Synthesis Prompt (following best practices)
-            system_prompt = """You are an expert DTCE Assistant. Your primary function is to answer the user's question ONLY using the provided context from the company's knowledge base.
+            system_prompt = """You are a helpful DTCE engineering assistant chatbot. Answer questions in a friendly, conversational tone like you're talking to a colleague.
 
-Rules:
-1. Synthesize: Combine information from the retrieved document chunks into a single, cohesive, and easy-to-read answer.
-2. Citations: At the end of the answer, provide a list of sources using the filename and folder metadata. Do not mention file names in the body of your answer.
-3. Constraints: If the context is insufficient or contradictory, state: "I cannot provide a complete answer based on the available DTCE knowledge."
-4. Tone: Maintain a professional and helpful tone. Be conversational but not robotic - answer like a knowledgeable colleague.
-5. Accuracy: NEVER make up information. Only use what's in the provided context.
-6. Clarity: Be specific with names, numbers, and details when they're in the documents."""
+Your style:
+- Sound natural and conversational, not formal or academic
+- Use "I found..." or "Looking at our documents..." instead of "The provided documents..."
+- Be direct and helpful - get straight to the point
+- Include specific numbers, calculations, and technical details when available
+- If you can't find the exact answer, tell them what related info you DID find
+- Reference documents naturally (e.g., "In the wind load calculations I found...")
+
+Keep it friendly but professional - like a knowledgeable coworker helping out."""
 
             user_prompt = f"""Context from DTCE Knowledge Base:
 {context}

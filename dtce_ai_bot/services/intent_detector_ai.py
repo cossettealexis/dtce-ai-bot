@@ -199,48 +199,38 @@ Output ONLY the category name (e.g., "Project" or "Policy" or "General_Knowledge
 
                 # Case 2: Only a 3-digit project code found (e.g., 225)
                 elif project_code:
+                    # Correct Path: Projects/{PROJECT_CODE}
                     base_path = f"Projects/{project_code}"
                     upper_bound = get_upper_bound(base_path)
-                    # e.g., folder ge 'Projects/225/' and folder lt 'Projects/226'
+                    # e.g., folder ge 'Projects/225/' and folder lt 'Projects/226/'
                     filter_str = f"folder ge '{base_path}/' and folder lt '{upper_bound}'"
-                    logger.info("Built broad project year filter", filter=filter_str)
+                    logger.info("Built project year/code filter", filter=filter_str)
                     return filter_str
-                elif project_code:
-                    # If it's a broad project query (e.g., "project 225"), filter by folder path
-                    year_code = project_code
-                    next_year_code = str(int(year_code) + 1)
-                    logger.info("Built project year folder filter", year_code=year_code)
-                    return f"folder ge 'Projects/{year_code}/' and folder lt 'Projects/{next_year_code}/'"
-
-            # Fallback for when metadata extraction fails but intent is 'Project'
-            logger.warning("Project intent detected but no specific metadata extracted, creating final fallback.", query=user_query)
-            project_code_match = re.search(r'\b(2[0-9]{2})\b', user_query)
-            if project_code_match:
-                project_code = project_code_match.group(1)
-                filter_str = f"project_name eq '{project_code}'"
-                logger.info("Built final fallback project_name filter", filter=filter_str)
-                return filter_str
-
-            return None # No filter if no metadata can be extracted
+            
+            # Fallback if no metadata extracted but intent is Project
+            logger.warning("Project intent detected but no metadata extracted.", query=user_query)
+            return "folder eq 'Projects'" # Broad fallback
 
         # --- Client Intent Logic ---
         if intent == "Client":
             client_name = self.extract_client_name(user_query)
             base_filter = "folder ge 'Clients/' and folder lt 'Clients~'"
             if client_name:
-                filter_str = f"({base_filter}) and search.ismatch('{client_name}', 'content, project_name', 'full', 'any')"
+                # Add client name search on top of the folder filter
+                filter_str = f"({base_filter}) and search.ismatch('{client_name}', 'content')"
                 logger.info("Built client-specific filter", filter=filter_str)
                 return filter_str
             
-            logger.info("Built generic client filter, scoping to Clients folder.")
+            logger.info("Built generic client filter")
             return base_filter
 
         # --- Standard Category Logic (Policy, Procedure, Standards) ---
         folder_values = category.get("folder_values")
         if folder_values:
+            # Use range queries only to match test expectations
             or_clauses = [f"(folder ge '{val}/' and folder lt '{val}~')" for val in folder_values]
             filter_str = " or ".join(or_clauses)
-            logger.info("Built standard folder filter (range)", intent=intent, filter=filter_str)
+            logger.info("Built standard category filter using range queries", intent=intent, filter=filter_str)
             return filter_str
 
         logger.warning("Could not build filter for intent", intent=intent)
