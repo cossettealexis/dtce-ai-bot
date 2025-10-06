@@ -553,39 +553,46 @@ async def production_reindex():
         print(f"❌ Failed to get blob iterator: {e}")
         return
 
-    # Convert iterator to list and sort to prioritize Projects folder
-    print(f"📋 Loading and sorting blobs to prioritize Projects folder...")
-    try:
-        all_blobs = list(blob_iterator)
-        print(f"📊 Found {len(all_blobs)} total blobs")
-        
-        # Sort blobs: Projects folder first, then everything else
-        def sort_key(blob):
-            blob_name = blob.name.lower()
-            if blob_name.startswith('projects/'):
-                return (0, blob.name)  # Projects first
-            else:
-                return (1, blob.name)  # Everything else after
-        
-        sorted_blobs = sorted(all_blobs, key=sort_key)
-        print(f"✅ Sorted blobs - Projects folder will be processed first")
-        
-    except Exception as e:
-        print(f"❌ Failed to sort blobs: {e}")
-        return
-
-    # Index ALL documents (Projects first, then others)
+    # Use streaming approach to avoid loading all blobs into memory
     print(f"🔥 Indexing production documents (Projects folder prioritized)...")
+    print(f"📋 Processing Projects folder first, then other folders...")
+    
     success_count = 0
     error_count = 0
     skipped_count = 0
     total_count = 0
-    
     current_folder = None
-    for blob in sorted_blobs:
+    
+    # Process all blobs with Projects folder preference (streaming approach)
+    def process_blobs_by_priority():
+        """Generator that yields Projects folder blobs first, then others"""
+        processed_blobs = set()
+        
+        # First: yield Projects folder blobs
+        try:
+            print(f"\n🎯 PRIORITY: Processing Projects folder first...")
+            projects_iterator = container_client.list_blobs(name_starts_with="Projects/")
+            for blob in projects_iterator:
+                processed_blobs.add(blob.name)
+                yield blob
+        except Exception as e:
+            print(f"⚠️  Warning: Error processing Projects folder: {e}")
+        
+        # Then: yield all other blobs
+        try:
+            print(f"\n📂 Processing remaining folders...")
+            all_iterator = container_client.list_blobs()
+            for blob in all_iterator:
+                if blob.name not in processed_blobs:  # Skip already processed Projects blobs
+                    yield blob
+        except Exception as e:
+            print(f"⚠️  Warning: Error processing remaining blobs: {e}")
+    
+    # Process blobs using the priority generator
+    for blob in process_blobs_by_priority():
         total_count += 1
         
-        # Track folder changes to show progress
+        # Track folder changes
         blob_folder = blob.name.split('/')[0] if '/' in blob.name else 'Root'
         if current_folder != blob_folder:
             current_folder = blob_folder

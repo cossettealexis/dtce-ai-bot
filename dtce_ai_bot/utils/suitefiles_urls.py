@@ -57,11 +57,13 @@ class SuiteFilesUrlConverter:
                 encoded_folder_path = quote(folder_path, safe='/')
                 sharepoint_url = f"{self.sharepoint_base}{self.site_path}/_layouts/15/onedrive.aspx?id=%2Fsites%2FSuiteFiles%2F{encoded_folder_path}&view=0"
             else:
-                # For direct file link - encode each path component to handle spaces and special characters
+                # For file viewer link - use SharePoint document viewer instead of direct download
                 path_components = clean_path.split('/')
                 encoded_components = [quote(component, safe='') for component in path_components]
                 encoded_path = '/'.join(encoded_components)
-                sharepoint_url = f"{self.sharepoint_base}{self.site_path}/{encoded_path}"
+                
+                # Use SharePoint document viewer URL that opens in browser instead of downloading
+                sharepoint_url = f"{self.sharepoint_base}{self.site_path}/_layouts/15/Doc.aspx?sourcedoc=%2Fsites%2FSuiteFiles%2F{quote(encoded_path, safe='/')}&action=default"
                 
             logger.debug("Successfully converted blob URL to SuiteFiles URL", 
                         blob_url=blob_url, sharepoint_url=sharepoint_url)
