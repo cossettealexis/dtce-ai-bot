@@ -165,14 +165,41 @@ def extract_legacy_office_content(blob_data: bytes, file_type: str) -> str:
 
 
 def extract_text_content(blob_data: bytes) -> str:
-    """Extract text content from plain text files."""
+    """Extract text content from plain text files with binary detection."""
     try:
+        # Check if content is likely binary by looking for null bytes and control characters
+        sample_size = min(1024, len(blob_data))
+        sample = blob_data[:sample_size]
+        
+        # If more than 5% of the sample contains null bytes or excessive control chars, it's likely binary
+        null_count = sample.count(b'\x00')
+        control_count = sum(1 for b in sample if b < 32 and b not in [9, 10, 13])  # Allow tab, LF, CR
+        
+        if null_count > sample_size * 0.01 or control_count > sample_size * 0.05:
+            # This looks like binary content, don't try to decode
+            return ""
+        
         # Try UTF-8 first
-        return blob_data.decode('utf-8').strip()
+        text = blob_data.decode('utf-8').strip()
+        
+        # Additional check: if decoded text has too many weird characters, skip it
+        printable_chars = sum(1 for c in text if c.isprintable() or c.isspace())
+        if len(text) > 0 and printable_chars / len(text) < 0.7:
+            return ""
+            
+        return text
+        
     except UnicodeDecodeError:
         try:
-            # Fallback to latin-1
-            return blob_data.decode('latin-1').strip()
+            # Fallback to latin-1, but still check for quality
+            text = blob_data.decode('latin-1', errors='ignore').strip()
+            
+            # Check if the decoded text makes sense (not just binary garbage)
+            printable_chars = sum(1 for c in text if c.isprintable() or c.isspace())
+            if len(text) > 0 and printable_chars / len(text) < 0.7:
+                return ""
+                
+            return text
         except Exception as e:
             print(f"  Error extracting text: {e}")
             return ""
@@ -371,11 +398,11 @@ def extract_document_content(blob_name: str, blob_data: bytes) -> str:
         return extract_pdf_content(blob_data)
     
     # Modern Office formats (Office 2007+)
-    elif filename.endswith('.docx'):
+    elif filename.endswith(('.docx', '.dotx')):  # Include Word templates
         return extract_docx_content(blob_data)
-    elif filename.endswith(('.xlsx', '.xlsm')):
+    elif filename.endswith(('.xlsx', '.xlsm', '.xltx')):  # Include Excel templates
         return extract_excel_content(blob_data)
-    elif filename.endswith(('.pptx', '.pptm')):
+    elif filename.endswith(('.pptx', '.pptm', '.potx')):  # Include PowerPoint templates
         return extract_powerpoint_content(blob_data)
     
     # Legacy Office formats (Office 97-2003)
@@ -419,9 +446,14 @@ def extract_document_content(blob_name: str, blob_data: bytes) -> str:
 async def generate_embeddings(openai_client: AsyncAzureOpenAI, text: str) -> list:
     """Generate embeddings for the text content."""
     try:
+        # Be more conservative with token limits (roughly 1 token per 4 characters)
+        # 8192 tokens max, so use ~6000 characters to be safe
+        max_chars = 6000
+        truncated_text = text[:max_chars]
+        
         response = await openai_client.embeddings.create(
             model="text-embedding-3-small",
-            input=text[:8000]  # Limit to avoid token limits
+            input=truncated_text
         )
         return response.data[0].embedding
     except Exception as e:
