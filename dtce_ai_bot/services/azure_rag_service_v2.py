@@ -353,20 +353,63 @@ Please answer the user's question using ONLY the information from the provided c
             
             full_response = response.choices[0].message.content
             
-            # Parse the structured response to extract just the answer
-            answer = self._extract_answer_from_structured_response(full_response)
+            # Parse structured response but preserve sources in the answer
+            parsed_answer = self._extract_answer_with_sources(full_response)
             
             logger.info("Answer synthesized", 
                        query=user_query,
                        sources_used=len(search_results[:5]),
-                       answer_length=len(answer))
+                       answer_length=len(parsed_answer))
             
-            return answer
+            return parsed_answer
             
         except Exception as e:
             logger.error("Answer synthesis failed", error=str(e))
             return f"I encountered an error generating an answer: {str(e)}"
     
+    def _extract_answer_with_sources(self, full_response: str) -> str:
+        """
+        Extract answer and sources from structured response, combining them for user display.
+        
+        Expected format:
+        ANSWER:
+        [answer text]
+        
+        SOURCES:
+        [source list]
+        
+        Args:
+            full_response: The complete structured response from GPT
+            
+        Returns:
+            Combined answer with sources formatted for display
+        """
+        try:
+            # Split on "ANSWER:" and "SOURCES:"
+            if "ANSWER:" in full_response and "SOURCES:" in full_response:
+                # Extract both sections
+                parts = full_response.split("ANSWER:")[1].split("SOURCES:")
+                answer_section = parts[0].strip()
+                sources_section = parts[1].strip()
+                
+                # Combine with proper formatting
+                if sources_section:
+                    return f"{answer_section}\n\n**Sources:**\n{sources_section}"
+                else:
+                    return answer_section
+                    
+            elif "ANSWER:" in full_response:
+                # Handle case where only ANSWER: is present
+                answer_section = full_response.split("ANSWER:")[1].strip()
+                return answer_section
+            else:
+                # Fallback - return the full response if format not followed
+                logger.warning("Structured response format not followed, returning full response")
+                return full_response.strip()
+        except Exception as e:
+            logger.error("Failed to parse structured response", error=str(e))
+            return full_response.strip()
+
     def _extract_answer_from_structured_response(self, full_response: str) -> str:
         """
         Extract just the answer portion from the structured response format.

@@ -435,7 +435,10 @@ Respond with JSON:
             return answer
             
         # Check if SuiteFiles links or Sources section already exists
-        if "SuiteFiles" in answer or "**Sources:**" in answer:
+        if "SuiteFiles" in answer or "**Sources:**" in answer or "SOURCES:" in answer:
+            # If AI generated SOURCES: format, convert to markdown format
+            if "SOURCES:" in answer and "**Sources:**" not in answer:
+                answer = answer.replace("SOURCES:", "**Sources:**")
             return answer
             
         logger.warning("AI response missing SuiteFiles links - adding them automatically")

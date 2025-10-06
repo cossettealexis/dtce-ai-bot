@@ -397,6 +397,16 @@ def should_skip_file(blob_name: str) -> bool:
     if any(trash_folder in file_path for trash_folder in trash_folders):
         return True
     
+    # Skip files in backup folders
+    backup_folders = ['/backup/', '\\backup\\', '/backups/', '\\backups\\', '/bak/', '\\bak\\']
+    if any(backup_folder in file_path for backup_folder in backup_folders):
+        return True
+    
+    # Skip files with backup naming patterns
+    backup_patterns = ['-backup', '_backup', '.backup', '-bak', '_bak', 'backup-', 'backup_']
+    if any(pattern in filename for pattern in backup_patterns):
+        return True
+    
     # Skip media files that don't contain searchable text
     skip_extensions = [
         # Video files
@@ -405,6 +415,8 @@ def should_skip_file(blob_name: str) -> bool:
         '.mp3', '.wav', '.flac', '.aac', '.ogg', '.wma', '.m4a',
         # Image files
         '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.svg', '.webp', '.ico',
+        # Database and backup files
+        '.accdb', '.mdb', '.accde', '.laccdb', '.ldb', '.bak', '.backup', '.db', '.sqlite', '.sqlite3',
         # Other binary/non-text files
         '.zip', '.rar', '.7z', '.tar', '.gz',
         '.exe', '.dll', '.bin', '.iso',
@@ -541,15 +553,46 @@ async def production_reindex():
         print(f"❌ Failed to get blob iterator: {e}")
         return
 
-    # Index ALL documents
-    print(f"🔥 Indexing production documents...")
+    # Convert iterator to list and sort to prioritize Projects folder
+    print(f"📋 Loading and sorting blobs to prioritize Projects folder...")
+    try:
+        all_blobs = list(blob_iterator)
+        print(f"📊 Found {len(all_blobs)} total blobs")
+        
+        # Sort blobs: Projects folder first, then everything else
+        def sort_key(blob):
+            blob_name = blob.name.lower()
+            if blob_name.startswith('projects/'):
+                return (0, blob.name)  # Projects first
+            else:
+                return (1, blob.name)  # Everything else after
+        
+        sorted_blobs = sorted(all_blobs, key=sort_key)
+        print(f"✅ Sorted blobs - Projects folder will be processed first")
+        
+    except Exception as e:
+        print(f"❌ Failed to sort blobs: {e}")
+        return
+
+    # Index ALL documents (Projects first, then others)
+    print(f"🔥 Indexing production documents (Projects folder prioritized)...")
     success_count = 0
     error_count = 0
     skipped_count = 0
     total_count = 0
     
-    for blob in blob_iterator:
+    current_folder = None
+    for blob in sorted_blobs:
         total_count += 1
+        
+        # Track folder changes to show progress
+        blob_folder = blob.name.split('/')[0] if '/' in blob.name else 'Root'
+        if current_folder != blob_folder:
+            current_folder = blob_folder
+            print(f"\n📁 Now processing folder: {current_folder}")
+            if current_folder.lower() == 'projects':
+                print(f"🎯 PRIORITY: Processing Projects folder first for architect documents")
+        
         try:
             print(f"[{total_count}] {blob.name}")
             
