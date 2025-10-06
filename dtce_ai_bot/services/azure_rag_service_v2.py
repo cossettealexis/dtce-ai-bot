@@ -312,22 +312,24 @@ Tone & Synthesis Rules:
 2. Synthesis ONLY: Write the answer in a single block of text. DO NOT mention file names, document titles, or email subjects within the body of your answer.
 
 Citation Rules:
-3. Source List: Immediately after the final answer, output a separate list of the documents used to formulate the answer. 
-4. Citation Format: For each source used, create a clickable link using the SuiteFiles URL if provided, otherwise use filename and folder.
+3. Sources MUST be embedded clickable links: Use markdown format to create clickable text without showing URLs.
+4. Source Format: Document Name (Folder) with embedded [Open Link] that uses the SUITEFILES_URL
 
-Format your response EXACTLY like this:
+Format your response EXACTLY like this structure:
 
 ANSWER:
 [Your direct, natural answer here without mentioning any document names]
 
 SOURCES:
-- [Document Name (Folder Category)] [Open Link](SUITEFILES_URL) if URL available
-- [Document Name (Folder Category)] if no URL available
+- Document Name (Folder) [Open Link](SUITEFILES_URL)
+- Document Name (Folder) [Open Link](SUITEFILES_URL)
 
-Example:
+CRITICAL: The [Open Link](URL) creates an embedded clickable link. Users will see "Open Link" text but it will be clickable.
+
+Example of correct format:
 SOURCES:
-- [Safety Manual (Health and Safety)] [Open Link](https://dtce.sharepoint.com/sites/SuiteFiles/...)
-- [Project Guidelines (Templates)]"""
+- Safety Manual (Health and Safety) [Open Link](https://dtce.sharepoint.com/sites/SuiteFiles/HR/Safety_Manual.pdf)
+- Project Guidelines (Templates) [Open Link](https://dtce.sharepoint.com/sites/SuiteFiles/Templates/Guidelines.docx)"""
 
             # Build conversation context separately to avoid f-string backslash issues
             conversation_section = ""
