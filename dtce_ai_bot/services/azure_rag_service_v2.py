@@ -181,17 +181,24 @@ class AzureRAGService:
             # Process results
             results = []
             async for result in search_results_paged:
+                filename = result.get('filename', 'Unknown Document')
                 content = result.get('content', '')
+                
+                # Skip irrelevant files (placeholder and system files)
+                if self._should_skip_file_in_results(filename, content):
+                    logger.debug("Skipping irrelevant file from results", filename=filename)
+                    continue
                 
                 # Log if content is minimal (placeholder documents)
                 if not content or len(content) < 100:
                     logger.warning("Search result has minimal content", 
-                                 filename=result.get('filename', 'Unknown'),
+                                 filename=filename,
                                  content_length=len(content))
+                    continue  # Skip files with no meaningful content
                 
                 results.append({
                     'content': content,
-                    'filename': result.get('filename', 'Unknown Document'),
+                    'filename': filename,
                     'folder': result.get('folder', ''),
                     'project_name': result.get('project_name', ''),
                     'search_score': result.get('@search.score', 0),
@@ -259,7 +266,7 @@ class AzureRAGService:
         try:
             # Build context from retrieved documents
             if not search_results:
-                return "I couldn't find any relevant information in the DTCE knowledge base to answer your question."
+                return "I don't have specific information about that in our system. You might want to check with your colleagues, HR, or the relevant project teams who may have more detailed information."
             
             context_chunks = []
             for i, result in enumerate(search_results[:3], 1):  # Use top 3 results
@@ -308,18 +315,19 @@ class AzureRAGService:
             system_prompt = """You are the DTCE AI Assistant. Your goal is to provide accurate, helpful answers based on the DTCE knowledge base.
 
 Tone & Synthesis Rules:
-1. Be Conversational: Sound like a knowledgeable colleague. Use natural language - never say "the provided documents" or "based on the context."
-2. Smart Analysis: Look for connections, patterns, and relevant information. If you find related information but not exact matches, mention what you found.
-3. Helpful Responses: If you can't find specific information, suggest alternative approaches or related information that might be useful.
+1. Be Conversational: Sound like a knowledgeable colleague. Never mention "documents", "provided information", "based on the context" or similar references to source materials.
+2. Smart Analysis: Look for connections, patterns, and relevant information. If you find related information but not exact matches, mention what you found and explain how it might be helpful.
+3. When Information is Missing: If you can't find the specific information requested, be honest but helpful. Say something like "I don't have information about [specific request], but I did find [related information] that might be useful" or suggest where they might look next.
+4. Answer Directly: Start with a direct answer to their question, then provide supporting information.
 
 Citation Rules:
-4. Sources MUST be embedded clickable links: Use markdown format to create clickable text without showing URLs.
-5. Source Format: Document Name (Folder) with embedded [Open Link] that uses the SUITEFILES_URL
+5. Sources MUST be embedded clickable links: Use markdown format to create clickable text without showing URLs.
+6. Source Format: Document Name (Folder) with embedded [Open Link] that uses the SUITEFILES_URL
 
 Format your response EXACTLY like this structure:
 
 ANSWER:
-[Your direct, natural answer here without mentioning any document names]
+[Your direct, natural answer here - speak as if you're a helpful colleague sharing information]
 
 SOURCES:
 - Document Name (Folder) [Open Link](SUITEFILES_URL)
@@ -327,7 +335,10 @@ SOURCES:
 
 CRITICAL: The [Open Link](URL) creates an embedded clickable link. Users will see "Open Link" text but it will be clickable.
 
-Example of correct format:
+Example of a good response when information is missing:
+"I don't have specific information about Aaron from TGCS in our system. However, I found several project records that might be relevant to your search. You might want to check with the project teams or HR for more details about external contractors."
+
+Example of correct source format:
 SOURCES:
 - Safety Manual (Health and Safety) [Open Link](https://dtce.sharepoint.com/sites/SuiteFiles/HR/Safety_Manual.pdf)
 - Project Guidelines (Templates) [Open Link](https://dtce.sharepoint.com/sites/SuiteFiles/Templates/Guidelines.docx)"""
@@ -522,6 +533,51 @@ class RAGOrchestrator:
                 'search_type': 'error'
             }
     
+    def _should_skip_file_in_results(self, filename: str, content: str) -> bool:
+        """
+        Determine if a file should be skipped from search results.
+        
+        Args:
+            filename: Name of the file
+            content: File content
+            
+        Returns:
+            True if file should be skipped
+        """
+        # Skip placeholder and system files
+        skip_files = [
+            '.keep',
+            '.gitkeep', 
+            'Thumbs.db',
+            '.DS_Store',
+            'desktop.ini',
+            '.directory'
+        ]
+        
+        # Skip files with irrelevant extensions
+        skip_extensions = [
+            '.tmp', '.temp', '.log', '.cache',
+            '.bak', '.backup', '.old',
+            '.lock', '.pid'
+        ]
+        
+        filename_lower = filename.lower()
+        
+        # Check exact filename matches
+        if filename_lower in [f.lower() for f in skip_files]:
+            return True
+            
+        # Check extension matches
+        for ext in skip_extensions:
+            if filename_lower.endswith(ext.lower()):
+                return True
+        
+        # Skip if content is too short to be meaningful (likely placeholder)
+        if len(content.strip()) < 50:
+            return True
+            
+        return False
+
     def _update_conversation_history(self, session_id: str, question: str, answer: str):
         """
         Update conversation history for the session.
