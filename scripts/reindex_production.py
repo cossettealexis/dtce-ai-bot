@@ -18,6 +18,13 @@ import PyPDF2
 import docx
 from openai import AsyncAzureOpenAI
 from azure.core.exceptions import ServiceResponseError
+
+# Try to import additional PDF libraries for better extraction
+try:
+    import fitz  # PyMuPDF - better PDF text extraction
+    PYMUPDF_AVAILABLE = True
+except ImportError:
+    PYMUPDF_AVAILABLE = False
 try:
     import openpyxl
     EXCEL_SUPPORT = True
@@ -40,8 +47,71 @@ except ImportError:
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
+def clean_extracted_text(text: str) -> str:
+    """Clean up text extracted from PDFs."""
+    if not text:
+        return ""
+    
+    # Remove excessive whitespace while preserving meaningful line breaks
+    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)  # Multiple line breaks to double
+    text = re.sub(r' +', ' ', text)  # Multiple spaces to single space
+    text = re.sub(r'\t+', ' ', text)  # Tabs to spaces
+    
+    # Remove common PDF artifacts
+    text = re.sub(r'[^\w\s\-.,!?()[\]{}:;"\'/\\&@#$%+=<>|~`]', ' ', text)  # Keep only readable chars
+    text = re.sub(r'\s+', ' ', text)  # Normalize whitespace again
+    
+    return text.strip()
+
+
+def extract_pdf_content_pymupdf(blob_data: bytes) -> str:
+    """Alternative PDF extraction using PyMuPDF (if available)."""
+    if not PYMUPDF_AVAILABLE:
+        return None
+        
+    try:
+        doc = fitz.open(stream=blob_data, filetype="pdf")
+        text_content = ""
+        pages_with_text = 0
+        total_chars_extracted = 0
+        
+        for page_num in range(len(doc)):
+            page = doc[page_num]
+            page_text = page.get_text()
+            
+            if page_text and page_text.strip():
+                cleaned_text = clean_extracted_text(page_text)
+                if len(cleaned_text) > 10:
+                    text_content += f"\n--- Page {page_num + 1} ---\n{cleaned_text}"
+                    pages_with_text += 1
+                    total_chars_extracted += len(cleaned_text)
+        
+        doc.close()
+        
+        if pages_with_text > 0:
+            print(f"  ✅ PyMuPDF extracted text from {pages_with_text}/{len(doc)} pages ({total_chars_extracted} characters)")
+            return text_content.strip()
+        else:
+            return None
+            
+    except Exception as e:
+        print(f"  Warning: PyMuPDF extraction failed: {e}")
+        return None
+
+
 def extract_pdf_content(blob_data: bytes) -> str:
-    """Extract text content from PDF blob data with enhanced error reporting."""
+    """Extract text content from PDF blob data with enhanced extraction methods."""
+    
+    # First try PyMuPDF if available (generally better at text extraction)
+    if PYMUPDF_AVAILABLE:
+        print(f"  📄 Trying PyMuPDF extraction...")
+        pymupdf_result = extract_pdf_content_pymupdf(blob_data)
+        if pymupdf_result:
+            return pymupdf_result
+        else:
+            print(f"  📄 PyMuPDF failed, falling back to PyPDF2...")
+    
+    # Fallback to PyPDF2 method
     try:
         pdf_stream = io.BytesIO(blob_data)
         pdf_reader = PyPDF2.PdfReader(pdf_stream)
@@ -61,17 +131,42 @@ def extract_pdf_content(blob_data: bytes) -> str:
                 return f"Encrypted PDF file (decryption failed: {str(decrypt_error)})"
         
         num_pages = len(pdf_reader.pages)
-        print(f"  📄 Processing PDF with {num_pages} pages...")
+        print(f"  📄 Processing PDF with {num_pages} pages using PyPDF2...")
         
         text_content = ""
         pages_with_text = 0
+        total_chars_extracted = 0
         
         for page_num, page in enumerate(pdf_reader.pages):
             try:
-                page_text = page.extract_text()
-                if page_text.strip():
-                    text_content += f"\n--- Page {page_num + 1} ---\n{page_text}"
-                    pages_with_text += 1
+                # Try multiple extraction methods for each page
+                page_text = ""
+                
+                # Method 1: Standard extract_text()
+                standard_text = page.extract_text()
+                if standard_text and standard_text.strip():
+                    page_text = standard_text
+                
+                # Method 2: If standard method fails, try extracting with different parameters
+                if not page_text.strip():
+                    try:
+                        # Try different extraction methods available in newer PyPDF2 versions
+                        if hasattr(page, 'extract_text'):
+                            alt_text = page.extract_text(orientations=(0, 90, 180, 270))
+                            if alt_text and alt_text.strip():
+                                page_text = alt_text
+                    except:
+                        pass
+                
+                # Clean and add the extracted text
+                if page_text and page_text.strip():
+                    cleaned_text = clean_extracted_text(page_text)
+                    
+                    if len(cleaned_text) > 10:  # Only count pages with meaningful content
+                        text_content += f"\n--- Page {page_num + 1} ---\n{cleaned_text}"
+                        pages_with_text += 1
+                        total_chars_extracted += len(cleaned_text)
+                    
             except Exception as e:
                 print(f"  Warning: Could not extract page {page_num + 1}: {e}")
                 continue
@@ -80,7 +175,7 @@ def extract_pdf_content(blob_data: bytes) -> str:
             print(f"  📄 No extractable text found in {num_pages} pages (possibly scanned images)")
             return f"PDF file with {num_pages} pages (no extractable text - may be scanned images)"
         else:
-            print(f"  ✅ Extracted text from {pages_with_text}/{num_pages} pages")
+            print(f"  ✅ PyPDF2 extracted text from {pages_with_text}/{num_pages} pages ({total_chars_extracted} characters)")
         
         return text_content.strip()
         
