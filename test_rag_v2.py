@@ -94,7 +94,7 @@ async def main():
     AZURE_SEARCH_API_KEY = os.getenv("AZURE_SEARCH_API_KEY")
     AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
     AZURE_OPENAI_API_KEY = os.getenv("AZURE_OPENAI_API_KEY")
-    AZURE_OPENAI_MODEL_NAME = os.getenv("AZURE_OPENAI_MODEL_NAME")
+    AZURE_OPENAI_DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT_NAME")
 
     # --- Debug: Print loaded variables ---
     print("\n--- DEBUG: Loaded Environment Variables ---")
@@ -103,11 +103,11 @@ async def main():
     print(f"AZURE_SEARCH_API_KEY: {'Loaded' if AZURE_SEARCH_API_KEY else 'NOT FOUND'}")
     print(f"AZURE_OPENAI_ENDPOINT: {'Loaded' if AZURE_OPENAI_ENDPOINT else 'NOT FOUND'}")
     print(f"AZURE_OPENAI_API_KEY: {'Loaded' if AZURE_OPENAI_API_KEY else 'NOT FOUND'}")
-    print(f"AZURE_OPENAI_MODEL_NAME: {'Loaded' if AZURE_OPENAI_MODEL_NAME else 'NOT FOUND'}")
+    print(f"AZURE_OPENAI_DEPLOYMENT_NAME: {'Loaded' if AZURE_OPENAI_DEPLOYMENT_NAME else 'NOT FOUND'}")
     print("-----------------------------------------\n")
 
     # --- Validate Variables ---
-    if not all([AZURE_SEARCH_SERVICE_ENDPOINT, AZURE_SEARCH_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY]):
+    if not all([AZURE_SEARCH_SERVICE_ENDPOINT, AZURE_SEARCH_API_KEY, AZURE_OPENAI_ENDPOINT, AZURE_OPENAI_API_KEY, AZURE_OPENAI_DEPLOYMENT_NAME]):
         logger.error("One or more critical environment variables are missing. Halting test.")
         return
     

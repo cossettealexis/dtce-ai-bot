@@ -69,7 +69,7 @@ rag_service = AzureRAGService(
     search_client=search_client_async,
     openai_client=openai_client_async,
     model_name=settings.azure_openai_deployment_name,
-    intent_model_name=settings.azure_openai_deployment_name_mini  # Use the mini model for intent
+    intent_model_name=settings.azure_openai_deployment_name  # Use the main model for intent
 )
 
 # This is a legacy service, we will phase it out

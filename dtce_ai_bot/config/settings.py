@@ -32,7 +32,6 @@ class Settings(BaseSettings):
     azure_openai_endpoint: str = ""
     azure_openai_api_key: str = ""
     azure_openai_deployment_name: str = ""
-    azure_openai_deployment_name_mini: str = ""
     
     # Bot Framework settings (Microsoft App registration)
     microsoft_app_id: str = ""

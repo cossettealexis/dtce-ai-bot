@@ -199,12 +199,19 @@ Output ONLY the category name (e.g., "Project" or "Policy" or "General_Knowledge
 
                 # Case 2: Only a 3-digit project code found (e.g., 225)
                 elif project_code:
-                    # This is a broad query for a project code. Instead of a folder path,
-                    # it's more reliable to filter by the 'project_name' field directly.
-                    filter_str = f"project_name eq '{project_code}'"
-                    logger.info("Built project_name filter for broad project query", filter=filter_str)
+                    base_path = f"Projects/{project_code}"
+                    upper_bound = get_upper_bound(base_path)
+                    # e.g., folder ge 'Projects/225/' and folder lt 'Projects/226'
+                    filter_str = f"folder ge '{base_path}/' and folder lt '{upper_bound}'"
+                    logger.info("Built broad project year filter", filter=filter_str)
                     return filter_str
-            
+                elif project_code:
+                    # If it's a broad project query (e.g., "project 225"), filter by folder path
+                    year_code = project_code
+                    next_year_code = str(int(year_code) + 1)
+                    logger.info("Built project year folder filter", year_code=year_code)
+                    return f"folder ge 'Projects/{year_code}/' and folder lt 'Projects/{next_year_code}/'"
+
             # Fallback for when metadata extraction fails but intent is 'Project'
             logger.warning("Project intent detected but no specific metadata extracted, creating final fallback.", query=user_query)
             project_code_match = re.search(r'\b(2[0-9]{2})\b', user_query)

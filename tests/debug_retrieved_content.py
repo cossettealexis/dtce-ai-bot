@@ -31,7 +31,7 @@ async def debug_retrieved_content():
     rag_handler = RAGHandler(
         settings=settings,
         openai_client=openai_client,
-        model_name=settings.azure_openai_model_name
+        model_name=settings.azure_openai_deployment_name
     )
     
     # Test query
