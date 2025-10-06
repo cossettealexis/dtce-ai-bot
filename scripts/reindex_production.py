@@ -18,6 +18,23 @@ import PyPDF2
 import docx
 from openai import AsyncAzureOpenAI
 from azure.core.exceptions import ServiceResponseError
+try:
+    import openpyxl
+    EXCEL_SUPPORT = True
+except ImportError:
+    EXCEL_SUPPORT = False
+
+try:
+    from pptx import Presentation
+    POWERPOINT_SUPPORT = True
+except ImportError:
+    POWERPOINT_SUPPORT = False
+
+try:
+    import olefile
+    LEGACY_OFFICE_SUPPORT = True
+except ImportError:
+    LEGACY_OFFICE_SUPPORT = False
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -56,10 +73,47 @@ def extract_docx_content(blob_data: bytes) -> str:
             if paragraph.text.strip():
                 text_content += paragraph.text + "\n"
         
+        # Also extract text from tables
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = []
+                for cell in row.cells:
+                    if cell.text.strip():
+                        row_text.append(cell.text.strip())
+                if row_text:
+                    text_content += " | ".join(row_text) + "\n"
+        
         return text_content.strip()
     except Exception as e:
         print(f"  Error extracting DOCX: {e}")
         return ""
+
+
+def extract_legacy_office_content(blob_data: bytes, file_type: str) -> str:
+    """Extract text content from legacy Office files (.doc, .xls, .ppt)."""
+    try:
+        # For legacy files, try to extract whatever text we can
+        # This is basic extraction - not perfect but better than nothing
+        text = blob_data.decode('utf-8', errors='ignore')
+        
+        # Remove common binary junk and control characters
+        import re
+        # Remove null bytes and control characters
+        text = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\xff]', ' ', text)
+        # Remove multiple spaces
+        text = re.sub(r'\s+', ' ', text)
+        # Extract potential text content (words with reasonable length)
+        words = text.split()
+        filtered_words = [word for word in words if len(word) > 2 and word.isalnum()]
+        
+        if len(filtered_words) > 10:  # If we found reasonable text
+            return ' '.join(filtered_words[:1000])  # Limit to first 1000 words
+        else:
+            return f"Legacy {file_type.upper()} file (limited text extraction available)"
+            
+    except Exception as e:
+        print(f"  Error extracting legacy {file_type}: {e}")
+        return f"Legacy {file_type.upper()} file (content extraction failed: {str(e)})"
 
 
 def extract_text_content(blob_data: bytes) -> str:
@@ -76,9 +130,170 @@ def extract_text_content(blob_data: bytes) -> str:
             return ""
 
 
+def extract_excel_content(blob_data: bytes) -> str:
+    """Extract text content from Excel files."""
+    if not EXCEL_SUPPORT:
+        return "Excel file (openpyxl not available for content extraction)"
+    
+    try:
+        excel_stream = io.BytesIO(blob_data)
+        workbook = openpyxl.load_workbook(excel_stream, data_only=True)
+        
+        text_content = ""
+        for sheet_name in workbook.sheetnames:
+            sheet = workbook[sheet_name]
+            text_content += f"\n--- Sheet: {sheet_name} ---\n"
+            
+            for row in sheet.iter_rows(values_only=True):
+                row_text = []
+                for cell in row:
+                    if cell is not None:
+                        row_text.append(str(cell))
+                if row_text:
+                    text_content += " | ".join(row_text) + "\n"
+        
+        return text_content.strip()
+    except Exception as e:
+        print(f"  Error extracting Excel: {e}")
+        return f"Excel file (content extraction failed: {str(e)})"
+
+
+def extract_powerpoint_content(blob_data: bytes) -> str:
+    """Extract text content from PowerPoint files."""
+    if not POWERPOINT_SUPPORT:
+        return "PowerPoint file (python-pptx not available for content extraction)"
+    
+    try:
+        ppt_stream = io.BytesIO(blob_data)
+        prs = Presentation(ppt_stream)
+        
+        text_content = ""
+        for slide_num, slide in enumerate(prs.slides, 1):
+            text_content += f"\n--- Slide {slide_num} ---\n"
+            
+            for shape in slide.shapes:
+                if hasattr(shape, "text") and shape.text.strip():
+                    text_content += shape.text + "\n"
+        
+        return text_content.strip()
+    except Exception as e:
+        print(f"  Error extracting PowerPoint: {e}")
+        return f"PowerPoint file (content extraction failed: {str(e)})"
+
+
+def extract_rtf_content(blob_data: bytes) -> str:
+    """Extract text content from RTF files (basic extraction)."""
+    try:
+        # Simple RTF parsing - just extract text between RTF commands
+        text = blob_data.decode('utf-8', errors='ignore')
+        
+        # Remove RTF control codes and formatting
+        import re
+        # Remove RTF header and control words
+        text = re.sub(r'\\[a-z]+\d*\s?', ' ', text)
+        text = re.sub(r'[{}]', '', text)
+        text = re.sub(r'\s+', ' ', text)
+        
+        return text.strip()
+    except Exception as e:
+        print(f"  Error extracting RTF: {e}")
+        return f"RTF file (content extraction failed: {str(e)})"
+
+
+def extract_outlook_message_content(blob_data: bytes, file_type: str) -> str:
+    """Extract text content from Outlook message files (.msg, .eml)."""
+    try:
+        if file_type == 'eml':
+            # EML files are standard email format (RFC 2822)
+            import email
+            from email.parser import BytesParser
+            
+            parser = BytesParser()
+            msg = parser.parsebytes(blob_data)
+            
+            # Extract basic email metadata and content
+            subject = msg.get('Subject', 'No Subject')
+            sender = msg.get('From', 'Unknown Sender')
+            recipient = msg.get('To', 'Unknown Recipient')
+            date = msg.get('Date', 'Unknown Date')
+            
+            # Extract email body
+            body = ""
+            if msg.is_multipart():
+                for part in msg.walk():
+                    if part.get_content_type() == "text/plain":
+                        body += part.get_content()
+                    elif part.get_content_type() == "text/html":
+                        # Basic HTML to text conversion
+                        html_content = part.get_content()
+                        import re
+                        # Remove HTML tags
+                        body += re.sub(r'<[^>]+>', '', html_content)
+            else:
+                body = msg.get_content()
+            
+            # Combine metadata and content
+            email_content = f"""
+Subject: {subject}
+From: {sender}
+To: {recipient}
+Date: {date}
+
+{body}
+            """.strip()
+            
+            return email_content
+            
+        elif file_type == 'msg':
+            # MSG files are Outlook's proprietary format
+            # Basic extraction - try to decode as much text as possible
+            text = blob_data.decode('utf-8', errors='ignore')
+            
+            # Look for common email patterns and extract readable text
+            import re
+            
+            # Try to find subject, sender, recipient patterns
+            email_parts = []
+            
+            # Extract any readable text (this is basic - MSG format is complex)
+            readable_text = re.sub(r'[^\x20-\x7E\n\r\t]', '', text)
+            readable_text = re.sub(r'\s+', ' ', readable_text)
+            
+            # Look for email-like patterns
+            subject_match = re.search(r'Subject:?\s*([^\n\r]+)', readable_text, re.IGNORECASE)
+            if subject_match:
+                email_parts.append(f"Subject: {subject_match.group(1).strip()}")
+            
+            from_match = re.search(r'From:?\s*([^\n\r]+)', readable_text, re.IGNORECASE)
+            if from_match:
+                email_parts.append(f"From: {from_match.group(1).strip()}")
+            
+            to_match = re.search(r'To:?\s*([^\n\r]+)', readable_text, re.IGNORECASE)
+            if to_match:
+                email_parts.append(f"To: {to_match.group(1).strip()}")
+            
+            # Add any substantial text content
+            if len(readable_text.strip()) > 50:
+                email_parts.append(f"Content: {readable_text.strip()[:2000]}")  # Limit to avoid too much noise
+            
+            return "\n".join(email_parts) if email_parts else f"Outlook message file (basic extraction: {readable_text[:500]})"
+        
+        return f"Email message file (format: {file_type})"
+        
+    except Exception as e:
+        print(f"  Error extracting {file_type.upper()} message: {e}")
+        return f"{file_type.upper()} message file (content extraction failed: {str(e)})"
+
+
 def should_skip_file(blob_name: str) -> bool:
-    """Check if file should be skipped based on extension."""
+    """Check if file should be skipped based on extension or path."""
     filename = blob_name.lower()
+    file_path = blob_name.lower()
+    
+    # Skip files in Trash folders (deleted files)
+    trash_folders = ['/trash/', '\\trash\\', '/recycle/', '\\recycle\\', '/.trash/', '\\.trash\\']
+    if any(trash_folder in file_path for trash_folder in trash_folders):
+        return True
     
     # Skip media files that don't contain searchable text
     skip_extensions = [
@@ -91,7 +306,9 @@ def should_skip_file(blob_name: str) -> bool:
         # Other binary/non-text files
         '.zip', '.rar', '.7z', '.tar', '.gz',
         '.exe', '.dll', '.bin', '.iso',
-        '.psd', '.ai', '.eps'
+        '.psd', '.ai', '.eps',
+        # Version control and placeholder files
+        '.keep'
     ]
     
     return any(filename.endswith(ext) for ext in skip_extensions)
@@ -101,14 +318,53 @@ def extract_document_content(blob_name: str, blob_data: bytes) -> str:
     """Extract content from document based on file extension."""
     filename = blob_name.lower()
     
+    # PDF files
     if filename.endswith('.pdf'):
         return extract_pdf_content(blob_data)
-    elif filename.endswith(('.docx', '.doc')):
+    
+    # Modern Office formats (Office 2007+)
+    elif filename.endswith('.docx'):
         return extract_docx_content(blob_data)
-    elif filename.endswith(('.txt', '.md', '.readme')):
+    elif filename.endswith(('.xlsx', '.xlsm')):
+        return extract_excel_content(blob_data)
+    elif filename.endswith(('.pptx', '.pptm')):
+        return extract_powerpoint_content(blob_data)
+    
+    # Legacy Office formats (Office 97-2003)
+    elif filename.endswith('.doc'):
+        return extract_legacy_office_content(blob_data, 'doc')
+    elif filename.endswith('.xls'):
+        return extract_legacy_office_content(blob_data, 'xls')
+    elif filename.endswith('.ppt'):
+        return extract_legacy_office_content(blob_data, 'ppt')
+    
+    # Other document formats
+    elif filename.endswith('.rtf'):
+        return extract_rtf_content(blob_data)
+    elif filename.endswith(('.odt', '.ods', '.odp')):  # OpenOffice/LibreOffice
+        return extract_legacy_office_content(blob_data, 'opendocument')
+    
+    # Email message files
+    elif filename.endswith('.eml'):
+        return extract_outlook_message_content(blob_data, 'eml')
+    elif filename.endswith('.msg'):
+        return extract_outlook_message_content(blob_data, 'msg')
+    
+    # Text-based files (including .txt which you specifically asked about)
+    elif filename.endswith(('.txt', '.md', '.readme', '.csv', '.json', '.xml', '.html', '.htm', 
+                           '.log', '.cfg', '.ini', '.yml', '.yaml', '.sql', '.py', '.js', '.css')):
         return extract_text_content(blob_data)
+    
     else:
-        # For other file types, return metadata description
+        # Try to extract as text first, fallback to metadata description
+        try:
+            text_content = extract_text_content(blob_data)
+            if text_content and len(text_content.strip()) > 10:
+                return text_content
+        except:
+            pass
+        
+        # Fallback to metadata description for truly unsupported files
         return f"File: {os.path.basename(blob_name)} (content extraction not supported for this file type)"
 
 
