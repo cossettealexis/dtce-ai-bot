@@ -76,6 +76,27 @@ def extract_text_content(blob_data: bytes) -> str:
             return ""
 
 
+def should_skip_file(blob_name: str) -> bool:
+    """Check if file should be skipped based on extension."""
+    filename = blob_name.lower()
+    
+    # Skip media files that don't contain searchable text
+    skip_extensions = [
+        # Video files
+        '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.mkv', '.m4v',
+        # Audio files
+        '.mp3', '.wav', '.flac', '.aac', '.ogg', '.wma', '.m4a',
+        # Image files
+        '.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.svg', '.webp', '.ico',
+        # Other binary/non-text files
+        '.zip', '.rar', '.7z', '.tar', '.gz',
+        '.exe', '.dll', '.bin', '.iso',
+        '.psd', '.ai', '.eps'
+    ]
+    
+    return any(filename.endswith(ext) for ext in skip_extensions)
+
+
 def extract_document_content(blob_name: str, blob_data: bytes) -> str:
     """Extract content from document based on file extension."""
     filename = blob_name.lower()
@@ -168,6 +189,12 @@ async def production_reindex():
         total_count += 1
         try:
             print(f"[{total_count}] {blob.name}")
+            
+            # Skip media files and other non-text files
+            if should_skip_file(blob.name):
+                print(f"  ⏭️  Skipping media/binary file")
+                skipped_count += 1
+                continue
             
             # Get blob metadata with retry
             blob_client = storage_client.get_blob_client(container=container_name, blob=blob.name)
