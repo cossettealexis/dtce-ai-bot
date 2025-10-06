@@ -15,6 +15,7 @@ from typing import List, Optional, Dict
 
 from ..services.document_qa import DocumentQAService
 from ..services.project_scoping import get_project_scoping_service
+from ..services.azure_rag_service_v2 import AzureRAGService
 
 logger = structlog.get_logger(__name__)
 
@@ -23,17 +24,29 @@ class DTCETeamsBot(ActivityHandler):
     """Microsoft Teams bot for DTCE AI Assistant."""
     
     def __init__(self, conversation_state: ConversationState, user_state: UserState, 
-                 search_client, qa_service: DocumentQAService):
+                 search_client, rag_service: AzureRAGService):
         self.conversation_state = conversation_state
         self.user_state = user_state
         self.search_client = search_client
-        self.qa_service = qa_service
+        self.rag_service = rag_service
         self.project_scoping_service = get_project_scoping_service()
+        self.qa_service = None  # Initialized on each turn
+
+    async def on_turn(self, turn_context: TurnContext):
+        # Initialize DocumentQAService for the current turn
+        if not self.qa_service:
+            self.qa_service = DocumentQAService(self.search_client, turn_context)
+        
+        await super().on_turn(turn_context)
+        
+        # Save any state changes that might have occurred during the turn.
+        await self.conversation_state.save_changes(turn_context, False)
+        await self.user_state.save_changes(turn_context, False)
 
     def _format_teams_text(self, text: str) -> str:
         """Format text for Teams to ensure proper line breaks and readability."""
         if not text:
-            return text
+            return ""
             
         # For Teams, we need to be very explicit about line breaks
         # Teams requires double line breaks for paragraph separation
@@ -112,38 +125,38 @@ class DTCETeamsBot(ActivityHandler):
                 await self._send_welcome_message(turn_context)
     
     async def on_message_activity(self, turn_context: TurnContext):
-        """Handle incoming messages and file attachments intelligently."""
-        
-        user_message = turn_context.activity.text.strip() if turn_context.activity.text else ""
-        has_attachments = bool(turn_context.activity.attachments)
-        user_name = turn_context.activity.from_property.name if turn_context.activity.from_property else "User"
-        
-        logger.info("Received Teams message", 
-                   user=user_name, 
-                   message=user_message, 
-                   has_attachments=has_attachments,
-                   attachment_count=len(turn_context.activity.attachments) if has_attachments else 0)
-        
-        # Scenario 1: BOTH text and attachments - Most intelligent handling
-        if has_attachments and user_message:
-            await self._handle_text_with_attachments(turn_context, user_message)
-            return
-        
-        # Scenario 2: ONLY attachments - Ask what to do with them
-        elif has_attachments and not user_message:
-            await self._handle_attachments_only(turn_context)
-            return
-        
-        # Scenario 3: ONLY text - Standard chat processing
-        elif user_message and not has_attachments:
-            await self._handle_text_only(turn_context, user_message)
-            return
-        
-        # Scenario 4: Neither text nor attachments
-        else:
-            await turn_context.send_activity("Please send a message or attach a document for analysis.")
-            return
+        """Handle incoming messages from users."""
+        user_input = turn_context.activity.text
+        logger.info("Received user message", user_input=user_input)
 
+        try:
+            # Use the new RAG V2 service for all queries
+            response = await self.rag_service.process_query(user_input)
+            
+            # Format and send the response
+            answer = response.get('answer', "I couldn't find an answer.")
+            sources = response.get('sources', [])
+            
+            if sources:
+                source_links = "\n\n**Sources:**\n" + "\n".join([f"- {s['filename']}" for s in sources])
+                answer += source_links
+            
+            await self._send_teams_message(turn_context, answer)
+
+        except Exception as e:
+            logger.error("Error during message processing", error=str(e))
+            await turn_context.send_activity(
+                MessageFactory.text(f"Sorry, I encountered an error: {e}")
+            )
+            
+    async def on_members_added_activity(
+        self, members_added: List[ChannelAccount], turn_context: TurnContext
+    ):
+        """Welcome new members."""
+        for member in members_added:
+            if member.id != turn_context.activity.recipient.id:
+                await self._send_welcome_message(turn_context)
+    
     async def _handle_text_only(self, turn_context: TurnContext, user_message: str):
         """Handle text-only messages (existing logic)."""
         
@@ -713,9 +726,3 @@ Please analyze the uploaded documents in context of the user's question. If the 
         except Exception as e:
             logger.error("Failed to format project scoping response", error=str(e))
             return f"Analysis completed but formatting failed: {str(e)}"
-
-    async def on_members_added_activity(self, members_added: List[ChannelAccount], turn_context: TurnContext):
-        """Welcome new members."""
-        for member in members_added:
-            if member.id != turn_context.activity.recipient.id:
-                await self._send_welcome_message(turn_context)

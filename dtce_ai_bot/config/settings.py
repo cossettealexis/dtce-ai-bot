@@ -21,8 +21,20 @@ class Settings(BaseSettings):
     api_port: int = 8000
     api_reload: bool = True
     cors_origins: List[str] = ["*"]
+
+    # Azure Search settings
+    azure_search_service_endpoint: str = ""
+    azure_search_index_name: str = ""
+    azure_search_api_key: str = ""
+    azure_search_admin_key: str = ""
+
+    # Azure OpenAI settings
+    azure_openai_endpoint: str = ""
+    azure_openai_api_key: str = ""
+    azure_openai_deployment_name: str = ""
+    azure_openai_deployment_name_mini: str = ""
     
-        # Bot Framework settings (Microsoft App registration)
+    # Bot Framework settings (Microsoft App registration)
     microsoft_app_id: str = ""
     microsoft_app_password: str = ""  
     microsoft_app_tenant_id: str = ""
@@ -98,78 +110,32 @@ class Settings(BaseSettings):
     azure_storage_container_name: str = "dtce-documents"
     
     # Azure Cognitive Search settings
-    azure_search_service_name: str = ""
-    azure_search_admin_key: str = ""
+    azure_search_service_endpoint: str = ""
     azure_search_index_name: str = "dtce-documents-index"
+    azure_search_api_key: str = ""
+    azure_search_api_version: str = "2023-11-01"
     
     # Azure OpenAI settings
     azure_openai_endpoint: str = ""
     azure_openai_api_key: str = ""
+    azure_openai_api_version: str = "2023-12-01-preview"
     azure_openai_deployment_name: str = "gpt-4"
-    azure_openai_api_version: str = "2024-02-01"
+    azure_openai_embedding_deployment: str = "text-embedding-ada-002"
     
-    # OpenAI settings (alternative to Azure OpenAI)
+    # Fallback OpenAI settings
     openai_api_key: str = ""
-    openai_model_name: str = "gpt-4-turbo-preview"
-    openai_max_tokens: int = 500
-    openai_temperature: float = 0.1
     
-    # Auto-update settings
-    auto_sync_interval_hours: int = 1
-    change_detection_enabled: bool = True
-    real_time_indexing: bool = True
-    
-    # Azure Form Recognizer settings
-    azure_form_recognizer_endpoint: str = ""
-    azure_form_recognizer_key: str = ""
-    
-    # Microsoft Graph API URLs (centralized configuration)
-    microsoft_graph_base_url: str = "https://graph.microsoft.com/v1.0"
-    microsoft_login_authority_base: str = "https://login.microsoftonline.com"
-    microsoft_graph_scope: str = "https://graph.microsoft.com/.default"
-    
-    # Azure Search URL template (centralized configuration)
-    azure_search_base_url: str = "https://{service_name}.search.windows.net"
-    
-    # Storage container names
-    azure_storage_container: str = "dtce-documents"
-    
-    # Processing settings
-    max_file_size_mb: int = 10
-    supported_file_types: List[str] = [
-        # Documents
-        ".pdf", ".docx", ".doc", ".txt", ".msg",
-        # Spreadsheets  
-        ".xlsx", ".xls", ".csv",
-        # Presentations
-        ".pptx", ".ppt",
-        # Images
-        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tiff", ".tif",
-        # CAD & Technical Drawings
-        ".dwg", ".dxf", ".dwf", ".svg",
-        # Data formats
-        ".json", ".xml",
-        # Archives
-        ".zip", ".rar", ".7z",
-        # Code/Scripts (existing)
-        ".py", ".js", ".ts", ".md"
-    ]
-    max_concurrent_processing: int = 5
-    
-    # Folder exclusion settings
-    excluded_folders: List[str] = [
-        "09_Photos", "Photos", "Christmas", "Awards", "Past events", 
-        "Company Culture", "Workplace Essentials", "Trash", "00_Superseded", "00_Superceded",
-        "0_SS", "00_SS", "Superseded", "Superceded", "Archive", "0_Archive"
-    ]
+    # Document Intelligence settings
+    azure_document_intelligence_endpoint: str = ""
+    azure_document_intelligence_key: str = ""
     
     class Config:
         env_file = ".env"
-        case_sensitive = False
-        extra = "allow"  # Allow extra fields from environment
+        env_file_encoding = "utf-8"
+        extra = "ignore"
 
 
 @lru_cache()
 def get_settings() -> Settings:
-    """Get cached application settings."""
+    """Returns a cached instance of the application settings."""
     return Settings()

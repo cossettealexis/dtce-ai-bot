@@ -3,17 +3,26 @@ Bot API endpoints for Teams integration.
 Version 1.0.2 - Fixed duplicate paths
 """
 
-from fastapi import APIRouter, Request, HTTPException
-from botbuilder.core import TurnContext, MemoryStorage, ConversationState, UserState, BotFrameworkAdapter, BotFrameworkAdapterSettings
+from botbuilder.core import (
+    BotFrameworkAdapter,
+    BotFrameworkAdapterSettings,
+    ConversationState,
+    UserState,
+    MemoryStorage,
+    TurnContext,
+)
 from botbuilder.schema import Activity
-import json
+from fastapi import APIRouter, Request, HTTPException
+from openai import AsyncAzureOpenAI
 import structlog
-import os
+
+from azure.core.credentials import AzureKeyCredential
+from azure.search.documents.aio import SearchClient
 
 from ..config.settings import get_settings
-from .teams_bot import DTCETeamsBot
-from ..integrations.azure_search import get_search_client
+from ..services.azure_rag_service_v2 import AzureRAGService
 from ..services.document_qa import DocumentQAService
+from .teams_bot import DTCETeamsBot
 
 logger = structlog.get_logger(__name__)
 router = APIRouter()
@@ -39,13 +48,39 @@ async def check_bot_config():
     
     return config_status
 
-# Initialize bot components
+# Initialize clients from settings
 settings = get_settings()
 
+# Use async clients for bot endpoints
+search_client_async = SearchClient(
+    endpoint=settings.azure_search_service_endpoint,
+    index_name=settings.azure_search_index_name,
+    credential=AzureKeyCredential(settings.azure_search_api_key)
+)
+
+openai_client_async = AsyncAzureOpenAI(
+    azure_endpoint=settings.azure_openai_endpoint,
+    api_key=settings.azure_openai_api_key,
+    api_version="2024-05-01-preview"
+)
+
+# Initialize the new RAG service
+rag_service = AzureRAGService(
+    search_client=search_client_async,
+    openai_client=openai_client_async,
+    model_name=settings.azure_openai_deployment_name,
+    intent_model_name=settings.azure_openai_deployment_name_mini  # Use the mini model for intent
+)
+
+# This is a legacy service, we will phase it out
+# For now, it can be used as a fallback or for specific simple QA
+# It must be initialized per-request, so we don't create it here.
+
+# Initialize bot components
 # Create adapter for Teams with proper authentication
 BOT_SETTINGS = BotFrameworkAdapterSettings(
     app_id=settings.microsoft_app_id,
-    app_password=settings.microsoft_app_password
+    app_password=settings.microsoft_app_password,
 )
 
 # Create adapter with proper Bot Framework authentication
@@ -69,47 +104,35 @@ MEMORY_STORAGE = MemoryStorage()
 CONVERSATION_STATE = ConversationState(MEMORY_STORAGE)
 USER_STATE = UserState(MEMORY_STORAGE)
 
-# Initialize bot components with error handling
-BOT = None
-SEARCH_CLIENT = None
-QA_SERVICE = None
+# Initialize bot instance
+BOT = DTCETeamsBot(
+    conversation_state=CONVERSATION_STATE, 
+    user_state=USER_STATE, 
+    search_client=search_client_async,
+    rag_service=rag_service
+)
 
-def initialize_bot_components():
-    """Initialize bot components with proper error handling"""
-    global BOT, SEARCH_CLIENT, QA_SERVICE
+
+@router.post("/messages")
+async def messages_endpoint(request: Request):
+    """Teams bot messaging endpoint."""
     
-    try:
-        logger.info("Initializing bot components...")
-        
-        # Initialize Azure Search client
-        logger.info("Initializing Azure Search client...")
-        SEARCH_CLIENT = get_search_client()
-        logger.info("Azure Search client initialized")
-        
-        # Initialize QA service  
-        logger.info("Initializing QA service...")
-        QA_SERVICE = DocumentQAService(SEARCH_CLIENT)
-        logger.info("QA service initialized")
-        
-        # Initialize Teams bot
-        logger.info("Initializing Teams bot...")
-        BOT = DTCETeamsBot(CONVERSATION_STATE, USER_STATE, SEARCH_CLIENT, QA_SERVICE)
-        logger.info("Teams bot initialized successfully")
-        
-        return True
-        
-    except Exception as e:
-        logger.error("Failed to initialize Teams bot", error=str(e), error_type=type(e).__name__)
-        BOT = None
-        SEARCH_CLIENT = None
-        QA_SERVICE = None
-        return False
+    if not BOT:
+        raise HTTPException(status_code=503, detail="Teams bot not available")
 
-# Try to initialize components, but don't fail if it doesn't work
-try:
-    initialize_bot_components()
-except Exception as e:
-    logger.error("Bot component initialization failed during module load", error=str(e))
+    try:
+        body = await request.json()
+        activity = Activity().deserialize(body)
+        auth_header = request.headers.get("Authorization", "")
+        
+        async def call_bot(turn_context: TurnContext):
+            await BOT.on_turn(turn_context)
+
+        await ADAPTER.process_activity(activity, auth_header, call_bot)
+        return {"status": "ok"}
+    except Exception as e:
+        logger.error(f"Error processing Teams message: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.options("/messages")
@@ -132,13 +155,10 @@ async def messages_endpoint(request: Request):
     try:
         logger.info("Received Teams message request")
         
-        # Try to initialize bot if not available
+        # Check if bot is available
         if not BOT:
-            logger.warning("Bot not initialized, attempting to initialize...")
-            if not initialize_bot_components():
-                logger.error("Bot initialization failed")
-                return {"status": "error", "message": "Teams bot unavailable - initialization failed"}
-            logger.info("Bot initialized successfully on demand")
+            logger.error("Bot is not initialized.")
+            raise HTTPException(status_code=503, detail="Teams bot is not available.")
         
         # Check content type
         content_type = request.headers.get("Content-Type", "")
@@ -169,7 +189,7 @@ async def messages_endpoint(request: Request):
         # Define bot callback
         async def call_bot(turn_context: TurnContext):
             try:
-                await BOT.on_message_activity(turn_context)
+                await BOT.on_turn(turn_context)
                 logger.info("Bot processing completed successfully")
             except Exception as e:
                 logger.error(f"Bot processing failed: {e}")
@@ -177,11 +197,86 @@ async def messages_endpoint(request: Request):
         
         # Process activity with adapter
         try:
-            # TEMPORARILY BYPASS AUTH for debugging - this will be removed
-            if not auth_header.startswith("Bearer "):
-                logger.warning("No proper auth header - this is for debugging only")
-                return {"status": "error", "message": "Authentication required"}
-            
+            await ADAPTER.process_activity(activity, auth_header, call_bot)
+            logger.info("Activity processed successfully")
+            return {"status": "ok"}
+        except Exception as e:
+            logger.error(f"Adapter processing failed: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            # Return 200 but log the error - Teams expects 200 for most errors
+            return {"status": "error", "message": str(e)}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Unexpected error in messages endpoint: {e}")
+        logger.error(f"Error type: {type(e).__name__}")
+        # Return 200 to prevent 502 errors in Teams
+        return {"status": "error", "message": "Internal server error"}
+
+
+@router.options("/messages")
+async def messages_options_endpoint(request: Request):
+    """Handle OPTIONS requests for CORS preflight."""
+    return {"message": "CORS preflight handled"}
+
+@router.get("/messages")
+async def messages_get_endpoint(request: Request):
+    """Handle GET requests to messages endpoint - for debugging."""
+    logger.info("Received GET request to /messages endpoint")
+    logger.info(f"Headers: {dict(request.headers)}")
+    logger.info(f"Query params: {dict(request.query_params)}")
+    return {"message": "Messages endpoint is available", "method": "GET", "supported_methods": ["POST"]}
+
+@router.post("/messages")
+async def messages_endpoint(request: Request):
+    """Teams bot messaging endpoint."""
+    
+    try:
+        logger.info("Received Teams message request")
+        
+        # Check if bot is available
+        if not BOT:
+            logger.error("Bot is not initialized.")
+            raise HTTPException(status_code=503, detail="Teams bot is not available.")
+        
+        # Check content type
+        content_type = request.headers.get("Content-Type", "")
+        if "application/json" not in content_type:
+            logger.error(f"Invalid content type: {content_type}")
+            raise HTTPException(status_code=400, detail="Invalid content type")
+        
+        # Get request body
+        try:
+            body = await request.json()
+            logger.info("Request body received", body_type=type(body).__name__)
+        except Exception as e:
+            logger.error(f"Failed to parse JSON body: {e}")
+            raise HTTPException(status_code=400, detail="Invalid JSON body")
+        
+        # Create activity
+        try:
+            activity = Activity().deserialize(body)
+            logger.info("Activity created", activity_type=activity.type)
+        except Exception as e:
+            logger.error(f"Failed to deserialize activity: {e}")
+            raise HTTPException(status_code=400, detail="Invalid activity format")
+        
+        # Get auth header
+        auth_header = request.headers.get("Authorization", "")
+        logger.info("Processing activity", has_auth=bool(auth_header))
+        
+        # Define bot callback
+        async def call_bot(turn_context: TurnContext):
+            try:
+                await BOT.on_turn(turn_context)
+                logger.info("Bot processing completed successfully")
+            except Exception as e:
+                logger.error(f"Bot processing failed: {e}")
+                raise
+        
+        # Process activity with adapter
+        try:
             await ADAPTER.process_activity(activity, auth_header, call_bot)
             logger.info("Activity processed successfully")
             return {"status": "ok"}

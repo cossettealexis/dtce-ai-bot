@@ -50,7 +50,7 @@ dependencies = [
     "openpyxl>=3.1.2",
     "python-dotenv>=1.0.0",
     "pydantic>=2.5.0",
-    "pydantic-settings>=2.1.0",
+    "pydantic-settings[dotenv]>=2.1.0",
     "structlog>=23.2.0",
     "rich>=13.7.0"
 ]

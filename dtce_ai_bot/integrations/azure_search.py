@@ -15,10 +15,25 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def get_search_endpoint() -> str:
+    """Construct the search endpoint from settings."""
+    settings = get_settings()
+    # Allow direct endpoint override
+    if settings.azure_search_service_endpoint:
+        return settings.azure_search_service_endpoint
+    # Construct from service name if available
+    if hasattr(settings, 'azure_search_service_name') and settings.azure_search_service_name:
+        base_url = getattr(settings, 'azure_search_base_url', "https://{service_name}.search.windows.net")
+        return base_url.format(service_name=settings.azure_search_service_name)
+    return ""
+
+
 def get_search_client() -> SearchClient:
     """Get Azure Search client."""
     settings = get_settings()
-    endpoint = settings.azure_search_base_url.format(service_name=settings.azure_search_service_name)
+    endpoint = get_search_endpoint()
+    if not endpoint:
+        raise ValueError("Azure Search endpoint is not configured.")
     return SearchClient(
         endpoint=endpoint,
         index_name=settings.azure_search_index_name,
@@ -29,7 +44,9 @@ def get_search_client() -> SearchClient:
 def get_search_index_client() -> SearchIndexClient:
     """Get Azure Search Index Management client."""
     settings = get_settings()
-    endpoint = settings.azure_search_base_url.format(service_name=settings.azure_search_service_name)
+    endpoint = get_search_endpoint()
+    if not endpoint:
+        raise ValueError("Azure Search endpoint is not configured.")
     return SearchIndexClient(
         endpoint=endpoint,
         credential=AzureKeyCredential(settings.azure_search_admin_key)

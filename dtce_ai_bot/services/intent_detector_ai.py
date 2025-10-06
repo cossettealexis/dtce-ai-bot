@@ -53,9 +53,10 @@ class IntentDetector:
         }
     }
     
-    def __init__(self, openai_client: AsyncAzureOpenAI, model_name: str):
+    def __init__(self, openai_client: AsyncAzureOpenAI, model_name: str, max_retries: int = 3):
         """Initialize intent detector with OpenAI client."""
         self.openai_client = openai_client
+        self.openai_client.max_retries = max_retries
         self.model_name = model_name
     
     async def classify_intent(self, user_query: str) -> str:
@@ -157,55 +158,83 @@ Output ONLY the category name (e.g., "Project" or "Policy" or "General_Knowledge
     def build_search_filter(self, intent: str, user_query: str) -> Optional[str]:
         """
         Step 2.3: Dynamic Filter Construction
-        Builds OData filter based on intent and extracted metadata.
-        
+        Builds a robust OData filter based on the CORRECT folder structure:
+        Projects/{YEAR_CODE}/{JOB_NUMBER}. Uses range queries for folder scoping.
+
         Returns: OData filter string or None (for General_Knowledge)
         """
         category = self.CATEGORIES.get(intent)
-        if not category or category["folder_field"] is None:
-            return None  # No filter for General_Knowledge
-        
-        # Special handling for Project intent
+        if not category or not category.get("folder_field"):
+            logger.info("No folder-based filter needed for intent", intent=intent)
+            return None
+
+        def get_upper_bound(path: str) -> str:
+            """Calculates the upper bound for a 'startswith' range query."""
+            if not path: return ""
+            parts = path.split('/')
+            last_part = parts[-1]
+            if last_part.isdigit():
+                try:
+                    incremented = str(int(last_part) + 1)
+                    return '/'.join(parts[:-1] + [incremented])
+                except (ValueError, IndexError): pass
+            return path[:-1] + chr(ord(path[-1]) + 1)
+
+        # --- Project Intent Logic ---
         if intent == "Project":
             project_meta = self.extract_project_metadata(user_query)
             if project_meta:
-                if "job_number" in project_meta:
-                    # Specific job number
-                    job_num = project_meta["job_number"]
-                    filter_str = f"search.ismatch('{job_num}', 'folder,project_name', 'full', 'any')"
-                    logger.info("Built project filter", filter=filter_str, job_number=job_num)
+                project_code = project_meta.get("year") # This is the PROJECT_CODE, e.g., '225'
+                job_num = project_meta.get("job_number")
+
+                # Case 1: Specific 6-digit job number found (e.g., 225221)
+                if job_num and project_code:
+                    # Correct Path: Projects/{PROJECT_CODE}/{JOB_NUMBER}
+                    base_path = f"Projects/{project_code}/{job_num}"
+                    upper_bound = get_upper_bound(base_path)
+                    # e.g., folder ge 'Projects/225/225221/' and folder lt 'Projects/225/225222'
+                    filter_str = f"folder ge '{base_path}/' and folder lt '{upper_bound}'"
+                    logger.info("Built specific project job filter", filter=filter_str)
                     return filter_str
-                elif "year" in project_meta:
-                    # Year code - search all projects from that year
-                    year = project_meta["year"]
-                    filter_str = f"search.ismatch('{year}*', 'folder,project_name', 'full', 'any')"
-                    logger.info("Built year filter", filter=filter_str, year=year)
+
+                # Case 2: Only a 3-digit project code found (e.g., 225)
+                elif project_code:
+                    # This is a broad query for a project code. Instead of a folder path,
+                    # it's more reliable to filter by the 'project_name' field directly.
+                    filter_str = f"project_name eq '{project_code}'"
+                    logger.info("Built project_name filter for broad project query", filter=filter_str)
                     return filter_str
             
-            # Fallback: search all project folders
-            filter_str = "search.ismatch('Projects', 'folder', 'full', 'any')"
-            logger.info("Built generic project filter", filter=filter_str)
-            return filter_str
-        
-        # Special handling for Client intent
+            # Fallback for when metadata extraction fails but intent is 'Project'
+            logger.warning("Project intent detected but no specific metadata extracted, creating final fallback.", query=user_query)
+            project_code_match = re.search(r'\b(2[0-9]{2})\b', user_query)
+            if project_code_match:
+                project_code = project_code_match.group(1)
+                filter_str = f"project_name eq '{project_code}'"
+                logger.info("Built final fallback project_name filter", filter=filter_str)
+                return filter_str
+
+            return None # No filter if no metadata can be extracted
+
+        # --- Client Intent Logic ---
         if intent == "Client":
             client_name = self.extract_client_name(user_query)
+            base_filter = "folder ge 'Clients/' and folder lt 'Clients~'"
             if client_name:
-                filter_str = f"search.ismatch('Clients', 'folder', 'full', 'any') and search.ismatch('{client_name}', 'content,project_name', 'full', 'any')"
-                logger.info("Built client filter", filter=filter_str, client_name=client_name)
+                filter_str = f"({base_filter}) and search.ismatch('{client_name}', 'content, project_name', 'full', 'any')"
+                logger.info("Built client-specific filter", filter=filter_str)
                 return filter_str
             
-            # Fallback: search all client folders
-            filter_str = "search.ismatch('Clients', 'folder', 'full', 'any')"
-            return filter_str
-        
-        # Standard folder filtering for Policy, Procedure, Standards
-        folder_values = category["folder_values"]
+            logger.info("Built generic client filter, scoping to Clients folder.")
+            return base_filter
+
+        # --- Standard Category Logic (Policy, Procedure, Standards) ---
+        folder_values = category.get("folder_values")
         if folder_values:
-            # Build search.ismatch with OR logic
-            folders_pattern = "|".join(folder_values)
-            filter_str = f"search.ismatch('{folders_pattern}', 'folder', 'full', 'any')"
-            logger.info("Built folder filter", intent=intent, filter=filter_str)
+            or_clauses = [f"(folder ge '{val}/' and folder lt '{val}~')" for val in folder_values]
+            filter_str = " or ".join(or_clauses)
+            logger.info("Built standard folder filter (range)", intent=intent, filter=filter_str)
             return filter_str
-        
+
+        logger.warning("Could not build filter for intent", intent=intent)
         return None

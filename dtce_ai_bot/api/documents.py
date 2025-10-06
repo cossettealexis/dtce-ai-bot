@@ -370,12 +370,21 @@ async def index_document(
         
         if folder_path:
             path_parts = folder_path.split("/")
-            # Try to extract project info from path structure
+            # New logic: if 'Projects' is in the path, the next part is the project name.
+            if "Projects" in path_parts:
+                try:
+                    project_folder_index = path_parts.index("Projects")
+                    if project_folder_index + 1 < len(path_parts):
+                        project_name = path_parts[project_folder_index + 1]
+                        logger.info("Extracted project name from path", project_name=project_name, folder_path=folder_path)
+                except (ValueError, IndexError):
+                    logger.warning("Could not extract project name after 'Projects' folder", folder_path=folder_path)
+            
+            # Fallback to find year if it exists
             for part in path_parts:
-                if part.isdigit() and len(part) == 4:  # Year
+                if part.isdigit() and len(part) == 4:
                     year = int(part)
-                elif part and not part.startswith("."):  # Potential project name
-                    project_name = part
+                    break # Assume first 4-digit number is the year
         
         # Prepare document for indexing - sanitize document ID for Azure Search
         import re

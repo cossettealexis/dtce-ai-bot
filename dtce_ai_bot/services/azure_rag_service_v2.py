@@ -12,7 +12,8 @@ Architecture (following best practices):
 import json
 import structlog
 from typing import List, Dict, Any, Optional
-from azure.search.documents import SearchClient
+from azure.core.credentials import AzureKeyCredential
+from azure.search.documents.aio import SearchClient
 from azure.search.documents.models import VectorizedQuery
 from openai import AsyncAzureOpenAI
 from .intent_detector_ai import IntentDetector
@@ -31,20 +32,23 @@ class AzureRAGService:
     4. Answer Synthesis: Generate natural, citation-backed responses
     """
     
-    def __init__(self, search_client: SearchClient, openai_client: AsyncAzureOpenAI, model_name: str):
+    def __init__(self, search_client: SearchClient, openai_client: AsyncAzureOpenAI, model_name: str, intent_model_name: str, max_retries: int = 3):
         """
         Initialize RAG service with Azure clients.
         
         Args:
-            search_client: Azure AI Search client
+            search_client: Azure AI Search async client
             openai_client: Azure OpenAI async client
-            model_name: GPT model name (e.g., "gpt-4o")
+            model_name: GPT model name for answer synthesis (e.g., "gpt-4o")
+            intent_model_name: GPT model for intent classification (e.g., "gpt-4o-mini")
+            max_retries: The maximum number of retries for OpenAI API calls.
         """
         self.search_client = search_client
         self.openai_client = openai_client
+        self.openai_client.max_retries = max_retries
         self.model_name = model_name
         self.embedding_model = "text-embedding-3-small"  # Azure OpenAI embedding deployment
-        self.intent_detector = IntentDetector(openai_client, model_name)
+        self.intent_detector = IntentDetector(openai_client, intent_model_name, max_retries)
         
     async def process_query(self, user_query: str, conversation_history: List[Dict] = None) -> Dict[str, Any]:
         """
@@ -86,7 +90,7 @@ class AzureRAGService:
             # STEP 4: Answer Synthesis
             answer = await self._synthesize_answer(
                 user_query=user_query,
-                search_results=search_results,
+                search_results=search_results[:3], # Use only the top 3 results to avoid context overload
                 conversation_history=conversation_history,
                 intent=intent
             )
@@ -147,7 +151,7 @@ class AzureRAGService:
                 "query_type": "semantic",  # Enable semantic ranking
                 "semantic_configuration_name": "default",  # Use default semantic config
                 "top": top_k,
-                "select": ["content", "filename", "folder", "project_name", "chunk_id"],  # Only retrieve needed fields
+                                "select": ["content", "filename", "folder", "project_name"],  # Only retrieve needed fields,  # Only retrieve needed fields
                 "include_total_count": True
             }
             
@@ -157,11 +161,11 @@ class AzureRAGService:
                 logger.info("Applying search filter", filter=filter_str)
             
             # Execute hybrid search
-            search_results = self.search_client.search(**search_params)
+            search_results_paged = await self.search_client.search(**search_params)
             
             # Process results
             results = []
-            for result in search_results:
+            async for result in search_results_paged:
                 content = result.get('content', '')
                 
                 # Log if content is minimal (placeholder documents)
@@ -175,7 +179,6 @@ class AzureRAGService:
                     'filename': result.get('filename', 'Unknown Document'),
                     'folder': result.get('folder', ''),
                     'project_name': result.get('project_name', ''),
-                    'chunk_id': result.get('chunk_id', ''),
                     'search_score': result.get('@search.score', 0),
                     'reranker_score': result.get('@search.reranker_score', 0)
                 })
@@ -332,7 +335,7 @@ class RAGOrchestrator:
     Main RAG orchestrator for managing conversation sessions and processing questions.
     """
     
-    def __init__(self, search_client: SearchClient, openai_client: AsyncAzureOpenAI, model_name: str):
+    def __init__(self, search_client: SearchClient, openai_client: AsyncAzureOpenAI, model_name: str, max_retries: int = 3):
         """
         Initialize orchestrator with Azure clients.
         
@@ -340,8 +343,9 @@ class RAGOrchestrator:
             search_client: Azure AI Search client
             openai_client: Azure OpenAI async client
             model_name: GPT model name
+            max_retries: The maximum number of retries for OpenAI API calls.
         """
-        self.rag_service = AzureRAGService(search_client, openai_client, model_name)
+        self.rag_service = AzureRAGService(search_client, openai_client, model_name, max_retries)
         self.conversation_history = {}  # Store by session_id
         
     async def process_question(self, question: str, session_id: str = "default") -> Dict[str, Any]:
