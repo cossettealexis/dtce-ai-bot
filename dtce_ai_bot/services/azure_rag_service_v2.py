@@ -166,7 +166,7 @@ class AzureRAGService:
                 "query_type": "semantic",  # Enable semantic ranking
                 "semantic_configuration_name": "default",  # Use default semantic config
                 "top": top_k,
-                                "select": ["content", "filename", "folder", "project_name"],  # Only retrieve needed fields,  # Only retrieve needed fields
+                "select": ["content", "filename", "folder", "project_name", "blob_url"],  # Include blob_url for SuiteFiles conversion
                 "include_total_count": True
             }
             
@@ -340,8 +340,8 @@ Example of a good response when information is missing:
 
 Example of correct source format:
 SOURCES:
-- Safety Manual (Health and Safety) [Open Link](https://dtce.sharepoint.com/sites/SuiteFiles/HR/Safety_Manual.pdf)
-- Project Guidelines (Templates) [Open Link](https://dtce.sharepoint.com/sites/SuiteFiles/Templates/Guidelines.docx)"""
+- Safety Manual (Health and Safety) [Open Link](https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/HR/Safety_Manual.pdf)
+- Project Guidelines (Templates) [Open Link](https://donthomson.sharepoint.com/sites/suitefiles/AppPages/documents.aspx#/Templates/Guidelines.docx)"""
 
             # Build conversation context separately to avoid f-string backslash issues
             conversation_section = ""
