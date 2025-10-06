@@ -297,11 +297,15 @@ SOURCES:
 2. [filename] ([folder])
 [etc.]"""
 
+            # Build conversation context separately to avoid f-string backslash issues
+            conversation_section = ""
+            if conversation_context:
+                conversation_section = f"Previous Conversation:\n{conversation_context}\n"
+            
             user_prompt = f"""Context from DTCE Knowledge Base:
 {context}
 
-{f"Previous Conversation:\n{conversation_context}\n" if conversation_context else ""}
-User Query: "{user_query}"
+{conversation_section}User Query: "{user_query}"
 
 Please answer the user's question using ONLY the information from the provided context."""
 
