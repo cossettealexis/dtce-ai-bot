@@ -166,7 +166,7 @@ class AzureRAGService:
                 "query_type": "semantic",  # Enable semantic ranking
                 "semantic_configuration_name": "default",  # Use default semantic config
                 "top": top_k,
-                "select": ["content", "filename", "folder", "project_name", "blob_url"],  # Include blob_url for SuiteFiles conversion
+                "select": ["content", "filename", "folder", "project_name", "blob_url", "blob_name"],  # Include blob_name for full path
                 "include_total_count": True
             }
             
@@ -274,14 +274,21 @@ class AzureRAGService:
                 filename = result.get('filename', 'Unknown')
                 folder = result.get('folder', '')
                 blob_url = result.get('blob_url', '')
+                blob_name = result.get('blob_name', '')
                 
                 # Get SuiteFiles URL for this document
                 suitefiles_url = ""
                 if blob_url:
-                    # Use folder and filename info to construct proper SharePoint path
+                    # Extract proper folder path from blob_name if available
+                    actual_folder_path = folder
+                    if blob_name and '/' in blob_name:
+                        # Extract folder path from full blob name (more accurate)
+                        actual_folder_path = blob_name.rsplit('/', 1)[0]
+                    
+                    # Use actual folder path and filename to construct proper SharePoint path
                     suitefiles_url = suitefiles_converter.get_safe_suitefiles_url(
                         blob_url, 
-                        folder_path=folder, 
+                        folder_path=actual_folder_path, 
                         filename=filename
                     ) or ""
                 
