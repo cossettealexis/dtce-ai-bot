@@ -278,7 +278,12 @@ class AzureRAGService:
                 # Get SuiteFiles URL for this document
                 suitefiles_url = ""
                 if blob_url:
-                    suitefiles_url = suitefiles_converter.get_safe_suitefiles_url(blob_url) or ""
+                    # Use folder and filename info to construct proper SharePoint path
+                    suitefiles_url = suitefiles_converter.get_safe_suitefiles_url(
+                        blob_url, 
+                        folder_path=folder, 
+                        filename=filename
+                    ) or ""
                 
                 # Use more generous truncation - try to get meaningful content
                 # Take both the beginning and end of the document to catch key info

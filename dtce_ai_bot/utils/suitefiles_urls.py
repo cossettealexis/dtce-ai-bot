@@ -19,13 +19,15 @@ class SuiteFilesUrlConverter:
         self.sharepoint_base = "https://donthomson.sharepoint.com"
         self.site_path = "/sites/suitefiles"
         
-    def convert_blob_to_suitefiles_url(self, blob_url: str, link_type: str = "file") -> Optional[str]:
+    def convert_blob_to_suitefiles_url(self, blob_url: str, link_type: str = "file", folder_path: str = None, filename: str = None) -> Optional[str]:
         """
         Convert Azure blob URL to SharePoint SuiteFiles URL.
         
         Args:
             blob_url: Azure blob storage URL
             link_type: Type of link ('file' for direct file, 'folder' for folder view)
+            folder_path: Optional folder path from search index (more accurate than blob URL path)
+            filename: Optional filename from search index
             
         Returns:
             SharePoint SuiteFiles URL or None if conversion fails
@@ -34,20 +36,31 @@ class SuiteFilesUrlConverter:
             return None
             
         try:
-            # Extract the path from blob URL - support both suitefiles and dtce-documents containers
-            path_match = re.search(r'/(suitefiles|dtce-documents)/(.+)', blob_url, re.IGNORECASE)
-            if not path_match:
-                logger.warning("No 'suitefiles' or 'dtce-documents' path found in blob URL", blob_url=blob_url)
-                return None
+            # If we have folder_path and filename from search index, use those (more accurate)
+            if folder_path and filename:
+                # Construct the SharePoint path from folder + filename
+                if folder_path.endswith('/'):
+                    clean_path = f"{folder_path}{filename}"
+                else:
+                    clean_path = f"{folder_path}/{filename}"
+                logger.debug("Using folder_path + filename for SharePoint URL", 
+                           folder_path=folder_path, filename=filename)
+            else:
+                # Fallback to extracting path from blob URL
+                path_match = re.search(r'/(suitefiles|dtce-documents)/(.+)', blob_url, re.IGNORECASE)
+                if not path_match:
+                    logger.warning("No 'suitefiles' or 'dtce-documents' path found in blob URL", blob_url=blob_url)
+                    return None
+                    
+                path_after_container = path_match.group(2)
                 
-            path_after_container = path_match.group(2)
-            
-            # Remove query parameters
-            if "?" in path_after_container:
-                path_after_container = path_after_container.split("?")[0]
-                
-            # URL decode the path
-            clean_path = unquote(path_after_container)
+                # Remove query parameters
+                if "?" in path_after_container:
+                    path_after_container = path_after_container.split("?")[0]
+                    
+                # URL decode the path
+                clean_path = unquote(path_after_container)
+                logger.debug("Using blob URL path for SharePoint URL", clean_path=clean_path)
             
             # Build SharePoint URL
             if link_type == "folder":
@@ -77,13 +90,15 @@ class SuiteFilesUrlConverter:
                         blob_url=blob_url, error=str(e))
             return None
     
-    def get_safe_suitefiles_url(self, blob_url: str, link_type: str = "file") -> Optional[str]:
+    def get_safe_suitefiles_url(self, blob_url: str, link_type: str = "file", folder_path: str = None, filename: str = None) -> Optional[str]:
         """
         Get SuiteFiles URL with fallback to original blob URL if conversion fails.
         
         Args:
             blob_url: Azure blob storage URL
             link_type: Type of link ('file' for direct file, 'folder' for folder view)
+            folder_path: Optional folder path from search index
+            filename: Optional filename from search index
             
         Returns:
             SharePoint SuiteFiles URL or original blob URL as fallback
@@ -91,7 +106,7 @@ class SuiteFilesUrlConverter:
         if not blob_url:
             return None
             
-        suitefiles_url = self.convert_blob_to_suitefiles_url(blob_url, link_type)
+        suitefiles_url = self.convert_blob_to_suitefiles_url(blob_url, link_type, folder_path, filename)
         
         if suitefiles_url:
             return suitefiles_url
