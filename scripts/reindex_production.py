@@ -165,32 +165,47 @@ def extract_pdf_content_pymupdf(blob_data: bytes) -> str:
         return None
         
     try:
-        doc = fitz.open(stream=blob_data, filetype="pdf")
+        # Suppress PyMuPDF warnings and error messages
+        import sys
+        import os
+        from contextlib import redirect_stderr, redirect_stdout
+        
+        # Redirect stderr to suppress PyMuPDF error messages
+        with redirect_stderr(open(os.devnull, 'w')), redirect_stdout(open(os.devnull, 'w')):
+            doc = fitz.open(stream=blob_data, filetype="pdf")
+        
         text_content = ""
         pages_with_text = 0
         total_chars_extracted = 0
         
         for page_num in range(len(doc)):
-            page = doc[page_num]
-            page_text = page.get_text()
-            
-            if page_text and page_text.strip():
-                cleaned_text = clean_extracted_text(page_text)
-                if len(cleaned_text) > 10:
-                    text_content += f"\n--- Page {page_num + 1} ---\n{cleaned_text}"
-                    pages_with_text += 1
-                    total_chars_extracted += len(cleaned_text)
+            try:
+                # Suppress individual page errors too
+                with redirect_stderr(open(os.devnull, 'w')):
+                    page = doc[page_num]
+                    page_text = page.get_text()
+                
+                if page_text and page_text.strip():
+                    cleaned_text = clean_extracted_text(page_text)
+                    if len(cleaned_text) > 10:
+                        text_content += f"\n--- Page {page_num + 1} ---\n{cleaned_text}"
+                        pages_with_text += 1
+                        total_chars_extracted += len(cleaned_text)
+            except Exception:
+                # Skip problematic pages silently
+                continue
         
         doc.close()
         
         if pages_with_text > 0:
-            print(f"  ✅ PyMuPDF extracted text from {pages_with_text}/{len(doc)} pages ({total_chars_extracted} characters)")
+            print(f"  ✅ PyMuPDF extracted text from {pages_with_text} pages ({total_chars_extracted} characters)")
             return text_content.strip()
         else:
+            print(f"  ⚠️  PyMuPDF found no extractable text (corrupted PDF or all images)")
             return None
             
     except Exception as e:
-        print(f"  Warning: PyMuPDF extraction failed: {e}")
+        print(f"  ⚠️  PyMuPDF extraction failed - PDF may be corrupted, trying other methods...")
         return None
 
 
@@ -220,6 +235,8 @@ def is_likely_scanned_pdf(blob_data: bytes) -> bool:
 def extract_pdf_content(blob_data: bytes, form_recognizer_client=None) -> str:
     """Extract text content from PDF blob data with intelligent method selection."""
     
+    print(f"  📄 Analyzing PDF ({len(blob_data)//1024}KB)...")
+    
     # Strategy 1: For likely scanned documents, try Form Recognizer first if available
     if form_recognizer_client and is_likely_scanned_pdf(blob_data):
         print(f"  🔍 Detected likely scanned PDF - prioritizing Form Recognizer...")
@@ -233,6 +250,8 @@ def extract_pdf_content(blob_data: bytes, form_recognizer_client=None) -> str:
         pymupdf_result = extract_pdf_content_pymupdf(blob_data)
         if pymupdf_result and len(pymupdf_result.strip()) > 50:
             return pymupdf_result
+        elif pymupdf_result is None:
+            print(f"  ⚠️  PyMuPDF couldn't extract text - PDF may be corrupted or image-based")
     
     # Strategy 3: Try PyPDF2 as backup
     print(f"  📄 Trying PyPDF2 extraction...")
