@@ -10,6 +10,7 @@ import sys
 import time
 import threading
 from datetime import datetime
+from dotenv import load_dotenv
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -141,6 +142,10 @@ def run_parallel_reindexing():
 
 def check_requirements():
     """Check if all required environment variables are set."""
+    # Load environment variables first
+    from dotenv import load_dotenv
+    load_dotenv()
+    
     required_vars = [
         "AZURE_STORAGE_CONNECTION_STRING",
         "AZURE_SEARCH_SERVICE_ENDPOINT", 
@@ -151,8 +156,11 @@ def check_requirements():
     
     missing_vars = []
     for var in required_vars:
-        if not os.getenv(var):
+        value = os.getenv(var)
+        if not value:
             missing_vars.append(var)
+        else:
+            print(f"✅ {var}: {'*' * min(10, len(value))}...")
     
     if missing_vars:
         print("❌ Missing required environment variables:")
