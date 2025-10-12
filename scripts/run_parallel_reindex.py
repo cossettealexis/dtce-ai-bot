@@ -39,19 +39,29 @@ class ScriptRunner:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                bufsize=1,
+                bufsize=0,  # Unbuffered
                 universal_newlines=True
             )
             
-            # Read output in real-time
-            for line in iter(self.process.stdout.readline, ''):
+            # Read output in real-time and print immediately
+            while True:
+                line = self.process.stdout.readline()
+                if not line:
+                    break
+                line = line.strip()
                 if line:
-                    self.output.append(line.strip())
-                    print(f"[{self.description}] {line.strip()}")
+                    self.output.append(line)
+                    print(f"[{self.description[:4]}] {line}")
+                    sys.stdout.flush()  # Force immediate output
             
             self.process.wait()
             self.return_code = self.process.returncode
             self.end_time = time.time()
+            
+            if self.return_code == 0:
+                print(f"✅ {self.description} completed successfully!")
+            else:
+                print(f"❌ {self.description} failed with exit code {self.return_code}")
             
         except Exception as e:
             print(f"❌ Error running {self.description}: {e}")
@@ -70,6 +80,17 @@ class ScriptRunner:
 
 def run_parallel_reindexing():
     """Run all reindexing scripts in parallel."""
+    # Load environment variables first
+    load_dotenv()
+    
+    # Debug: Check if environment variables are loaded
+    connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+    if connection_string:
+        print(f"✅ Environment loaded - Storage: {connection_string[:30]}...")
+    else:
+        print("❌ Environment variables not loaded!")
+        return
+    
     print("🔥 PARALLEL REINDEXING - MAXIMUM SPEED MODE")
     print("=" * 80)
     print(f"Started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -80,6 +101,7 @@ def run_parallel_reindexing():
         ScriptRunner("reindex_pdfs.py", "PDF Files"),
         ScriptRunner("reindex_word.py", "Word Documents"),
         ScriptRunner("reindex_emails.py", "Email Files"),
+        ScriptRunner("reindex_excel.py", "Excel Files"),
         ScriptRunner("reindex_text.py", "Text Files"),
     ]
     
@@ -180,7 +202,8 @@ def show_usage():
     print("• 📄 PDF files (.pdf)")
     print("• 📝 Word documents (.docx, .doc)")
     print("• 📧 Email files (.msg, .eml)")
-    print("• 📄 Text files (.txt, .csv, .json, etc.)")
+    print("• � Excel files (.xlsx, .xls)")
+    print("• �📄 Text files (.txt, .csv, .json, etc.)")
     print()
     print("Benefits:")
     print("✅ Much faster than sequential processing")
