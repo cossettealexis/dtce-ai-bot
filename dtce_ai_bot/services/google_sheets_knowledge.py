@@ -208,16 +208,22 @@ class GoogleSheetsKnowledgeService:
             # Method 4: Key phrase matching (for questions about similar topics)
             key_phrases_match = 0.0
             # Extract potential key phrases - expanded list
-            key_words = ['ps1', 'template', 'payroll', 'dispute', 'file', 'submit', 'concern', 'find', 'where']
+            key_words = ['ps1', 'template', 'templates', 'payroll', 'dispute', 'file', 'submit', 'concern', 'find', 'where']
             found_keys1 = [word for word in key_words if word in norm_text1]
             found_keys2 = [word for word in key_words if word in norm_text2]
+            
+            # Handle singular/plural forms
+            if 'template' in norm_text1 and 'templates' in norm_text2:
+                found_keys1.append('templates')
+            if 'templates' in norm_text1 and 'template' in norm_text2:
+                found_keys2.append('template')
             
             if found_keys1 and found_keys2:
                 key_intersection = set(found_keys1).intersection(set(found_keys2))
                 if key_intersection:
                     key_phrases_match = len(key_intersection) / max(len(found_keys1), len(found_keys2))
                     # Boost key phrase matching for important terms
-                    if any(key in key_intersection for key in ['ps1', 'payroll', 'template']):
+                    if any(key in key_intersection for key in ['ps1', 'payroll', 'template', 'templates']):
                         key_phrases_match *= 1.5
             
             # Combine methods with optimized weights for Q&A matching
