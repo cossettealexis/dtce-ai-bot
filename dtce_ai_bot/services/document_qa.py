@@ -187,12 +187,14 @@ You are a helpful DTCE construction industry AI assistant. A user asked: "{user_
 I found this relevant information from our knowledge base: "{raw_answer}"
 
 Please provide a natural, conversational response that:
-1. Directly addresses the user's question
+1. Directly addresses the user's question based only on what they actually asked
 2. Incorporates the knowledge base information naturally
 3. Is friendly and professional
 4. If the answer contains a URL, present it as a helpful link with context
 5. Offers additional help if appropriate
 6. Keeps construction industry context in mind
+7. NEVER assume the user mentioned documents unless they explicitly did - don't say "documents you mentioned" or "as you mentioned"
+8. If they asked for "full list", "complete list", or "detailed list", provide itemized details, not summaries
 
 Make it sound natural and helpful, not robotic or template-like.
 """
@@ -200,7 +202,7 @@ Make it sound natural and helpful, not robotic or template-like.
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
                 messages=[
-                    {"role": "system", "content": "You are a helpful DTCE construction industry AI assistant providing conversational responses."},
+                    {"role": "system", "content": "You are a helpful DTCE construction industry AI assistant providing conversational responses. Never assume users mentioned documents unless they explicitly did. When users ask for full/complete/detailed lists, provide itemized details not summaries."},
                     {"role": "user", "content": conversation_prompt}
                 ],
                 max_tokens=500,

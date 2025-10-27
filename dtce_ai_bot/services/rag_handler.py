@@ -1205,9 +1205,14 @@ Please try rephrasing your question or contact support if the issue persists."""
 **Core Instructions:**
 1. **Analyze and Synthesize:** Carefully read all provided documents. Your answer must be based on this information. Synthesize details from all sources to create a comprehensive response.
 2. **Understand the Question:** Before generating an answer, fully understand the user's question and what they are trying to achieve. Do not just summarize the documents.
-3. **Cite Sources:** For every specific detail, cite the corresponding document using the format `[Source: Document X]`.
-4. **Provide Links:** At the end of your response, list all relevant SuiteFiles links under a "Sources" heading. Use the format `[Filename](SuiteFiles Link)`.
-5. **Handle Unanswered Questions:** If the documents do not contain the answer, state this clearly and concisely. Do not invent information.
+3. **Never Assume User References:** Do not say phrases like "the documents you mentioned" or "as you mentioned" unless the user explicitly referenced specific documents in their question. Base your response only on what the user actually asked.
+4. **Handle List Requests Properly:** 
+   - If user asks for "full list", "complete list", or "detailed list" provide actual itemized details, not summaries
+   - If user says "not overview" after getting a summary, provide the detailed breakdown they requested
+   - When user asks for project lists, provide actual project numbers, names, and key details - not just ranges
+5. **Cite Sources:** For every specific detail, cite the corresponding document using the format `[Source: Document X]`.
+6. **Provide Links:** At the end of your response, list all relevant SuiteFiles links under a "Sources" heading. Use the format `[Filename](SuiteFiles Link)`.
+7. **Handle Unanswered Questions:** If the documents do not contain the answer, state this clearly and concisely. Do not invent information.
 
 ---
 
@@ -2065,7 +2070,7 @@ Respond naturally as DTCE AI Assistant would in conversation."""
             
             # Create enhanced category-specific prompts with advisory features
             if category == 'policy':
-                system_prompt = """You are an intelligent AI assistant with access to DTCE's internal documents. Your job is to extract and summarize the actual information from these documents to answer questions thoroughly. Never just provide links - extract the content and explain it clearly."""
+                system_prompt = """You are an intelligent AI assistant with access to DTCE's internal documents. Your job is to extract and summarize the actual information from these documents to answer questions thoroughly. Never assume the user mentioned documents - respond based only on what they actually asked. Never just provide links - extract the content and explain it clearly."""
                 
                 user_prompt = f"""Question: {question}
 
@@ -2113,7 +2118,9 @@ Extract the specific technical information from these standards documents. Provi
 Give them the complete technical details they need, not just standard numbers or document names."""
                 
             elif category == 'project_reference':
-                system_prompt = """You are DTCE's AI assistant. Answer the specific question directly based on the project documents. If asking for specific information like contacts, costs, or details, provide a direct answer. Only give comprehensive project analysis if specifically requested."""
+                system_prompt = """You are DTCE's AI assistant. Answer the specific question directly based on the project documents provided. Never assume the user mentioned specific documents unless they explicitly did. If asking for specific information like contacts, costs, or details, provide a direct answer. 
+
+IMPORTANT: When users ask for "full list", "complete list", "detailed list", or say "not overview", provide actual itemized details with specific project numbers, names, and key information - not just summaries or ranges."""
                 
                 user_prompt = f"""Question: {question}
 
@@ -2125,11 +2132,13 @@ Answer the specific question directly. If they're asking for:
 - Project details: Give the specific information requested
 - Costs or timelines: Provide the exact figures
 - Technical specs: Give the precise requirements
+- Full/complete/detailed list: Provide actual itemized list with project numbers and names, not summary ranges
+- "Not overview": They want detailed breakdown, not general summary
 
 Only provide comprehensive analysis if they specifically ask for "insights", "lessons learned", or "project analysis"."""
                 
             elif category == 'client_reference':
-                system_prompt = """You are DTCE's AI assistant. Answer the specific question directly based on the documents. If asking about a person or company, look for their mentions and provide a direct answer."""
+                system_prompt = """You are DTCE's AI assistant. Answer the specific question directly based on the documents provided. Never assume the user mentioned specific documents unless they explicitly did. If asking about a person or company, look for their mentions and provide a direct answer."""
                 
                 user_prompt = f"""Question: {question}
 
@@ -2143,7 +2152,7 @@ Answer this specific question directly. If the question is about whether someone
 
 Be direct and specific in your answer, not a generic client information template."""
             else:
-                system_prompt = "You are an intelligent AI assistant with access to DTCE documents. Extract and explain the actual information to answer questions thoroughly, not just document references."
+                system_prompt = "You are an intelligent AI assistant with access to DTCE documents. Extract and explain the actual information to answer questions thoroughly, not just document references. Never assume the user mentioned any documents - base your response only on what they actually asked."
                 user_prompt = f"""Question: {question}
 
 DTCE Information:
