@@ -238,7 +238,7 @@ class HybridRetriever:
         """Generate embedding for query"""
         try:
             response = await self.openai_client.embeddings.create(
-                model="text-embedding-ada-002",
+                model=self.settings.azure_openai_embedding_model,
                 input=query
             )
             return response.data[0].embedding

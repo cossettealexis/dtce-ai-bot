@@ -120,7 +120,8 @@ class Settings(BaseSettings):
     azure_openai_api_key: str = ""
     azure_openai_api_version: str = "2023-12-01-preview"
     azure_openai_deployment_name: str = "gpt-4"
-    azure_openai_embedding_deployment: str = "text-embedding-ada-002"
+    azure_openai_embedding_deployment: str = "text-embedding-3-small"
+    azure_openai_embedding_model: str = "text-embedding-3-small"
     
     # Fallback OpenAI settings
     openai_api_key: str = ""

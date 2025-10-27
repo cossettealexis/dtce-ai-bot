@@ -98,7 +98,7 @@ class DocumentQAService:
                            user_question=question[:100])
                 
                 # Make the response more conversational
-                conversational_answer = self._make_conversational_response(
+                conversational_answer = await self._make_conversational_response(
                     question, sheets_match['question'], sheets_match['answer']
                 )
                 
@@ -177,34 +177,48 @@ What would you like to know? You can ask about:
             'processing_time': 0
         }
     
-    def _make_conversational_response(self, user_question: str, matched_question: str, raw_answer: str) -> str:
-        """Convert raw Google Sheets answers into conversational responses"""
+    async def _make_conversational_response(self, user_question: str, matched_question: str, raw_answer: str) -> str:
+        """Convert raw Google Sheets answers into conversational responses using AI"""
         try:
-            # Handle different types of responses
-            if raw_answer.startswith('http'):
-                # It's a URL - make it more conversational
-                if 'ps1' in user_question.lower() and 'template' in user_question.lower():
-                    return f"I found the PS1 template you're looking for! Here's the link to the current PS1 template document:\n\n[Open PS1 Template]({raw_answer})\n\nThis template will help you create proper Producer Statements for your projects. Let me know if you need help with anything else related to PS1 documentation!"
-                
-                elif 'template' in user_question.lower():
-                    return f"Here's the template you requested:\n\n[Open Template]({raw_answer})\n\nThis should have everything you need. Feel free to ask if you have questions about using this template!"
-                
-                else:
-                    return f"I found what you're looking for! Here's the relevant document:\n\n[Open Document]({raw_answer})\n\nLet me know if you need any additional information!"
+            # Use OpenAI to make the response conversational
+            conversation_prompt = f"""
+You are a helpful DTCE construction industry AI assistant. A user asked: "{user_question}"
+
+I found this relevant information from our knowledge base: "{raw_answer}"
+
+Please provide a natural, conversational response that:
+1. Directly addresses the user's question
+2. Incorporates the knowledge base information naturally
+3. Is friendly and professional
+4. If the answer contains a URL, present it as a helpful link with context
+5. Offers additional help if appropriate
+6. Keeps construction industry context in mind
+
+Make it sound natural and helpful, not robotic or template-like.
+"""
+
+            response = await self.openai_client.chat.completions.create(
+                model=self.model_name,
+                messages=[
+                    {"role": "system", "content": "You are a helpful DTCE construction industry AI assistant providing conversational responses."},
+                    {"role": "user", "content": conversation_prompt}
+                ],
+                max_tokens=500,
+                temperature=0.7
+            )
             
-            elif len(raw_answer) > 100:
-                # It's a longer text response - make it more natural
-                if 'payroll' in user_question.lower():
-                    return f"Here's how to handle payroll concerns:\n\n{raw_answer}\n\nI hope this helps! Let me know if you have any other questions about payroll processes."
-                
-                else:
-                    return f"{raw_answer}\n\nI hope this answers your question! Feel free to ask if you need any clarification or have other questions."
+            conversational_response = response.choices[0].message.content.strip()
+            logger.info("Generated conversational response using AI", 
+                       user_question=user_question, 
+                       original_answer_length=len(raw_answer),
+                       conversational_length=len(conversational_response))
             
-            else:
-                # Short response - add conversational wrapper
-                return f"{raw_answer}\n\nIs there anything else I can help you with?"
+            return conversational_response
             
         except Exception as e:
-            logger.error("Error making response conversational", error=str(e))
-            # Fallback to original answer if conversion fails
-            return raw_answer
+            logger.error("Error generating conversational response with AI", error=str(e))
+            # Fallback to a simple conversational wrapper
+            if raw_answer.startswith('http'):
+                return f"I found what you're looking for! Here's the relevant resource: {raw_answer}"
+            else:
+                return f"{raw_answer}\n\nI hope this helps! Let me know if you have any other questions."

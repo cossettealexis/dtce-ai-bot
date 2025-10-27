@@ -172,7 +172,7 @@ class GoogleSheetsKnowledgeService:
     
     def _calculate_similarity(self, text1: str, text2: str) -> float:
         """
-        Calculate similarity between two texts using multiple methods
+        Calculate semantic similarity between two texts using AI embeddings and traditional methods
         
         Returns value between 0.0 and 1.0
         """
@@ -185,54 +185,98 @@ class GoogleSheetsKnowledgeService:
             if norm_text1 == norm_text2:
                 return 1.0
             
-            # Method 1: Sequence matching
+            # Method 1: AI Semantic Similarity using embeddings (primary method)
+            semantic_similarity = 0.0
+            try:
+                # Use Azure OpenAI embeddings for semantic similarity
+                from openai import AzureOpenAI
+                import math
+                
+                # Initialize Azure OpenAI client if not already done
+                if not hasattr(self, '_openai_client'):
+                    from dtce_ai_bot.config.settings import get_settings
+                    settings = get_settings()
+                    self._openai_client = AzureOpenAI(
+                        api_key=settings.azure_openai_api_key,
+                        api_version=settings.azure_openai_api_version,
+                        azure_endpoint=settings.azure_openai_endpoint
+                    )
+                
+                # Get embeddings for both texts using the configured embedding model
+                from dtce_ai_bot.config.settings import get_settings
+                settings = get_settings()
+                embedding_model = settings.azure_openai_embedding_model
+                
+                embedding1_response = self._openai_client.embeddings.create(
+                    model=embedding_model,
+                    input=text1
+                )
+                embedding2_response = self._openai_client.embeddings.create(
+                    model=embedding_model, 
+                    input=text2
+                )
+                
+                embedding1 = embedding1_response.data[0].embedding
+                embedding2 = embedding2_response.data[0].embedding
+                
+                # Calculate cosine similarity manually
+                def cosine_similarity(vec1, vec2):
+                    dot_product = sum(a * b for a, b in zip(vec1, vec2))
+                    magnitude1 = math.sqrt(sum(a * a for a in vec1))
+                    magnitude2 = math.sqrt(sum(a * a for a in vec2))
+                    
+                    if magnitude1 == 0 or magnitude2 == 0:
+                        return 0.0
+                    
+                    return dot_product / (magnitude1 * magnitude2)
+                
+                semantic_similarity = cosine_similarity(embedding1, embedding2)
+                
+                # Ensure it's in valid range
+                semantic_similarity = max(0.0, min(1.0, semantic_similarity))
+                
+                logger.debug("AI semantic similarity calculated", 
+                           text1=text1[:50], text2=text2[:50], 
+                           semantic_similarity=semantic_similarity)
+                
+            except Exception as embedding_error:
+                logger.warning("AI embeddings failed, falling back to traditional methods", 
+                             error=str(embedding_error))
+                semantic_similarity = 0.0
+            
+            # Method 2: Sequence matching (fallback)
             seq_similarity = SequenceMatcher(None, norm_text1, norm_text2).ratio()
             
-            # Method 2: Word overlap (Jaccard similarity)
+            # Method 3: Word overlap (Jaccard similarity)
             words1 = set(norm_text1.split())
             words2 = set(norm_text2.split())
             
-            if not words1 or not words2:
-                return seq_similarity
+            word_similarity = 0.0
+            if words1 and words2:
+                intersection = words1.intersection(words2)
+                union = words1.union(words2)
+                word_similarity = len(intersection) / len(union) if union else 0.0
             
-            intersection = words1.intersection(words2)
-            union = words1.union(words2)
-            
-            word_similarity = len(intersection) / len(union) if union else 0.0
-            
-            # Method 3: Substring matching (bidirectional)
+            # Method 4: Substring matching
             substring_similarity = 0.0
             if norm_text1 in norm_text2 or norm_text2 in norm_text1:
-                substring_similarity = 0.4
+                substring_similarity = 0.3
             
-            # Method 4: Key phrase matching (for questions about similar topics)
-            key_phrases_match = 0.0
-            # Extract potential key phrases - expanded list
-            key_words = ['ps1', 'template', 'templates', 'payroll', 'dispute', 'file', 'submit', 'concern', 'find', 'where']
-            found_keys1 = [word for word in key_words if word in norm_text1]
-            found_keys2 = [word for word in key_words if word in norm_text2]
-            
-            # Handle singular/plural forms
-            if 'template' in norm_text1 and 'templates' in norm_text2:
-                found_keys1.append('templates')
-            if 'templates' in norm_text1 and 'template' in norm_text2:
-                found_keys2.append('template')
-            
-            if found_keys1 and found_keys2:
-                key_intersection = set(found_keys1).intersection(set(found_keys2))
-                if key_intersection:
-                    key_phrases_match = len(key_intersection) / max(len(found_keys1), len(found_keys2))
-                    # Boost key phrase matching for important terms
-                    if any(key in key_intersection for key in ['ps1', 'payroll', 'template', 'templates']):
-                        key_phrases_match *= 1.5
-            
-            # Combine methods with optimized weights for Q&A matching
-            combined_similarity = (
-                seq_similarity * 0.25 +
-                word_similarity * 0.35 +
-                substring_similarity * 0.2 +
-                key_phrases_match * 0.2
-            )
+            # If AI embeddings worked, use them as primary with traditional methods as support
+            if semantic_similarity > 0.0:
+                combined_similarity = (
+                    semantic_similarity * 0.7 +  # AI embeddings are primary
+                    seq_similarity * 0.15 +      # Traditional methods as support
+                    word_similarity * 0.1 +
+                    substring_similarity * 0.05
+                )
+            else:
+                # Fallback to traditional methods only
+                combined_similarity = (
+                    seq_similarity * 0.4 +
+                    word_similarity * 0.4 +
+                    substring_similarity * 0.2
+                )
             
             return min(combined_similarity, 1.0)
             
