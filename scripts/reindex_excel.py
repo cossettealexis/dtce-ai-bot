@@ -10,6 +10,7 @@ import sys
 import time
 import signal
 import logging
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -192,7 +193,7 @@ def main():
     required_vars = [
         'AZURE_STORAGE_CONNECTION_STRING',
         'AZURE_SEARCH_SERVICE_ENDPOINT',
-        'AZURE_SEARCH_ADMIN_KEY',
+        'AZURE_SEARCH_API_KEY',
         'AZURE_SEARCH_INDEX_NAME'
     ]
     
@@ -217,10 +218,11 @@ def main():
         search_client = SearchClient(
             endpoint=os.getenv('AZURE_SEARCH_SERVICE_ENDPOINT'),
             index_name=os.getenv('AZURE_SEARCH_INDEX_NAME'),
-            credential=AzureKeyCredential(os.getenv('AZURE_SEARCH_ADMIN_KEY'))
+            credential=AzureKeyCredential(os.getenv('AZURE_SEARCH_API_KEY'))
         )
         
-        container_client = blob_service_client.get_container_client('suitefiles')
+        container_name = os.getenv("AZURE_STORAGE_CONTAINER_NAME", "dtce-documents")
+        container_client = blob_service_client.get_container_client(container_name)
         
         print("✅ Azure clients initialized!")
         print()
@@ -295,16 +297,41 @@ def main():
                         errors += 1
                         continue
                     
-                    # Prepare document for indexing
+                    # Prepare document for indexing (match schema from other scripts)
+                    filename = os.path.basename(blob.name)
+                    folder_path = '/'.join(blob.name.split('/')[:-1]) if '/' in blob.name else ''
+                    
+                    # Extract project info
+                    project_name = ""
+                    year = None  # Use None instead of empty string for integer fields
+                    if blob.name.startswith('Projects/'):
+                        parts = blob.name.split('/')
+                        if len(parts) >= 3:
+                            project_name = parts[2]  # e.g., "225200"
+                            try:
+                                if project_name.isdigit() and len(project_name) >= 3:
+                                    year = int(project_name[:3]) + 2000  # Return actual integer
+                            except:
+                                year = None
+                    
+                    # Create document ID
+                    document_id = blob.name.replace('/', '_').replace(' ', '_').replace('#', '').replace('.', '_')
+                    document_id = re.sub(r'[^\w\-_]', '_', document_id)
+                    document_id = re.sub(r'_+', '_', document_id).strip('_')
+                    
                     document = {
-                        "id": blob.name.replace('/', '_').replace(' ', '_').replace('#', ''),
-                        "content": content,
+                        "id": document_id,
                         "blob_name": blob.name,
-                        "title": os.path.basename(blob.name),
-                        "folder_path": '/'.join(blob.name.split('/')[:-1]) if '/' in blob.name else '',
-                        "file_type": "Excel",
-                        "last_modified": blob.last_modified.isoformat() if blob.last_modified else datetime.now().isoformat(),
-                        "content_length": len(content)
+                        "blob_url": blob_client.url,
+                        "filename": filename,
+                        "content_type": "application/vnd.openxml",
+                        "folder": folder_path,
+                        "size": blob.size or 0,
+                        "content": content,
+                        "last_modified": blob.last_modified.isoformat(),
+                        "created_date": blob.creation_time.isoformat() if blob.creation_time else blob.last_modified.isoformat(),
+                        "project_name": project_name,
+                        "year": year
                     }
                     
                     # Upload to search index

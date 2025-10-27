@@ -43,7 +43,7 @@ def fast_extract_docx_content(blob_data: bytes, filename: str) -> str:
                 paragraphs_processed += 1
                 
                 # Stop if we have enough content
-                if len(text_content) > 10000:
+                if len(text_content) > 100000:
                     break
         
         # Also extract from tables

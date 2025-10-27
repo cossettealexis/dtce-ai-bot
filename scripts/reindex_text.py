@@ -236,7 +236,7 @@ async def process_text_files():
     print("📋 Loading existing text files from search index...")
     existing_docs = {}
     try:
-        results = search_client.search("*", select=["id", "last_modified", "content"], top=10000)
+        results = search_client.search("*", select=["id", "last_modified", "content"], top=100000)
         for doc in results:
             if doc.get('id'):
                 existing_docs[doc['id']] = {
