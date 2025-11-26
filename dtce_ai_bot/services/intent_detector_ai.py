@@ -88,11 +88,17 @@ class IntentDetector:
 
 If the query is a general engineering term (e.g., "what is the maximum wind load on a commercial building?"), use General_Knowledge.
 
+TIME-BASED PROJECT QUERIES: If someone asks for "projects from the past X years", "projects X years ago", "project numbers from [year/time period]", classify as Project. Examples:
+- "give me a project 4 years ago" → Project
+- "find me project numbers from the past 4 years" → Project  
+- "projects from 2020" → Project
+- "show me jobs from last year" → Project
+
 Categories:
 - Policy: Company policies, H&S procedures, HR/IT rules, employee requirements
 - Procedure: How-to guides, technical procedures, best practices, operational handbooks
 - Standards: NZ Engineering Standards (NZS, AS/NZS codes), technical specifications
-- Project: Past project information, job folders, work history (e.g., "project 225", "job 219208")
+- Project: Past project information, job folders, work history (e.g., "project 225", "job 219208", "projects from past 4 years")
 - Client: Client information, contact details, client relationships
 - General_Knowledge: General engineering questions, company overview, unclear intent
 
@@ -134,10 +140,32 @@ Output ONLY the category name (e.g., "Project" or "Policy" or "General_Knowledge
         Extracts:
         - 6-digit job number (e.g., "225221")
         - 3-digit year code (e.g., "225" = 2025)
+        - Time-based ranges (e.g., "past 4 years", "4 years ago")
         
-        Returns: {"job_number": "225221", "year": "225"} or None
+        Returns: {"job_number": "225221", "year": "225"} or {"year_range": "221-225"} or None
         """
         query_lower = user_query.lower()
+        
+        # Pattern 0: Time-based queries (past X years, X years ago)
+        # Current year is 2025, so year code 225
+        current_year_code = 225  # 2025
+        
+        # "past X years" or "last X years" or "X years ago"
+        time_match = re.search(r'\b(?:past|last)\s+(\d+)\s+years?\b', query_lower)
+        if not time_match:
+            time_match = re.search(r'\b(\d+)\s+years?\s+ago\b', query_lower)
+        
+        if time_match:
+            years_back = int(time_match.group(1))
+            start_year_code = current_year_code - years_back  # e.g., 225 - 4 = 221 (2021)
+            end_year_code = current_year_code  # 225 (2025)
+            logger.info(f"Extracted time range: past {years_back} years", 
+                       start_year=start_year_code, end_year=end_year_code)
+            return {
+                "year_range_start": str(start_year_code),
+                "year_range_end": str(end_year_code),
+                "years_back": str(years_back)
+            }
         
         # Pattern 1: 6-digit job number (e.g., "225221", "219208")
         job_match = re.search(r'\b(2\d{5})\b', user_query)
@@ -206,6 +234,27 @@ Output ONLY the category name (e.g., "Project" or "Policy" or "General_Knowledge
         if intent == "Project":
             project_meta = self.extract_project_metadata(user_query)
             if project_meta:
+                # Case 0: Time-based range query (e.g., "past 4 years")
+                year_range_start = project_meta.get("year_range_start")
+                year_range_end = project_meta.get("year_range_end")
+                
+                if year_range_start and year_range_end:
+                    # Build filter for multiple years: Projects/221/ to Projects/225/
+                    # Use OR conditions for each year in the range
+                    years = range(int(year_range_start), int(year_range_end) + 1)
+                    filter_parts = []
+                    for year in years:
+                        year_str = str(year)
+                        base_path = f"Projects/{year_str}"
+                        upper_bound = get_upper_bound(base_path)
+                        filter_parts.append(f"(folder ge '{base_path}/' and folder lt '{upper_bound}')")
+                    
+                    filter_str = " or ".join(filter_parts)
+                    logger.info("Built time-based project range filter", 
+                               years=f"{year_range_start}-{year_range_end}",
+                               filter=filter_str[:200])
+                    return filter_str
+                
                 project_code = project_meta.get("year") # This is the PROJECT_CODE, e.g., '225'
                 job_num = project_meta.get("job_number")
 

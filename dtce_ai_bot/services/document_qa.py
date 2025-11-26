@@ -85,13 +85,19 @@ class DocumentQAService:
             if self._is_greeting(question):
                 return self._get_greeting_response()
             
-            # STEP 1: Check Google Sheets knowledge first
-            sheets_match = await self.google_sheets_service.find_similar_question(
-                question, 
-                similarity_threshold=0.4  # Adjusted for better partial matching
-            )
+            # STEP 1: Check Google Sheets knowledge first (but with higher threshold for consistency)
+            # For time-based queries (past X years, projects from year Y), skip Google Sheets
+            # and go straight to RAG for more accurate, consistent results
+            skip_google_sheets = self._is_time_based_query(question)
             
-            if sheets_match:
+            sheets_match = None
+            if not skip_google_sheets:
+                sheets_match = await self.google_sheets_service.find_similar_question(
+                    question, 
+                    similarity_threshold=0.75  # Higher threshold for more exact matches only
+                )
+            
+            if sheets_match and not skip_google_sheets:
                 logger.info("Found match in Google Sheets knowledge", 
                            similarity=sheets_match['similarity'],
                            matched_question=sheets_match['question'][:100],
@@ -158,6 +164,28 @@ class DocumentQAService:
             question_lower in greetings or
             len(question_lower.split()) <= 2 and any(greeting in question_lower for greeting in greetings)
         )
+    
+    def _is_time_based_query(self, question: str) -> bool:
+        """
+        Check if the question is time-based (past X years, from year Y, etc.)
+        These should skip Google Sheets and go straight to RAG for consistent results.
+        """
+        if not question:
+            return False
+        
+        question_lower = question.lower().strip()
+        
+        # Time-based patterns that should use RAG instead of Google Sheets
+        time_patterns = [
+            'past', 'years ago', 'year ago', 'last year', 'last 2 years', 
+            'last 3 years', 'last 4 years', 'last 5 years',
+            'from 202', 'from 201',  # Years like "from 2020", "from 2019"
+            'in 202', 'in 201',  # "in 2020", "in 2019"
+            'since 202', 'since 201',
+            'between 20', 'from the year'
+        ]
+        
+        return any(pattern in question_lower for pattern in time_patterns)
     
     def _get_greeting_response(self) -> Dict[str, Any]:
         """Return a standard greeting response."""
