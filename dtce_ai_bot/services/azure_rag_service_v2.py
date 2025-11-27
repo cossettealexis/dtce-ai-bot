@@ -210,8 +210,15 @@ class AzureRAGService:
             
             # Add filter if provided (intent-based routing)
             if filter_str:
-                search_params["filter"] = filter_str
-                logger.info("Applying search filter", filter=filter_str)
+                # CRITICAL FIX: Exclude system files (users.dat, wperms.dat, .DS_Store, etc.)
+                # These files have generic "Projects" folder paths and no project numbers
+                system_file_exclusion = "(filename ne 'users.dat' and filename ne 'wperms.dat' and filename ne '.DS_Store' and filename ne 'Thumbs.db')"
+                search_params["filter"] = f"({filter_str}) and {system_file_exclusion}"
+                logger.info("Applying search filter with system file exclusion", filter=search_params["filter"])
+            else:
+                # Even without a year filter, exclude system files from general searches
+                search_params["filter"] = "(filename ne 'users.dat' and filename ne 'wperms.dat' and filename ne '.DS_Store' and filename ne 'Thumbs.db')"
+                logger.info("Applying system file exclusion only", filter=search_params["filter"])
             
             # Execute hybrid search
             search_results_paged = await self.search_client.search(**search_params)

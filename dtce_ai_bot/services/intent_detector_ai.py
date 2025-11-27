@@ -173,11 +173,13 @@ Output ONLY the category name (e.g., "Project" or "Policy" or "General_Knowledge
                 "years_back": str(years_back)
             }
         
-        # Pattern 1: Full year format (e.g., "2019 projects", "2024 jobs", "projects from 2023")
-        full_year_match = re.search(r'\b(20[12]\d)\s*(?:project|job|year)', query_lower)
+        # Pattern 1: Full year format (e.g., "2019 projects", "2024 jobs", "projects from 2023", "project numbers from 2021")
+        # Match year with "project/job/year" before OR after
+        full_year_match = re.search(r'(?:project|job|year|from|in)\s+(20[12]\d)|(?:20[12]\d)\s*(?:project|job|year)', query_lower)
         if full_year_match:
-            full_year = int(full_year_match.group(1))
-            year_code = int(str(full_year)[-3:])  # Convert 2019 -> 219, 2024 -> 224
+            # Extract the year from whichever group matched
+            full_year = int(full_year_match.group(1) if full_year_match.group(1) else full_year_match.group(2))
+            year_code = int(str(full_year)[-3:])  # Convert 2019 -> 219, 2021 -> 221, 2024 -> 224
             logger.info("Extracted full year", full_year=full_year, year_code=year_code)
             return {"year": str(year_code)}
         
