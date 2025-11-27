@@ -101,7 +101,9 @@ class AzureRAGService:
                 # Check if query is asking for project numbers/lists
                 listing_keywords = ['project number', 'project numbers', 'list of project', 'all project', 
                                    'give me project', 'show me project', 'find me project',
-                                   'projects from', 'jobs from', 'how many project']
+                                   'projects from', 'jobs from', 'how many project',
+                                   '2019 project', '2020 project', '2021 project', '2022 project', 
+                                   '2023 project', '2024 project', '2025 project', '2026 project']
                 is_project_listing = any(kw in user_query.lower() for kw in listing_keywords)
             
             # Determine search parameters
