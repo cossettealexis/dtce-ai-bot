@@ -173,7 +173,15 @@ Output ONLY the category name (e.g., "Project" or "Policy" or "General_Knowledge
                 "years_back": str(years_back)
             }
         
-        # Pattern 1: 6-digit job number (e.g., "225221", "219208")
+        # Pattern 1: Full year format (e.g., "2019 projects", "2024 jobs", "projects from 2023")
+        full_year_match = re.search(r'\b(20[12]\d)\s*(?:project|job|year)', query_lower)
+        if full_year_match:
+            full_year = int(full_year_match.group(1))
+            year_code = int(str(full_year)[-3:])  # Convert 2019 -> 219, 2024 -> 224
+            logger.info("Extracted full year", full_year=full_year, year_code=year_code)
+            return {"year": str(year_code)}
+        
+        # Pattern 2: 6-digit job number (e.g., "225221", "219208")
         job_match = re.search(r'\b(2\d{5})\b', user_query)
         if job_match:
             job_number = job_match.group(1)
@@ -181,7 +189,7 @@ Output ONLY the category name (e.g., "Project" or "Policy" or "General_Knowledge
             logger.info("Extracted job number", job_number=job_number, year_code=year_code)
             return {"job_number": job_number, "year": year_code}
         
-        # Pattern 2: 3-digit year code (e.g., "project 225", "jobs from 219")
+        # Pattern 3: 3-digit year code (e.g., "project 225", "jobs from 219")
         year_match = re.search(r'\b(2[0-9]{2})\b', user_query)
         if year_match and any(keyword in query_lower for keyword in ['project', 'job', 'what is', 'tell me about']):
             year_code = year_match.group(1)

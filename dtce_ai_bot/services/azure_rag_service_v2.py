@@ -109,14 +109,21 @@ class AzureRAGService:
             # STEP 4: Answer Synthesis
             # For list/comprehensive queries, use more results
             is_list_query = any(word in user_query.lower() for word in [
-                'list', 'all', 'comprehensive', 'past', 'years', 'numbers', 'show me projects'
+                'list', 'all', 'comprehensive', 'past', 'years', 'numbers', 'show me projects',
+                'give me', 'projects from', 'find me'  # Added more triggers
             ])
+            
+            # Also check if query is asking for projects by year (e.g., "2019 projects", "2024 projects")
+            import re
+            year_pattern = re.search(r'\b(20\d{2}|21\d{2}|22\d{2})\s*(project|jobs?)', user_query.lower())
+            if year_pattern:
+                is_list_query = True
             
             # For "all" queries, use more documents but acknowledge limitation
             if is_all_query:
                 results_to_use = min(50, len(search_results))  # Use up to 50 for "all" queries
             else:
-                results_to_use = min(20, len(search_results)) if is_list_query else min(5, len(search_results))
+                results_to_use = min(30, len(search_results)) if is_list_query else min(5, len(search_results))  # Increased from 20 to 30
             
             logger.info("Answer synthesis configuration",
                        is_list_query=is_list_query,
