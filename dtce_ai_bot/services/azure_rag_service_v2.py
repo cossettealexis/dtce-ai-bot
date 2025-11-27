@@ -95,21 +95,38 @@ class AzureRAGService:
                        intent=intent,
                        filter=search_filter)
             
-            # STEP 3: Hybrid Search + Semantic Ranking
-            # For "all" queries, search more broadly
-            is_all_query = any(word in user_query.lower() for word in ['all project', 'all projects', 'every project'])
-            search_top_k = 100 if is_all_query else 50  # More results for "all" queries
+            # STEP 3: Detect if this is a PROJECT LISTING query (needs enumeration, not semantic search)
+            is_project_listing = False
+            if intent == "Project" and search_filter:
+                # Check if query is asking for project numbers/lists
+                listing_keywords = ['project number', 'project numbers', 'list of project', 'all project', 
+                                   'give me project', 'show me project', 'find me project',
+                                   'projects from', 'jobs from', 'how many project']
+                is_project_listing = any(kw in user_query.lower() for kw in listing_keywords)
             
-            search_results = await self._hybrid_search_with_ranking(
-                query=user_query,
-                filter_str=search_filter,
-                top_k=search_top_k
-            )
+            # STEP 3A: Use PROJECT ENUMERATION for listing queries
+            if is_project_listing:
+                logger.info("Using PROJECT ENUMERATION (filter-only search) for listing query")
+                search_results = await self._enumerate_projects(
+                    filter_str=search_filter,
+                    max_results=1000  # Get comprehensive results
+                )
+            else:
+                # STEP 3B: Use HYBRID SEARCH for regular queries
+                is_all_query = any(word in user_query.lower() for word in ['all project', 'all projects', 'every project'])
+                search_top_k = 100 if is_all_query else 50
+                
+                search_results = await self._hybrid_search_with_ranking(
+                    query=user_query,
+                    filter_str=search_filter,
+                    top_k=search_top_k
+                )
             
-            # DEBUG: Log sample results to diagnose why system files are returned
+            # DEBUG: Log sample results
             if search_results:
                 logger.info("Search results sample (first 5 for debugging)",
                            total_results=len(search_results),
+                           search_type="enumeration" if is_project_listing else "hybrid",
                            sample_files=[{
                                'filename': r.get('filename', 'N/A'),
                                'folder': r.get('folder', 'N/A'),
@@ -261,6 +278,78 @@ class AzureRAGService:
             
         except Exception as e:
             logger.error("Hybrid search failed", error=str(e), query=query)
+            return []
+    
+    async def _enumerate_projects(self, filter_str: str, max_results: int = 1000) -> List[Dict]:
+        """
+        SPECIAL METHOD: Project Enumeration (No Semantic Search)
+        
+        For queries like "list all projects from 2021", we don't want semantic search.
+        We want ALL documents matching the folder filter to extract unique project numbers.
+        
+        This uses:
+        - Filter-only query (no vector search, no semantic ranking)
+        - Wildcard search text ("*") to match everything
+        - High limit to get comprehensive results
+        
+        Args:
+            filter_str: OData filter (e.g., "folder ge 'Projects/221/' and folder lt 'Projects/222'")
+            max_results: Maximum documents to retrieve (default 1000)
+            
+        Returns:
+            List of search results with folder paths for project number extraction
+        """
+        try:
+            # Add system file exclusion to the filter
+            system_file_exclusion = "(filename ne 'users.dat' and filename ne 'wperms.dat' and filename ne '.DS_Store' and filename ne 'Thumbs.db')"
+            combined_filter = f"({filter_str}) and {system_file_exclusion}"
+            
+            # Build filter-only search (no semantic/vector search)
+            search_params = {
+                "search_text": "*",  # Wildcard to match ALL documents
+                "filter": combined_filter,
+                "top": max_results,
+                "select": ["filename", "folder", "blob_name"],  # Only need metadata, not content
+                "include_total_count": True,
+                "query_type": "simple"  # No semantic ranking needed
+            }
+            
+            logger.info("Enumerating projects with filter-only query", 
+                       filter=combined_filter, 
+                       max_results=max_results)
+            
+            # Execute filter-only search
+            search_results_paged = await self.search_client.search(**search_params)
+            
+            # Process results - extract unique folder paths
+            results = []
+            seen_folders = set()
+            
+            async for result in search_results_paged:
+                folder = result.get('folder', '')
+                filename = result.get('filename', '')
+                blob_name = result.get('blob_name', '')
+                
+                # Skip if we've already seen this folder
+                if folder in seen_folders:
+                    continue
+                    
+                seen_folders.add(folder)
+                results.append({
+                    'filename': filename,
+                    'folder': folder,
+                    'blob_name': blob_name,
+                    'content': ''  # No content needed for enumeration
+                })
+            
+            logger.info("Project enumeration completed", 
+                       total_results=len(results),
+                       unique_folders=len(seen_folders))
+            
+            return results
+            
+        except Exception as e:
+            logger.error("Project enumeration failed", error=str(e))
             return []
     
     async def _get_query_embedding(self, query: str) -> List[float]:
