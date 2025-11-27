@@ -97,7 +97,7 @@ class AzureRAGService:
             
             # STEP 3: Detect if this is a PROJECT LISTING query (needs enumeration, not semantic search)
             is_project_listing = False
-            if intent == "Project" and search_filter:
+            if intent == "Project":
                 # Check if query is asking for project numbers/lists
                 listing_keywords = ['project number', 'project numbers', 'list of project', 'all project', 
                                    'give me project', 'show me project', 'find me project',
@@ -105,6 +105,12 @@ class AzureRAGService:
                                    '2019 project', '2020 project', '2021 project', '2022 project', 
                                    '2023 project', '2024 project', '2025 project', '2026 project']
                 is_project_listing = any(kw in user_query.lower() for kw in listing_keywords)
+                
+                # CRITICAL: Also trigger enumeration if we have a search_filter (means year/project metadata was extracted)
+                # This handles cases like "show me 2024 projects" where we KNOW the user wants a list
+                if search_filter and not is_project_listing:
+                    is_project_listing = True
+                    logger.info("Project intent with filter detected - enabling enumeration mode")
             
             # Determine search parameters
             is_all_query = any(word in user_query.lower() for word in ['all project', 'all projects', 'every project'])
@@ -309,15 +315,14 @@ class AzureRAGService:
             combined_filter = f"({filter_str}) and {system_file_exclusion}"
             
             # Build filter-only search (no semantic/vector search)
-            # IMPORTANT: Don't use "*" wildcard - Azure Search doesn't handle it well
-            # Instead, search for "project" which appears in most project documents
+            # Use wildcard "*" to match ALL documents matching the filter
             search_params = {
-                "search_text": "project",  # Search for common term instead of wildcard
+                "search_text": "*",  # Wildcard to match everything
                 "filter": combined_filter,
                 "top": max_results,
                 "select": ["filename", "folder", "blob_name"],  # Only need metadata, not content
                 "include_total_count": True,
-                "search_mode": "any"  # Match any occurrence
+                "query_type": "simple"  # Simple query type supports wildcards
             }
             
             logger.info("Enumerating projects with filter-only query", 
