@@ -8,6 +8,7 @@ from typing import Dict, Optional, Tuple
 from openai import AsyncAzureOpenAI
 import json
 import re
+from datetime import datetime
 
 logger = structlog.get_logger(__name__)
 
@@ -147,8 +148,13 @@ Output ONLY the category name (e.g., "Project" or "Policy" or "General_Knowledge
         query_lower = user_query.lower()
         
         # Pattern 0: Time-based queries (past X years, X years ago)
-        # Current year is 2025, so year code 225
-        current_year_code = 225  # 2025
+        # Dynamically calculate current year code from actual date
+        current_year = datetime.now().year  # e.g., 2025
+        current_year_code = int(str(current_year)[-3:])  # 2025 -> 225, 2024 -> 224
+        
+        logger.info(f"Current year calculation", 
+                   current_year=current_year, 
+                   current_year_code=current_year_code)
         
         # "past X years" or "last X years" or "X years ago"
         time_match = re.search(r'\b(?:past|last)\s+(\d+)\s+years?\b', query_lower)

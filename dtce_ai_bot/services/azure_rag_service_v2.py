@@ -280,8 +280,10 @@ class AzureRAGService:
             if not search_results:
                 return "I don't have specific information about that in our system. You might want to check with your colleagues, HR, or the relevant project teams who may have more detailed information."
             
+            # Use ALL search results passed in (already filtered by caller based on query type)
+            # Caller decides: 20 for list queries, 5 for regular queries
             context_chunks = []
-            for i, result in enumerate(search_results[:3], 1):  # Use top 3 results
+            for i, result in enumerate(search_results, 1):  # Use ALL results passed in
                 content = result.get('content', '')
                 filename = result.get('filename', 'Unknown')
                 folder = result.get('folder', '')
