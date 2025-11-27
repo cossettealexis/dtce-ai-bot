@@ -373,7 +373,12 @@ class AzureRAGService:
                 ])
             
             # RAG Synthesis Prompt (following best practices)
-            system_prompt = """You are the DTCE AI Chatbot. Your goal is to provide accurate, concise, and helpful answers based ONLY on the provided context.
+            from datetime import datetime
+            current_year = datetime.now().year
+            
+            system_prompt = f"""You are the DTCE AI Chatbot. Your goal is to provide accurate, concise, and helpful answers based ONLY on the provided context.
+
+CRITICAL: The current year is {current_year}. Use this for all time-based calculations (e.g., "4 years ago" = {current_year - 4}).
 
 Tone & Persona Rules:
 1. Chatty and Friendly: Use a conversational, professional, but casual tone. Use contractions (I'm, you're, we'll, that's). Write like you're chatting with a colleague.
