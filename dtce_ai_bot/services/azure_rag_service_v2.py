@@ -303,17 +303,19 @@ class AzureRAGService:
         """
         try:
             # Add system file exclusion to the filter
-            system_file_exclusion = "(filename ne 'users.dat' and filename ne 'wperms.dat' and filename ne '.DS_Store' and filename ne 'Thumbs.db')"
+            system_file_exclusion = "(filename ne 'users.dat' and filename ne 'wperms.dat' and filename ne '.DS_Store' and filename ne 'Thumbs.db' and filename ne '.keep')"
             combined_filter = f"({filter_str}) and {system_file_exclusion}"
             
             # Build filter-only search (no semantic/vector search)
+            # IMPORTANT: Don't use "*" wildcard - Azure Search doesn't handle it well
+            # Instead, search for "project" which appears in most project documents
             search_params = {
-                "search_text": "*",  # Wildcard to match ALL documents
+                "search_text": "project",  # Search for common term instead of wildcard
                 "filter": combined_filter,
                 "top": max_results,
                 "select": ["filename", "folder", "blob_name"],  # Only need metadata, not content
                 "include_total_count": True,
-                "query_type": "simple"  # No semantic ranking needed
+                "search_mode": "any"  # Match any occurrence
             }
             
             logger.info("Enumerating projects with filter-only query", 

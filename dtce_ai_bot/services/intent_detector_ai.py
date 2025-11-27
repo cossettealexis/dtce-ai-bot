@@ -295,8 +295,9 @@ Output ONLY the category name (e.g., "Project" or "Policy" or "General_Knowledge
                     return filter_str
             
             # Fallback if no metadata extracted but intent is Project
-            logger.warning("Project intent detected but no metadata extracted.", query=user_query)
-            return "folder eq 'Projects'" # Broad fallback
+            # Use range query to match ALL project subfolders (Projects/*)
+            logger.warning("Project intent detected but no metadata extracted - using broad project filter", query=user_query)
+            return "folder ge 'Projects/' and folder lt 'Projects~'"  # Match all Projects/* subfolders
 
         # --- Client Intent Logic ---
         if intent == "Client":
