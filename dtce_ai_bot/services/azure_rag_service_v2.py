@@ -216,9 +216,18 @@ class AzureRAGService:
                 fields="content_vector"  # Matches index schema
             )
             
+            # CRITICAL FIX: For filtered queries (year-specific, project-specific), 
+            # use a generic search term instead of the user's query
+            # This ensures we match ALL documents in the filtered folder, not just semantically similar ones
+            if filter_str and any(keyword in query.lower() for keyword in ['project', '202', '221', '222', '223', '224', '225']):
+                search_text = "project"  # Generic term that matches most project documents
+                logger.info("Using generic 'project' search term for filtered query to ensure broad matching")
+            else:
+                search_text = query  # Use actual query for unfiltered searches
+            
             # Build hybrid search parameters
             search_params = {
-                "search_text": query,  # Keyword search (BM25)
+                "search_text": search_text,  # Keyword search (BM25) - generic for filtered queries
                 "vector_queries": [vector_query],  # Vector search (semantic)
                 "query_type": "semantic",  # Enable semantic ranking
                 "semantic_configuration_name": "default",  # Use default semantic config
