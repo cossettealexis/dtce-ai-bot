@@ -106,6 +106,17 @@ class AzureRAGService:
                 top_k=search_top_k
             )
             
+            # DEBUG: Log sample results to diagnose why system files are returned
+            if search_results:
+                logger.info("Search results sample (first 5 for debugging)",
+                           total_results=len(search_results),
+                           sample_files=[{
+                               'filename': r.get('filename', 'N/A'),
+                               'folder': r.get('folder', 'N/A'),
+                               'blob_name': r.get('blob_name', 'N/A')[:80] if r.get('blob_name') else 'N/A'
+                           } for r in search_results[:5]])
+
+            
             # STEP 4: Answer Synthesis
             # For list/comprehensive queries, use more results
             is_list_query = any(word in user_query.lower() for word in [
