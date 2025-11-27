@@ -355,6 +355,12 @@ Special Instructions for LIST QUERIES:
 - For comprehensive lists, provide ALL unique project numbers found in the sources
 - Group by year if helpful (e.g., "2021 Projects: 221001, 221045, 221089...")
 
+CRITICAL: DTCE Year Code System
+- The first 3 digits of project numbers indicate the year: 221=2021, 222=2022, 223=2023, 224=2024, 225=2025, 226=2026
+- When grouping projects by year, use the CORRECT year based on the first 3 digits
+- Example: Project 225126 is from 2025, NOT 2024
+- Example: Project 224161 is from 2024, NOT 2023
+
 Citation Rules:
 8. Grounding: Provide concise answers based ONLY on the provided text. If you can't find it, state that directly and politely.
 9. Sources MUST be embedded clickable links: Use markdown format to create clickable text without showing URLs.
