@@ -104,6 +104,9 @@ class AzureRAGService:
                                    'projects from', 'jobs from', 'how many project']
                 is_project_listing = any(kw in user_query.lower() for kw in listing_keywords)
             
+            # Determine search parameters
+            is_all_query = any(word in user_query.lower() for word in ['all project', 'all projects', 'every project'])
+            
             # STEP 3A: Use PROJECT ENUMERATION for listing queries
             if is_project_listing:
                 logger.info("Using PROJECT ENUMERATION (filter-only search) for listing query")
@@ -113,7 +116,6 @@ class AzureRAGService:
                 )
             else:
                 # STEP 3B: Use HYBRID SEARCH for regular queries
-                is_all_query = any(word in user_query.lower() for word in ['all project', 'all projects', 'every project'])
                 search_top_k = 100 if is_all_query else 50
                 
                 search_results = await self._hybrid_search_with_ranking(
