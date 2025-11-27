@@ -115,22 +115,14 @@ class AzureRAGService:
             # Determine search parameters
             is_all_query = any(word in user_query.lower() for word in ['all project', 'all projects', 'every project'])
             
-            # STEP 3A: Use PROJECT ENUMERATION for listing queries
-            if is_project_listing:
-                logger.info("Using PROJECT ENUMERATION (filter-only search) for listing query")
-                search_results = await self._enumerate_projects(
-                    filter_str=search_filter,
-                    max_results=1000  # Get comprehensive results
-                )
-            else:
-                # STEP 3B: Use HYBRID SEARCH for regular queries
-                search_top_k = 100 if is_all_query else 50
-                
-                search_results = await self._hybrid_search_with_ranking(
-                    query=user_query,
-                    filter_str=search_filter,
-                    top_k=search_top_k
-                )
+            # Use HYBRID SEARCH for all queries (enumeration not working reliably)
+            search_top_k = 100 if is_all_query or is_project_listing else 50
+            
+            search_results = await self._hybrid_search_with_ranking(
+                query=user_query,
+                filter_str=search_filter,
+                top_k=search_top_k
+            )
             
             # DEBUG: Log sample results
             if search_results:
@@ -315,14 +307,14 @@ class AzureRAGService:
             combined_filter = f"({filter_str}) and {system_file_exclusion}"
             
             # Build filter-only search (no semantic/vector search)
-            # Use wildcard "*" to match ALL documents matching the filter
+            # Use empty search ("") which means "match everything" in Azure Search
+            # This is the proper way to do filter-only queries
             search_params = {
-                "search_text": "*",  # Wildcard to match everything
+                "search_text": "",  # Empty search = match all (filter-only)
                 "filter": combined_filter,
                 "top": max_results,
-                "select": ["filename", "folder", "blob_name"],  # Only need metadata, not content
-                "include_total_count": True,
-                "query_type": "simple"  # Simple query type supports wildcards
+                "select": ["filename", "folder", "blob_name", "content"],  # Include content for GPT to extract project numbers
+                "include_total_count": True
             }
             
             logger.info("Enumerating projects with filter-only query", 
