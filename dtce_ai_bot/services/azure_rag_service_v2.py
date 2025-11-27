@@ -228,6 +228,8 @@ class AzureRAGService:
                     'filename': filename,
                     'folder': result.get('folder', ''),
                     'project_name': result.get('project_name', ''),
+                    'blob_url': result.get('blob_url', ''),
+                    'blob_name': result.get('blob_name', ''),  # Full path for extracting project numbers
                     'search_score': result.get('@search.score', 0),
                     'reranker_score': result.get('@search.reranker_score', 0)
                 })
@@ -366,9 +368,17 @@ Tone & Persona Rules:
 
 Special Instructions for LIST QUERIES:
 - When asked for "project numbers", "list of projects", "all projects from X years", extract and list PROJECT NUMBERS from folder paths
-- Project numbers are 6-digit codes like 225126, 223112, 221045 found in folder paths like "Projects/225/225126/"
-- For comprehensive lists, provide ALL unique project numbers found in the sources
-- Group by year if helpful (e.g., "2021 Projects: 221001, 221045, 221089...")
+- Project numbers are 6-digit codes like 225126, 223112, 221045 found in folder paths like "Projects/225/225126/" or "Projects/219/219348/"
+- **CRITICAL: Look at the FOLDER field in EVERY source provided**
+- Extract project numbers using this pattern: "Projects/[YEAR_CODE]/[PROJECT_NUMBER]/" where PROJECT_NUMBER is the 6-digit code
+- Example folder paths to extract from:
+  * "Projects/219/219348/07_Drawings" → Extract: 219348 (2019 project)
+  * "Projects/221/221285/05_Issued" → Extract: 221285 (2021 project)
+  * "Projects/225/225126/06_Calculations" → Extract: 225126 (2025 project)
+- For comprehensive lists, scan through ALL sources and extract EVERY unique project number you find
+- **Remove duplicates** - if you see the same project number in multiple sources, list it only once
+- Group by year for clarity (e.g., "2019 Projects: 219348, 219208, 219273...")
+- Count the unique projects and report: "I found [X] unique project numbers from [YEAR]"
 
 IMPORTANT: Handling "ALL" Queries
 - If asked for "all project numbers" or "all projects" without specific criteria, ACKNOWLEDGE the limitation
@@ -377,11 +387,24 @@ IMPORTANT: Handling "ALL" Queries
 - This helps users get more focused results rather than partial lists that seem complete
 - Example: "I found 15 projects here, but to give you a complete view, it's better to narrow it down - like 'show me 2024 projects' or 'projects for [client name]'. What would you like to focus on?"
 
-CRITICAL: DTCE Year Code System
-- The first 3 digits of project numbers indicate the year: 221=2021, 222=2022, 223=2023, 224=2024, 225=2025, 226=2026
-- When grouping projects by year, use the CORRECT year based on the first 3 digits
-- Example: Project 225126 is from 2025, NOT 2024
-- Example: Project 224161 is from 2024, NOT 2023
+CRITICAL: DTCE Year Code System - MEMORIZE THIS EXACT MAPPING
+The first 3 digits of project numbers map DIRECTLY to years. This is NOT a calculation - it's a fixed mapping:
+  *** 219 = 2019 (ALWAYS 2019, NEVER 2020 or 2021!) ***
+  *** 220 = 2020 (ALWAYS 2020) ***
+  *** 221 = 2021 (ALWAYS 2021) ***
+  *** 222 = 2022 (ALWAYS 2022) ***
+  *** 223 = 2023 (ALWAYS 2023) ***
+  *** 224 = 2024 (ALWAYS 2024) ***
+  *** 225 = 2025 (ALWAYS 2025) ***
+  *** 226 = 2026 (ALWAYS 2026) ***
+
+EXAMPLES OF CORRECT YEAR IDENTIFICATION:
+- Project 219348 → First 3 digits are 219 → Year is 2019
+- Project 220123 → First 3 digits are 220 → Year is 2020
+- Project 221285 → First 3 digits are 221 → Year is 2021
+- Project 225126 → First 3 digits are 225 → Year is 2025
+
+NEVER say "219 corresponds to 2020" or "219 matches 2021" - 219 is ONLY and ALWAYS 2019!
 
 Citation Rules:
 8. Grounding: Provide concise answers based ONLY on the provided text. If you can't find it, state that directly and politely.
