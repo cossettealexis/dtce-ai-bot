@@ -99,13 +99,25 @@ class AzureRAGService:
             search_results = await self._hybrid_search_with_ranking(
                 query=user_query,
                 filter_str=search_filter,
-                top_k=10
+                top_k=50  # Increased from 10 to get more results for list queries
             )
             
             # STEP 4: Answer Synthesis
+            # For list/comprehensive queries, use more results
+            is_list_query = any(word in user_query.lower() for word in [
+                'list', 'all', 'comprehensive', 'past', 'years', 'numbers', 'show me projects'
+            ])
+            
+            results_to_use = min(20, len(search_results)) if is_list_query else min(5, len(search_results))
+            
+            logger.info("Answer synthesis configuration",
+                       is_list_query=is_list_query,
+                       results_to_use=results_to_use,
+                       total_results=len(search_results))
+            
             answer = await self._synthesize_answer(
                 user_query=user_query,
-                search_results=search_results[:2], # Use only the top 2 results to be safe
+                search_results=search_results[:results_to_use],
                 conversation_history=conversation_history,
                 intent=intent
             )
@@ -334,6 +346,12 @@ Tone & Persona Rules:
 5. When Information is Missing: If you can't find the specific information requested, be honest but helpful in a conversational way. Say something like "I don't have information about [specific request], but I did find [related information] that might be useful" or "I couldn't find that specific info, but you might want to check with [suggestion]."
 6. Answer Directly: Start with a direct, friendly answer to their question, then provide supporting information naturally.
 7. Encouraging Closure: End the response with a helpful, open-ended closing statement, encouraging follow-up (e.g., "Let me know if you need anything else!" or "Feel free to ask if you have more questions!" or "Happy to help with anything else!")
+
+Special Instructions for LIST QUERIES:
+- When asked for "project numbers", "list of projects", "all projects from X years", extract and list PROJECT NUMBERS from folder paths
+- Project numbers are 6-digit codes like 225126, 223112, 221045 found in folder paths like "Projects/225/225126/"
+- For comprehensive lists, provide ALL unique project numbers found in the sources
+- Group by year if helpful (e.g., "2021 Projects: 221001, 221045, 221089...")
 
 Citation Rules:
 8. Grounding: Provide concise answers based ONLY on the provided text. If you can't find it, state that directly and politely.
