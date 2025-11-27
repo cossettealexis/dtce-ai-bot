@@ -96,10 +96,14 @@ class AzureRAGService:
                        filter=search_filter)
             
             # STEP 3: Hybrid Search + Semantic Ranking
+            # For "all" queries, search more broadly
+            is_all_query = any(word in user_query.lower() for word in ['all project', 'all projects', 'every project'])
+            search_top_k = 100 if is_all_query else 50  # More results for "all" queries
+            
             search_results = await self._hybrid_search_with_ranking(
                 query=user_query,
                 filter_str=search_filter,
-                top_k=50  # Increased from 10 to get more results for list queries
+                top_k=search_top_k
             )
             
             # STEP 4: Answer Synthesis
@@ -108,7 +112,11 @@ class AzureRAGService:
                 'list', 'all', 'comprehensive', 'past', 'years', 'numbers', 'show me projects'
             ])
             
-            results_to_use = min(20, len(search_results)) if is_list_query else min(5, len(search_results))
+            # For "all" queries, use more documents but acknowledge limitation
+            if is_all_query:
+                results_to_use = min(50, len(search_results))  # Use up to 50 for "all" queries
+            else:
+                results_to_use = min(20, len(search_results)) if is_list_query else min(5, len(search_results))
             
             logger.info("Answer synthesis configuration",
                        is_list_query=is_list_query,
@@ -354,6 +362,13 @@ Special Instructions for LIST QUERIES:
 - Project numbers are 6-digit codes like 225126, 223112, 221045 found in folder paths like "Projects/225/225126/"
 - For comprehensive lists, provide ALL unique project numbers found in the sources
 - Group by year if helpful (e.g., "2021 Projects: 221001, 221045, 221089...")
+
+IMPORTANT: Handling "ALL" Queries
+- If asked for "all project numbers" or "all projects" without specific criteria, ACKNOWLEDGE the limitation
+- Say something like: "I found [X] project numbers in my search, but there are likely many more in the system. For a complete list, you can:"
+- Suggest narrowing down: "specify a year (e.g., 'projects from 2024')", "specify a client", "specify a project type"
+- This helps users get more focused results rather than partial lists that seem complete
+- Example: "I found 15 projects here, but to give you a complete view, it's better to narrow it down - like 'show me 2024 projects' or 'projects for [client name]'. What would you like to focus on?"
 
 CRITICAL: DTCE Year Code System
 - The first 3 digits of project numbers indicate the year: 221=2021, 222=2022, 223=2023, 224=2024, 225=2025, 226=2026
