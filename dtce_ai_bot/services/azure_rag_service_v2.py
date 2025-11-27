@@ -375,6 +375,8 @@ Special Instructions for LIST QUERIES:
   * "Projects/219/219348/07_Drawings" → Extract: 219348 (2019 project)
   * "Projects/221/221285/05_Issued" → Extract: 221285 (2021 project)
   * "Projects/225/225126/06_Calculations" → Extract: 225126 (2025 project)
+- **IMPORTANT: If sources only contain system files (wperms.dat, users.dat, .DS_Store, etc.) with generic "Projects" folder paths, that means NO ACTUAL PROJECT DOCUMENTS were found**
+- In this case, be honest: "I couldn't find specific project documents from [YEAR] in my search. The search system might need better indexing for that year, or there may not be many projects from that period in the system."
 - For comprehensive lists, scan through ALL sources and extract EVERY unique project number you find
 - **Remove duplicates** - if you see the same project number in multiple sources, list it only once
 - Group by year for clarity (e.g., "2019 Projects: 219348, 219208, 219273...")
