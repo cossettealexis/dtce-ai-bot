@@ -342,13 +342,19 @@ Output ONLY the category name (e.g., "Template" or "Project" or "Policy" or "Gen
             logger.info("Built generic client filter")
             return base_filter
 
-        # --- Standard Category Logic (Policy, Procedure, Standards) ---
+        # --- Standard Category Logic (Policy, Procedure, Standards, Templates) ---
         folder_values = category.get("folder_values")
         if folder_values:
-            # Use range queries only to match test expectations
-            or_clauses = [f"(folder ge '{val}/' and folder lt '{val}~')" for val in folder_values]
+            # For each folder, match BOTH exact match AND subfolders:
+            # - folder eq 'Templates' (exact match)
+            # - folder ge 'Templates/' and folder lt 'Templates~' (subfolders)
+            or_clauses = []
+            for val in folder_values:
+                # Match both the folder itself AND its subfolders
+                clause = f"(folder eq '{val}' or (folder ge '{val}/' and folder lt '{val}~'))"
+                or_clauses.append(clause)
             filter_str = " or ".join(or_clauses)
-            logger.info("Built standard category filter using range queries", intent=intent, filter=filter_str)
+            logger.info("Built standard category filter with exact+range match", intent=intent, filter=filter_str)
             return filter_str
 
         logger.warning("Could not build filter for intent", intent=intent)
