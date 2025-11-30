@@ -219,11 +219,11 @@ class AzureRAGService:
             # CRITICAL FIX: For filtered queries (year-specific, project-specific), 
             # use a generic search term instead of the user's query
             # This ensures we match ALL documents in the filtered folder, not just semantically similar ones
-            if filter_str and query and any(keyword in query.lower() for keyword in ['project', '202', '221', '222', '223', '224', '225']):
+            if filter_str and any(keyword in query.lower() for keyword in ['project', '202', '221', '222', '223', '224', '225']):
                 search_text = "project"  # Generic term that matches most project documents
                 logger.info("Using generic 'project' search term for filtered query to ensure broad matching")
             else:
-                search_text = query if query else ""  # Use actual query for unfiltered searches, empty string if None
+                search_text = query  # Use actual query for unfiltered searches
             
             # Build hybrid search parameters
             search_params = {
@@ -754,7 +754,7 @@ class RAGOrchestrator:
             model_name: GPT model name
             max_retries: The maximum number of retries for OpenAI API calls.
         """
-        self.rag_service = AzureRAGService(search_client, openai_client, model_name, model_name, max_retries)
+        self.rag_service = AzureRAGService(search_client, openai_client, model_name, max_retries)
         self.conversation_history = {}  # Store by session_id
         
     async def process_question(self, question: str, session_id: str = "default") -> Dict[str, Any]:
