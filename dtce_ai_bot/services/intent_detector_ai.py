@@ -132,6 +132,11 @@ Output ONLY the category name (e.g., "Project" or "Policy" or "General_Knowledge
                 
         except Exception as e:
             logger.error("Intent classification failed", error=str(e), query=user_query)
+            # Fallback: Use keyword matching when AI classification fails
+            query_lower = user_query.lower()
+            if any(kw in query_lower for kw in ['project', 'job', '219', '220', '221', '222', '223', '224', '225']):
+                logger.info("Fallback: Detected project keywords, using Project intent")
+                return "Project"
             return "General_Knowledge"  # Safe fallback
     
     def extract_project_metadata(self, user_query: str) -> Optional[Dict[str, str]]:
