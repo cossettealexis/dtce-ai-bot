@@ -1,4 +1,3 @@
-@ -0,0 +1,73 @@
 """
 Azure App Service startup script for DTCE AI Bot.
 """
