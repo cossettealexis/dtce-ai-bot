@@ -98,12 +98,22 @@ class Settings(BaseSettings):
         return self.sharepoint_site_url
     
     @property
+    def microsoft_graph_scope(self) -> str:
+        """Microsoft Graph API scope for authentication."""
+        return "https://graph.microsoft.com/.default"
+    
+    @property
     def OPENAI_API_KEY(self) -> str:
         return self.openai_api_key or self.azure_openai_api_key
     
     @property
     def AZURE_STORAGE_CONTAINER(self) -> str:
-        return self.azure_storage_container
+        return self.azure_storage_container_name
+    
+    @property
+    def azure_storage_container(self) -> str:
+        """Azure Storage container name for documents."""
+        return self.azure_storage_container_name
     
     # Azure Storage settings
     azure_storage_connection_string: str = ""
