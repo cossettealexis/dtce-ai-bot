@@ -185,9 +185,11 @@ Output ONLY the category name (e.g., "Project" or "Policy" or "General_Knowledge
             # Extract the year from whichever group matched (one will be None)
             full_year_str = full_year_match.group(1) or full_year_match.group(2)
             full_year = int(full_year_str)
-            year_code = int(str(full_year)[-3:])  # Convert 2019 -> 219, 2021 -> 221, 2024 -> 224
+            # Convert 2019 -> 219, 2021 -> 221, 2024 -> 224
+            # Take last 2 digits and prepend '2': 2024 -> "24" -> "224"
+            year_code = "2" + str(full_year)[-2:]
             logger.info("Extracted full year", full_year=full_year, year_code=year_code)
-            return {"year": str(year_code)}
+            return {"year": year_code}
         
         # Pattern 2: 6-digit job number (e.g., "225221", "219208")
         job_match = re.search(r'\b(2\d{5})\b', user_query)
