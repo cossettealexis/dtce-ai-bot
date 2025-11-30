@@ -71,6 +71,24 @@ async def test_project_queries():
             ]
         },
         {
+            "category": "PROJECT DOCUMENTS QUERIES",
+            "tests": [
+                "show me documents for project 224002",
+                "what drawings do we have for project 224002?",
+                "find the fee proposal for project 224002",
+                "show me the structural calculations for project 224002",
+            ]
+        },
+        {
+            "category": "DRAWING & FILE QUERIES",
+            "tests": [
+                "find drawings for project 224002",
+                "show me dwg files for 2024 projects",
+                "what PDFs do we have for project 224002?",
+                "find Excel files for project 224002",
+            ]
+        },
+        {
             "category": "PROJECT SEARCH QUERIES",
             "tests": [
                 "find projects in Tawa",
