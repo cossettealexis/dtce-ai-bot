@@ -31,6 +31,9 @@ class DTCETeamsBot(ActivityHandler):
         self.rag_service = rag_service
         self.project_scoping_service = get_project_scoping_service()
         self.qa_service = None  # Initialized on each turn
+        
+        # Create conversation history accessor
+        self.conversation_history_accessor = self.conversation_state.create_property("conversation_history")
 
     async def on_turn(self, turn_context: TurnContext):
         # Initialize DocumentQAService for the current turn
@@ -130,8 +133,17 @@ class DTCETeamsBot(ActivityHandler):
         logger.info("Received user message", user_input=user_input)
 
         try:
-            # Use the new RAG V2 service for all queries
-            response = await self.rag_service.process_query(user_input)
+            # Get conversation history from state
+            conversation_history = await self.conversation_history_accessor.get(turn_context, [])
+            
+            # Limit history to last 10 turns to avoid token limits
+            if len(conversation_history) > 20:  # 10 exchanges = 20 messages
+                conversation_history = conversation_history[-20:]
+            
+            logger.info("Using conversation history", history_length=len(conversation_history))
+            
+            # Use the new RAG V2 service for all queries with conversation history
+            response = await self.rag_service.process_query(user_input, conversation_history=conversation_history)
             
             # Format and send the response
             answer = response.get('answer', "I couldn't find an answer.")
@@ -140,6 +152,11 @@ class DTCETeamsBot(ActivityHandler):
             if sources:
                 source_links = "\n\n**Sources:**\n" + "\n".join([f"- {s['filename']}" for s in sources])
                 answer += source_links
+            
+            # Update conversation history
+            conversation_history.append({"role": "user", "content": user_input})
+            conversation_history.append({"role": "assistant", "content": answer})
+            await self.conversation_history_accessor.set(turn_context, conversation_history)
             
             await self._send_teams_message(turn_context, answer)
 
