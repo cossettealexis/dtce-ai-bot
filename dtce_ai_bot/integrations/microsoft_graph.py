@@ -506,13 +506,14 @@ class MicrosoftGraphClient:
             logger.warning("Failed to get files from folder", 
                           folder_id=folder_id, depth=current_depth, error=str(e))
     
-    async def sync_suitefiles_documents(self, folders: List[str] = None, subfolder_filter: str = None) -> List[Dict[str, Any]]:
+    async def sync_suitefiles_documents(self, folders: List[str] = None, subfolder_filter: str = None, drive_filter: str = None) -> List[Dict[str, Any]]:
         """
         Sync documents from Suitefiles with folder-by-folder processing and IMMEDIATE UPLOAD.
         
         Args:
             folders: List of specific folders to sync (e.g., ["Projects", "Engineering"])
             subfolder_filter: Optional specific subfolder name (e.g., "219" for any folder's subfolder)
+            drive_filter: Optional drive name to sync only that drive (e.g., "Templates")
         
         Returns:
             List of document dictionaries with metadata
@@ -542,6 +543,14 @@ class MicrosoftGraphClient:
             # Get document libraries
             drives = await self.get_drives(site_id)
             documents = []
+            
+            # Filter drives if drive_filter is specified
+            if drive_filter:
+                drives = [d for d in drives if d.get("name", "").lower() == drive_filter.lower()]
+                if not drives:
+                    logger.warning(f"Drive '{drive_filter}' not found in site")
+                    return []
+                logger.info(f"Filtering to specific drive: {drive_filter}")
             
             for drive in drives:
                 drive_id = drive["id"]
@@ -1143,17 +1152,33 @@ class MicrosoftGraphClient:
         immediate_upload = storage_client is not None
         
         try:
-            # Get all root folders
+            # Get all root items (folders AND files)
             root_response = await self._make_request(f"sites/{site_id}/drives/{drive_id}/root/children")
             root_items = root_response.get("value", [])
             
             root_folders = [item for item in root_items if "folder" in item]
-            logger.info(f"Found {len(root_folders)} root folders to process completely")
+            root_files = [item for item in root_items if "file" in item]
+            
+            logger.info(f"Found {len(root_folders)} root folders and {len(root_files)} root files to process")
             
             if immediate_upload:
-                print(f"🚀 COMPREHENSIVE IMMEDIATE UPLOAD: Processing {len(root_folders)} root folders with instant file uploads!")
+                print(f"🚀 COMPREHENSIVE IMMEDIATE UPLOAD: Processing {len(root_folders)} root folders and {len(root_files)} root files with instant file uploads!")
             
-            # Process each root folder completely
+            # First, process root-level files (files directly in drive root)
+            if root_files:
+                logger.info(f"Processing {len(root_files)} root-level files")
+                for file_item in root_files:
+                    file_doc = await self._create_document_entry(
+                        site_id, drive_id, file_item, 
+                        drive_name,  # Root files go directly under drive name
+                        None, drive_name
+                    )
+                    if file_doc:
+                        documents.append(file_doc)
+                
+                logger.info(f"Processed {len(root_files)} root-level files, added {len([d for d in documents if not d.get('is_folder')])} to queue")
+            
+            # Then process each root folder completely
             for i, folder_item in enumerate(root_folders):
                 folder_name = folder_item.get("name", "")
                 

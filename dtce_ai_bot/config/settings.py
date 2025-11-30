@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     azure_openai_api_key: str = ""
     azure_openai_deployment_name: str = ""
     
+    # Azure Form Recognizer settings
+    azure_form_recognizer_endpoint: str = ""
+    azure_form_recognizer_key: str = ""
+    
     # Bot Framework settings (Microsoft App registration)
     microsoft_app_id: str = ""
     microsoft_app_password: str = ""  
@@ -101,6 +105,16 @@ class Settings(BaseSettings):
     def microsoft_graph_scope(self) -> str:
         """Microsoft Graph API scope for authentication."""
         return "https://graph.microsoft.com/.default"
+    
+    @property
+    def microsoft_graph_base_url(self) -> str:
+        """Microsoft Graph API base URL."""
+        return "https://graph.microsoft.com/v1.0"
+    
+    @property
+    def microsoft_login_authority_base(self) -> str:
+        """Microsoft login authority base URL."""
+        return "https://login.microsoftonline.com"
     
     @property
     def OPENAI_API_KEY(self) -> str:

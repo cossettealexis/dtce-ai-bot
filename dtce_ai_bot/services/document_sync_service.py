@@ -43,6 +43,7 @@ class DocumentSyncService:
         self, 
         graph_client: MicrosoftGraphClient,
         path: Optional[str] = None,
+        drive: Optional[str] = None,
         force_resync: bool = False,
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
     ) -> DocumentSyncResult:
@@ -52,20 +53,21 @@ class DocumentSyncService:
         Args:
             graph_client: Microsoft Graph client for accessing SharePoint
             path: Optional path filter for targeted sync
+            drive: Optional drive name filter (e.g., "Templates")
             progress_callback: Optional callback for progress updates
             
         Returns:
             DocumentSyncResult with sync statistics and errors
         """
-        logger.info("Starting document sync", path=path)
+        logger.info("Starting document sync", path=path, drive=drive)
         
         # Get documents to sync
         if path:
             suitefiles_docs = await graph_client.sync_suitefiles_documents_by_path(path)
             sync_mode = f"path_{path.replace('/', '_')}"
         else:
-            suitefiles_docs = await graph_client.sync_suitefiles_documents()
-            sync_mode = "full_sync"
+            suitefiles_docs = await graph_client.sync_suitefiles_documents(drive_filter=drive)
+            sync_mode = f"drive_{drive}" if drive else "full_sync"
         
         logger.info("Found documents for sync", 
                    count=len(suitefiles_docs), 
@@ -89,6 +91,7 @@ class DocumentSyncService:
             suitefiles_docs, 
             sync_mode, 
             graph_client,
+            force_resync,
             progress_callback
         )
     
@@ -97,6 +100,7 @@ class DocumentSyncService:
         suitefiles_docs: List[Dict], 
         sync_mode: str,
         graph_client: MicrosoftGraphClient,
+        force_resync: bool = False,
         progress_callback: Optional[Callable[[Dict[str, Any]], None]] = None
     ) -> DocumentSyncResult:
         """Process documents with optional progress tracking."""

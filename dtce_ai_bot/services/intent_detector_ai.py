@@ -21,6 +21,11 @@ class IntentDetector:
     
     # Knowledge Categories mapped to YOUR actual folder structure
     CATEGORIES = {
+        "Template": {
+            "description": "Document templates, fee proposal templates, report templates, calculation templates, any template files - documents in Templates folder",
+            "folder_field": "folder",
+            "folder_values": ["Templates"]
+        },
         "Policy": {
             "description": "Company policies, H&S procedures, IT policies, employee requirements - documents employees must follow",
             "folder_field": "folder",
@@ -29,7 +34,7 @@ class IntentDetector:
         "Procedure": {
             "description": "Technical & Admin Procedures, H2H (How to Handbooks), best practices - 'how we do things at DTCE'",
             "folder_field": "folder", 
-            "folder_values": ["DTCE Workplace Essentials/DTCE workplace general templates", "Engineering"]
+            "folder_values": ["Engineering", "DTCE Workplace Essentials/DTCE workplace general templates"]
         },
         "Standards": {
             "description": "NZ Engineering Standards (NZS, AS/NZS codes) - folder containing engineering standards PDFs",
@@ -95,7 +100,14 @@ TIME-BASED PROJECT QUERIES: If someone asks for "projects from the past X years"
 - "projects from 2020" → Project
 - "show me jobs from last year" → Project
 
+TEMPLATE QUERIES: If someone asks for templates (fee proposal templates, calculation templates, report templates, document templates), classify as Template. Examples:
+- "what templates does DTCE have?" → Template
+- "show me fee proposal templates" → Template
+- "find calculation templates" → Template
+- "template for reports" → Template
+
 Categories:
+- Template: Document templates, fee proposals, report templates, calculation templates (Templates folder)
 - Policy: Company policies, H&S procedures, HR/IT rules, employee requirements
 - Procedure: How-to guides, technical procedures, best practices, operational handbooks
 - Standards: NZ Engineering Standards (NZS, AS/NZS codes), technical specifications
@@ -105,9 +117,11 @@ Categories:
 
 User Query: "{user_query}"
 
-CRITICAL: When someone asks "project 225" or "job 219208", they want PROJECT information, not technical measurements like "225mm beam depth"!
+CRITICAL PRIORITY: 
+1. Template queries → Template category (unless user specifies a project number)
+2. When someone asks "project 225" or "job 219208", they want PROJECT information, not technical measurements!
 
-Output ONLY the category name (e.g., "Project" or "Policy" or "General_Knowledge")."""
+Output ONLY the category name (e.g., "Template" or "Project" or "Policy" or "General_Knowledge")."""
 
             response = await self.openai_client.chat.completions.create(
                 model=self.model_name,
@@ -134,9 +148,17 @@ Output ONLY the category name (e.g., "Project" or "Policy" or "General_Knowledge
             logger.error("Intent classification failed", error=str(e), query=user_query)
             # Fallback: Use keyword matching when AI classification fails
             query_lower = user_query.lower()
+            
+            # Check for template keywords first
+            if any(kw in query_lower for kw in ['template', 'templates', 'fee proposal', 'report template', 'calculation template']):
+                logger.info("Fallback: Detected template keywords, using Template intent")
+                return "Template"
+            
+            # Check for project keywords
             if any(kw in query_lower for kw in ['project', 'job', '219', '220', '221', '222', '223', '224', '225']):
                 logger.info("Fallback: Detected project keywords, using Project intent")
                 return "Project"
+            
             return "General_Knowledge"  # Safe fallback
     
     def extract_project_metadata(self, user_query: str) -> Optional[Dict[str, str]]:

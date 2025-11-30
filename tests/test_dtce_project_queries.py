@@ -105,6 +105,17 @@ async def test_project_queries():
                 "show me all project numbers",
             ]
         },
+        {
+            "category": "TEMPLATES FOLDER QUERIES",
+            "tests": [
+                "what templates does DTCE have for fee proposals?",
+                "show me templates from the Templates folder",
+                "what files are in the Templates drive?",
+                "find fee proposal templates",
+                "show me the fee estimate template",
+                "what calculation templates are available?",
+            ]
+        },
     ]
     
     print("=" * 100)

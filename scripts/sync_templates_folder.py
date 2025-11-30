@@ -24,7 +24,8 @@ sys.path.insert(0, project_root)
 
 def get_api_base_url() -> str:
     """Get the API base URL from environment or use default."""
-    return os.getenv("API_BASE_URL", "https://dtceai-backend-cyashrb8hnc2ayhp.newzealandnorth-01.azurewebsites.net")
+    # Use localhost for local testing
+    return os.getenv("API_BASE_URL", "http://localhost:8000")
 
 async def sync_templates_folder():
     """
@@ -49,16 +50,18 @@ async def sync_templates_folder():
     print()
     
     try:
-        # Sync Templates folder - use "Templates" as the path
-        print("📥 Syncing Templates folder from SharePoint to blob storage...")
+        # Templates is a DRIVE (Document Library) in SharePoint, not a folder
+        # Use the new drive parameter to sync ONLY the Templates drive (75 files)
+        print("📥 Syncing ONLY Templates drive from SharePoint to blob storage...")
+        print("   (Using drive filter to avoid syncing other drives)")
         
         response = requests.post(
             api_url,
             params={
-                "path": "Templates",  # This will sync ONLY the Templates folder
+                "drive": "Templates",  # Sync ONLY Templates drive
                 "force": True  # Force sync all files to ensure completeness
             },
-            timeout=600  # 10 minute timeout for large sync
+            timeout=300  # 5 minute timeout (should be plenty for 75 files)
         )
         
         response.raise_for_status()
